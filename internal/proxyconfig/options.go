@@ -66,6 +66,11 @@ func Options() []Option {
 		{Name: "jog-status-interval", Label: "Jog Status Interval", Type: OptionDuration, Default: jogDefaults.StatusInterval.String()},
 		{Name: "jog-deadman-timeout", Label: "Jog Deadman Timeout", Type: OptionDuration, Default: jogDefaults.DeadmanTimeout.String()},
 		{Name: "jog-motion", Label: "Jog Motion Primitive", Type: OptionString, Default: string(jogDefaults.MotionPrimitive), Choices: []string{string(jog.MotionPrimitiveInstant), string(jog.MotionPrimitiveG53)}},
+		{Name: "notify-ntfy-url", Label: "ntfy Topic URL", Type: OptionString, Default: "", Placeholder: "https://ntfy.example.net/private-z1-topic"},
+		{Name: "notify-ntfy-token", Label: "ntfy Topic Token", Type: OptionString, Default: "", Secret: true},
+		{Name: "notify-machine-name", Label: "Notification Machine Name", Type: OptionString, Default: "Makera Z1"},
+		{Name: "notify-dashboard-url", Label: "Notification Dashboard URL", Type: OptionString, Default: "", Placeholder: "http://z1-controller.your-tailnet.ts.net:8420/"},
+		{Name: "notify-resolved", Label: "Notify When Attention Clears", Type: OptionBool, Default: "false"},
 	}
 }
 

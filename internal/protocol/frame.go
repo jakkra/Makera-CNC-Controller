@@ -28,6 +28,10 @@ const (
 	CmdFileEnd    = 0xB4
 	CmdFileCancel = 0xB5
 	CmdFileRetry  = 0xB6
+	// CmdPlayStatus asks the WiFi controller which SD-card file its player is
+	// currently executing. The reply uses the same command byte and carries
+	// "<path>|<md5>" (or "|" when no file is active).
+	CmdPlayStatus = 0xB7
 
 	CmdStatusRes  = 0x81
 	CmdDiagRes    = 0x82
@@ -58,6 +62,8 @@ func CmdName(cmd byte) string {
 		return "FILE_CANCEL"
 	case CmdFileRetry:
 		return "FILE_RETRY"
+	case CmdPlayStatus:
+		return "PLAY_STATUS"
 	case CmdStatusRes:
 		return "STATUS_RES"
 	case CmdDiagRes:

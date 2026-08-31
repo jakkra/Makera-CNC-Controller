@@ -4,6 +4,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,10 +13,13 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/uwin/cnc-proxy/internal/attention"
 	"github.com/uwin/cnc-proxy/internal/gcodelog"
 	"github.com/uwin/cnc-proxy/internal/jog"
 	"github.com/uwin/cnc-proxy/internal/machine"
+	"github.com/uwin/cnc-proxy/internal/notifications"
 	"github.com/uwin/cnc-proxy/internal/service"
 	"github.com/uwin/cnc-proxy/internal/session"
 	"github.com/uwin/cnc-proxy/internal/store"
@@ -29,6 +33,8 @@ type Server struct {
 	maxUploadBytes int64
 	maxJSONBytes   int64
 	maxBackupBytes int64
+	notifications  *notifications.Dispatcher
+	readOnly       bool
 }
 
 // Options configures optional API surfaces.
@@ -37,6 +43,9 @@ type Options struct {
 	MaxUploadBytes int64
 	MaxJSONBytes   int64
 	MaxBackupBytes int64
+	Notifications  *notifications.Dispatcher
+	// ReadOnly rejects every mutating HTTP method while retaining observer data.
+	ReadOnly bool
 }
 
 // New creates an API server.
@@ -59,6 +68,8 @@ func NewWithOptions(svc *service.Service, opts Options) *Server {
 		maxUploadBytes: opts.MaxUploadBytes,
 		maxJSONBytes:   opts.MaxJSONBytes,
 		maxBackupBytes: opts.MaxBackupBytes,
+		notifications:  opts.Notifications,
+		readOnly:       opts.ReadOnly,
 	}
 }
 
@@ -67,6 +78,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/machine", s.getMachine)
 	mux.HandleFunc("GET /api/machine/status", s.getMachine)
+	mux.HandleFunc("GET /api/capabilities", s.getCapabilities)
 	mux.HandleFunc("GET /api/files", s.getFiles)
 	mux.HandleFunc("POST /api/files", s.postFile)
 	mux.HandleFunc("POST /api/files/retry", s.retryFileJob)
@@ -78,6 +90,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/jobs", s.getJobs)
 	mux.HandleFunc("GET /api/runs", s.getRuns)
 	mux.HandleFunc("DELETE /api/runs", s.clearRuns)
+	mux.HandleFunc("GET /api/attention", s.getAttention)
+	mux.HandleFunc("GET /api/notifications", s.getNotifications)
+	mux.HandleFunc("POST /api/notifications/test", s.testNotification)
 	mux.HandleFunc("POST /api/gcode", s.postGcode) // body: {line}
 	mux.HandleFunc("POST /api/origin/reference", s.setMachineOrigin)
 	mux.HandleFunc("GET /api/gcode/active", s.getActiveGcode)
@@ -109,7 +124,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/events", s.events)
 	// Everything not under /api/ is the embedded web UI.
 	mux.Handle("/", webHandler())
-	return sameOriginGuard(mux)
+	return sameOriginGuard(s.readOnlyGuard(mux))
+}
+
+func (s *Server) readOnlyGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.readOnly && r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			writeErr(w, http.StatusForbidden, "API control is disabled: this proxy is in read-only observer mode")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -145,6 +170,10 @@ func (s *Server) getMachine(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.svc.Status())
 }
 
+func (s *Server) getCapabilities(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]bool{"read_only": s.readOnly})
+}
+
 func (s *Server) getFiles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.svc.Files())
 }
@@ -155,6 +184,34 @@ func (s *Server) getJobs(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getRuns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.svc.RunHistory())
+}
+
+func (s *Server) getAttention(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, s.svc.Attention())
+}
+
+func (s *Server) getNotifications(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if s.notifications == nil {
+		writeJSON(w, http.StatusOK, notifications.DisabledSnapshot())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.notifications.Snapshot())
+}
+
+func (s *Server) testNotification(w http.ResponseWriter, r *http.Request) {
+	if s.notifications == nil {
+		writeErr(w, http.StatusConflict, "mobile notifications are not configured")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+	if err := s.notifications.SendTest(ctx); err != nil {
+		writeErr(w, http.StatusBadGateway, "notification delivery failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "sent"})
 }
 
 func (s *Server) clearRuns(w http.ResponseWriter, r *http.Request) {
@@ -766,8 +823,8 @@ func (s *Server) postBackupImport(w http.ResponseWriter, r *http.Request) {
 // events streams catalog/job/machine/gcode changes as Server-Sent Events.
 // Optional scope narrows the stream for UI surfaces that should not depend on
 // unrelated data being loaded:
-//   - all or empty: machine, files, jobs, and gcode
-//   - control: machine and gcode only
+//   - all or empty: machine, attention, files, jobs, and gcode
+//   - control: machine, attention, and gcode only
 //   - files: machine, files, and jobs only
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
@@ -786,6 +843,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	includeFiles := scope == "" || scope == "all" || scope == "files"
 	includeGcode := scope == "" || scope == "all" || scope == "control"
 	includeMachine := scope == "" || scope == "all" || scope == "control" || scope == "files"
+	includeAttention := scope == "" || scope == "all" || scope == "control"
 
 	var ch <-chan store.Event
 	var unsub func()
@@ -805,6 +863,12 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		mch, munsub = s.svc.SubscribeMachineStatus()
 		defer munsub()
 	}
+	var ach <-chan attention.Change
+	var aunsub func()
+	if includeAttention {
+		ach, aunsub = s.svc.SubscribeAttention()
+		defer aunsub()
+	}
 
 	// Send an initial snapshot so a fresh client is immediately consistent.
 	// Subscriptions are already active, so lines logged from here on arrive as
@@ -819,6 +883,9 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	if includeGcode {
 		snap["gcode"] = s.svc.GcodeLog().Recent()
 		snap["runs"] = s.svc.RunHistory()
+	}
+	if includeAttention {
+		snap["attention"] = s.svc.Attention()
 	}
 	sendEvent(w, "snapshot", snap)
 	flusher.Flush()
@@ -844,6 +911,12 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			sendEvent(w, "machine", s.svc.Status())
+			flusher.Flush()
+		case change, ok := <-ach:
+			if !ok {
+				return
+			}
+			sendEvent(w, "attention", change)
 			flusher.Flush()
 		}
 	}

@@ -205,18 +205,23 @@ func (s *Server) handle(client net.Conn) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	closeBoth := func() { client.Close(); machine.Close() }
+	errs := make(chan error, 2)
 	go func() {
 		defer wg.Done()
-		s.pumpControllerToMachine(client, machine, m)
+		errs <- s.pumpControllerToMachine(client, machine, m)
 		closeBoth()
 	}()
 	go func() {
 		defer wg.Done()
-		s.pumpMachineToController(machine, client, m)
+		errs <- s.pumpMachineToController(machine, client, m)
 		closeBoth()
 	}()
 	wg.Wait()
-	log.Printf("relay: session closed %s", peer)
+	first, second := <-errs, <-errs
+	if isCloseError(first) && !isCloseError(second) {
+		first = second
+	}
+	log.Printf("relay: session closed %s: %v", peer, first)
 }
 
 func (s *Server) openMachine() (*machinetransport.Opened, error) {
@@ -258,7 +263,7 @@ func (s *Server) openMachine() (*machinetransport.Opened, error) {
 // pumpControllerToMachine forwards controller frames to the machine, except
 // while an injection holds the mux, when most frames are buffered for replay and
 // status polls are answered locally from the cached status.
-func (s *Server) pumpControllerToMachine(client net.Conn, machine machinetransport.Conn, m *mux) {
+func (s *Server) pumpControllerToMachine(client net.Conn, machine machinetransport.Conn, m *mux) error {
 	var sc protocol.Scanner
 	buf := make([]byte, 32*1024)
 	var cached *controllerDownload
@@ -291,21 +296,21 @@ func (s *Server) pumpControllerToMachine(client net.Conn, machine machinetranspo
 				}
 				if m.noteControllerFrame(f, f.Raw) {
 					if _, werr := machine.Write(f.Raw); werr != nil {
-						return
+						return fmt.Errorf("write controller frame to machine: %w", werr)
 					}
 				} else if isStatusPoll(f) {
 					// Answer the poll from cache so the controller's heartbeat
 					// stays alive during injection.
 					if frame := m.cachedStatusFrame(); frame != nil {
 						if _, werr := client.Write(frame); werr != nil {
-							return
+							return fmt.Errorf("write cached status to controller: %w", werr)
 						}
 					}
 				}
 			}
 		}
 		if rerr != nil {
-			return
+			return fmt.Errorf("read controller: %w", rerr)
 		}
 	}
 }
@@ -352,7 +357,7 @@ func downloadPath(f protocol.Frame) (string, bool) {
 // to the active injector during an injection window. Status reports are always
 // forwarded to the controller (and observed) so its state and heartbeat stay
 // current.
-func (s *Server) pumpMachineToController(machine machinetransport.Conn, client net.Conn, m *mux) {
+func (s *Server) pumpMachineToController(machine machinetransport.Conn, client net.Conn, m *mux) error {
 	var sc protocol.Scanner
 	buf := make([]byte, 32*1024)
 	for {
@@ -369,15 +374,19 @@ func (s *Server) pumpMachineToController(machine machinetransport.Conn, client n
 					// records its own I/O under the "api" source.
 					s.logMachineOutput(f)
 					if _, werr := client.Write(f.Raw); werr != nil {
-						return
+						return fmt.Errorf("write machine frame to controller: %w", werr)
 					}
 				}
 			}
 		}
 		if rerr != nil {
-			return
+			return fmt.Errorf("read machine: %w", rerr)
 		}
 	}
+}
+
+func isCloseError(err error) bool {
+	return errors.Is(err, net.ErrClosed)
 }
 
 // logControllerCommand records a controller frame's command text into the
@@ -417,7 +426,7 @@ func (s *Server) logMachineOutput(f protocol.Frame) {
 func logFrame(dir string, f protocol.Frame) {
 	switch f.Cmd {
 	case protocol.CmdCtrlMulti, protocol.CmdFileStart, protocol.CmdLoadInfo,
-		protocol.CmdLoadError, protocol.CmdNormalInfo:
+		protocol.CmdLoadError, protocol.CmdNormalInfo, protocol.CmdPlayStatus:
 		log.Printf("relay %s %s: %q", dir, protocol.CmdName(f.Cmd), preview(f.Data))
 	case protocol.CmdFileData:
 		log.Printf("relay %s FILE_DATA: %d bytes", dir, len(f.Data))

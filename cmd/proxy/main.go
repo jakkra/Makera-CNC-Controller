@@ -38,12 +38,14 @@ import (
 	"time"
 
 	"github.com/uwin/cnc-proxy/internal/api"
+	"github.com/uwin/cnc-proxy/internal/attention"
 	"github.com/uwin/cnc-proxy/internal/client"
 	"github.com/uwin/cnc-proxy/internal/davfs"
 	"github.com/uwin/cnc-proxy/internal/discovery"
 	"github.com/uwin/cnc-proxy/internal/httpauth"
 	"github.com/uwin/cnc-proxy/internal/jog"
 	"github.com/uwin/cnc-proxy/internal/machinetransport"
+	"github.com/uwin/cnc-proxy/internal/notifications"
 	"github.com/uwin/cnc-proxy/internal/proxyconfig"
 	"github.com/uwin/cnc-proxy/internal/relay"
 	"github.com/uwin/cnc-proxy/internal/service"
@@ -77,6 +79,7 @@ func main() {
 		apiUploadMB       = flag.Int64("api-max-upload-mb", 512, "maximum API/WebDAV upload body size in MiB")
 		apiJSONKB         = flag.Int64("api-max-json-kb", 1024, "maximum API JSON request body size in KiB")
 		apiBackupMB       = flag.Int64("api-max-backup-mb", 64, "maximum API backup import body size in MiB")
+		apiReadOnly       = flag.Bool("api-read-only", false, "disable all mutating API/UI actions; keep observer views available")
 		jogEnabled        = flag.Bool("jog-enabled", jogDefaults.Enabled, "enable low-latency gamepad jogging API/UI")
 		jogMaxXY          = flag.Float64("jog-max-xy-mm-min", jogDefaults.MaxXYMMMin, "maximum XY jog speed in mm/min")
 		jogMaxZ           = flag.Float64("jog-max-z-mm-min", jogDefaults.MaxZMMMin, "maximum Z jog speed in mm/min")
@@ -84,6 +87,11 @@ func main() {
 		jogStatus         = flag.Duration("jog-status-interval", jogDefaults.StatusInterval, "status polling interval while a jog lease is armed")
 		jogDeadman        = flag.Duration("jog-deadman-timeout", jogDefaults.DeadmanTimeout, "maximum age of held-deadman gamepad input before motion stops")
 		jogMotion         = flag.String("jog-motion", string(jogDefaults.MotionPrimitive), "gamepad jog motion primitive: instant or g53")
+		notifyNtfyURL     = flag.String("notify-ntfy-url", "", "complete ntfy topic URL; empty disables mobile notifications")
+		notifyNtfyToken   = flag.String("notify-ntfy-token", "", "optional bearer token for the ntfy topic")
+		notifyMachineName = flag.String("notify-machine-name", "Makera Z1", "machine name used in mobile notifications")
+		notifyDashboard   = flag.String("notify-dashboard-url", "", "authenticated controller URL opened when a notification is tapped")
+		notifyResolved    = flag.Bool("notify-resolved", false, "send a follow-up when an attention state clears")
 	)
 	applyEnvDefaults()
 	flag.Parse()
@@ -114,13 +122,13 @@ func main() {
 	_ = *noAdvertise // deprecated flag, kept so old invocations don't error
 
 	// --- Discovery ---
-	// In TCP mode, always listen: discovery is how we learn the machine when
-	// -machine is omitted, and how the advertiser learns the machine name to
-	// re-broadcast. In USB mode there is no machine UDP broadcast to learn, and
-	// the operator must provide -name when advertising, so we avoid binding
-	// udp/3333 unnecessarily.
+	// In TCP mode, listen only when discovery is actually needed: to learn the
+	// machine when -machine is omitted, or to learn its name for advertising.
+	// A fixed machine with advertising disabled does not need UDP at all. This
+	// also lets the proxy coexist with Studio or another listener that owns
+	// udp/3333 on platforms where the port cannot be shared.
 	disc := &discovery.Listener{}
-	if transportKind == machinetransport.KindTCP {
+	if shouldListenForDiscovery(transportKind, *machineAddr, *advertise, *name) {
 		udp, err := discovery.OpenListenSocket()
 		if err != nil {
 			log.Fatalf("cannot bind UDP discovery port %d: %v", discovery.Port, err)
@@ -128,8 +136,12 @@ func main() {
 		defer udp.Close()
 		go disc.Listen(udp)
 		log.Printf("discovery: listening on udp/%d", discovery.Port)
-	} else {
+	} else if transportKind == machinetransport.KindUSB {
 		log.Printf("discovery: machine discovery disabled in USB transport mode")
+	} else if *advertise {
+		log.Printf("discovery: listener disabled (fixed machine address and advertised name)")
+	} else {
+		log.Printf("discovery: disabled (fixed machine address and advertising off)")
 	}
 
 	dialAddr := machineDialer(*machineAddr, disc)
@@ -213,6 +225,33 @@ func main() {
 	if err != nil {
 		log.Fatalf("cannot create service: %v", err)
 	}
+	var notificationDispatcher *notifications.Dispatcher
+	if strings.TrimSpace(*notifyNtfyURL) != "" {
+		sender, nerr := notifications.NewNtfySender(*notifyNtfyURL, *notifyNtfyToken)
+		if nerr != nil {
+			log.Fatal(nerr)
+		}
+		notificationDispatcher, nerr = notifications.New(notifications.Config{
+			Sender:       sender,
+			MachineName:  *notifyMachineName,
+			DashboardURL: *notifyDashboard,
+			SendResolved: *notifyResolved,
+		})
+		if nerr != nil {
+			log.Fatal(nerr)
+		}
+		attentionChanges, unsubscribeAttention := svc.SubscribeAttention()
+		if active := svc.Attention().Active; active != nil {
+			if nerr := notificationDispatcher.Handle(ctx, attention.Change{Kind: attention.ChangeOpened, Event: *active}); nerr != nil {
+				log.Printf("notifications: initial ntfy delivery failed: %v", nerr)
+			}
+		}
+		go func() {
+			defer unsubscribeAttention()
+			notificationDispatcher.Run(ctx, attentionChanges)
+		}()
+		log.Printf("notifications: ntfy enabled")
+	}
 	if err := eng.PrepareStartupCacheValidation(); err != nil {
 		log.Fatalf("cannot prepare startup cache validation: %v", err)
 	}
@@ -258,6 +297,8 @@ func main() {
 		MaxUploadBytes: mib(*apiUploadMB),
 		MaxJSONBytes:   kib(*apiJSONKB),
 		MaxBackupBytes: mib(*apiBackupMB),
+		Notifications:  notificationDispatcher,
+		ReadOnly:       *apiReadOnly,
 	}).Handler()))
 	go func() {
 		log.Printf("api: listening on %s", *apiAddr)
@@ -385,6 +426,19 @@ func validateMachineTransport(kind, usbDevice string, usbBaud int, advertise boo
 		return errors.New("-name is required with -advertise when -machine-transport=usb")
 	}
 	return nil
+}
+
+func shouldListenForDiscovery(kind, machineAddr string, advertise bool, advertisedName string) bool {
+	if kind != machinetransport.KindTCP {
+		return false
+	}
+	if strings.TrimSpace(machineAddr) == "" {
+		return true
+	}
+	// With a known machine and explicit advertised name, discovery is not
+	// needed. This is essential on Windows, where Makera Studio owns UDP/3333
+	// exclusively and a native proxy cannot bind it alongside the controller.
+	return advertise && strings.TrimSpace(advertisedName) == ""
 }
 
 func resolveUSBAdvertiseAddrs(proxyIP, broadcast string) (string, string, error) {

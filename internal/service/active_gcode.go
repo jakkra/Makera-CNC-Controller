@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/uwin/cnc-proxy/internal/client"
+	"github.com/uwin/cnc-proxy/internal/filepolicy"
 	"github.com/uwin/cnc-proxy/internal/gcodelog"
 	"github.com/uwin/cnc-proxy/internal/machine"
 	"github.com/uwin/cnc-proxy/internal/protocol"
@@ -27,7 +29,10 @@ const (
 	maxGcodeSourceWindow       = 1000
 
 	activeGcodeProbeInterval = 5 * time.Second
+	activePlaybackTimeout    = 2 * time.Second
 )
+
+var errMachineProgressUnsupported = errors.New("service: machine does not support the progress command")
 
 type activeGcodeState struct {
 	Path          string
@@ -140,7 +145,11 @@ func (s *Service) activeGcodeFromStoredPath(remotePath string) ActiveGcode {
 			if err == nil {
 				active := activeGcodeState{Path: cacheEntry.Path, Preview: preview, SourceOffsets: offsets, SelectedAt: time.Now()}
 				s.activeMu.Lock()
-				if s.activeGcode.Path == "" || s.activeGcode.Path == active.Path {
+				// The persisted selection is authoritative. In particular, firmware
+				// playback discovery can replace a previously selected file while its
+				// parsed preview is still resident in memory. Only publish the parse if
+				// the selection did not change again while the cache was being read.
+				if s.store.ActiveGcodePath() == active.Path {
 					s.activeGcode = active
 				}
 				s.activeMu.Unlock()
@@ -222,13 +231,15 @@ func (s *Service) maybeLoadActiveGcodeFromMachine(st machine.Status) {
 		s.activeProbeMu.Unlock()
 		return
 	}
-	if len(st.Progress) < 3 {
+	model := s.store.UISettings().Machine.Learned.Identity.Model
+	playStatus := supportsMachinePlayStatus(model)
+	if !playStatus && (len(st.Progress) < 3 || !supportsMachineProgressCommand(model)) {
 		return
 	}
 
 	now := time.Now()
 	s.activeProbeMu.Lock()
-	if s.activeProbeLoaded || s.activeProbeInFlight || (!s.activeProbeLast.IsZero() && now.Sub(s.activeProbeLast) < activeGcodeProbeInterval) {
+	if s.activeProbeUnsupported || s.activeProbeLoaded || s.activeProbeInFlight || (!s.activeProbeLast.IsZero() && now.Sub(s.activeProbeLast) < activeGcodeProbeInterval) {
 		s.activeProbeMu.Unlock()
 		return
 	}
@@ -236,7 +247,7 @@ func (s *Service) maybeLoadActiveGcodeFromMachine(st machine.Status) {
 	s.activeProbeLast = now
 	s.activeProbeMu.Unlock()
 
-	go s.loadActiveGcodeFromMachineProgress()
+	go s.loadActiveGcodeFromMachine(playStatus)
 }
 
 func stateMayReportActiveGcode(st machine.State) bool {
@@ -248,7 +259,26 @@ func stateMayReportActiveGcode(st machine.State) bool {
 	}
 }
 
-func (s *Service) loadActiveGcodeFromMachineProgress() {
+// supportsMachineProgressCommand is deliberately a whitelist. The Z1 reports
+// numeric player progress in its status payload but does not implement the
+// separate console command named "progress". Sending that command repeatedly
+// makes the machine surface an operator-visible error. Known Carvera models do
+// implement it; unknown models remain query-free until their identity has been
+// learned.
+func supportsMachineProgressCommand(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(model, "carvera") && !strings.Contains(model, "z1")
+}
+
+// supportsMachinePlayStatus includes an empty identity so a fresh standalone
+// Sensei installation can discover a running Z1 job before auto-learning has
+// completed. Known non-Z1 Carvera machines retain their console progress path.
+func supportsMachinePlayStatus(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return model == "" || strings.Contains(model, "z1")
+}
+
+func (s *Service) loadActiveGcodeFromMachine(playStatus bool) {
 	loaded := false
 	defer func() {
 		s.activeProbeMu.Lock()
@@ -259,17 +289,52 @@ func (s *Service) loadActiveGcodeFromMachineProgress() {
 		s.activeProbeMu.Unlock()
 	}()
 
-	remote, ok, err := s.queryMachineActiveGcode()
+	remote, expectedMD5, ok, err := s.queryMachineActiveGcode(playStatus)
+	if errors.Is(err, errMachineProgressUnsupported) {
+		s.activeProbeMu.Lock()
+		s.activeProbeUnsupported = true
+		s.activeProbeMu.Unlock()
+		return
+	}
 	if err != nil || !ok {
 		return
 	}
-	if err := s.setMachineReportedActiveGcode(remote); err != nil {
+	if err := s.setMachineReportedActiveGcode(remote, expectedMD5); err != nil {
 		return
 	}
-	loaded = true
+	// Metadata is useful immediately. Fetch the actual active program as a
+	// read-only transfer so source/preview work without Studio. A busy transfer
+	// simply leaves it remote-only and this probe retries later.
+	if _, _, err := s.ReadCache(remote); err == nil {
+		loaded = true
+		return
+	}
+	if err := s.fetchToCache(remote, false, expectedMD5); err == nil {
+		loaded = true
+	}
 }
 
-func (s *Service) queryMachineActiveGcode() (string, bool, error) {
+func (s *Service) queryMachineActiveGcode(playStatus bool) (string, string, bool, error) {
+	if playStatus {
+		var status protocol.PlayStatus
+		err := s.arb.WithMachine(false, func(c *client.Conn) error {
+			var e error
+			status, e = c.QueryActivePlayback(activePlaybackTimeout)
+			return e
+		})
+		if err != nil {
+			return "", "", false, err
+		}
+		if status.Path == "" {
+			return "", status.MD5, false, nil
+		}
+		remote, err := normalizeRemote(status.Path)
+		if err != nil {
+			return "", "", false, err
+		}
+		return remote, status.MD5, true, nil
+	}
+
 	var out string
 	err := s.arb.WithMachine(false, func(c *client.Conn) error {
 		o, e := c.SendConsoleCommand("progress\n", client.GcodeOpts{
@@ -279,11 +344,19 @@ func (s *Service) queryMachineActiveGcode() (string, bool, error) {
 		out = o
 		return e
 	})
+	if machineCommandUnsupported(out, "progress") || (err != nil && machineCommandUnsupported(err.Error(), "progress")) {
+		return "", "", false, errMachineProgressUnsupported
+	}
 	if err != nil {
-		return "", false, err
+		return "", "", false, err
 	}
 	remote, ok := parseMachineProgressGcodePath(out)
-	return remote, ok, nil
+	return remote, "", ok, nil
+}
+
+func machineCommandUnsupported(out, command string) bool {
+	lower := strings.ToLower(protocol.Unescape(out))
+	return strings.Contains(lower, "unsupported command") && strings.Contains(lower, strings.ToLower(command))
 }
 
 func parseMachineProgressGcodePath(out string) (string, bool) {
@@ -304,18 +377,42 @@ func parseMachineProgressGcodePath(out string) (string, bool) {
 	return "", false
 }
 
-func (s *Service) setMachineReportedActiveGcode(remotePath string) error {
+func (s *Service) setMachineReportedActiveGcode(remotePath, expectedMD5 string) error {
 	remote, err := normalizeRemote(remotePath)
 	if err != nil {
 		return err
 	}
+	// B7 reports the active file's content MD5. When it matches a persisted
+	// cache entry, that is stronger evidence than the Z1 startup fallback based
+	// on directory size alone and is safe to use even while the machine is busy
+	// or paused (when the idle-gated reconcile cannot run).
+	cacheVerified := false
+	if existing, ok := s.store.GetEntry(remote); ok &&
+		expectedMD5 != "" && strings.EqualFold(existing.MD5, expectedMD5) &&
+		existing.CacheState == store.CacheValidating && existing.CachePath != "" &&
+		filepolicy.IsWithinDir(s.cacheDir, existing.CachePath) {
+		if info, statErr := os.Stat(existing.CachePath); statErr == nil && info.Mode().IsRegular() && info.Size() == existing.Size {
+			cacheVerified = true
+		}
+	}
 	return s.store.Batch(func(b *store.Batch) error {
-		if _, ok := b.GetEntry(remote); !ok {
+		if entry, ok := b.GetEntry(remote); !ok {
 			b.PutEntry(store.Entry{
 				Path:       remote,
+				MD5:        expectedMD5,
 				Sync:       store.RemoteOnly,
 				CacheState: store.CacheNone,
 			})
+		} else {
+			if expectedMD5 != "" && entry.Sync == store.RemoteOnly && entry.MD5 != expectedMD5 {
+				entry.MD5 = expectedMD5
+			}
+			if cacheVerified && entry.CacheState == store.CacheValidating && strings.EqualFold(entry.MD5, expectedMD5) {
+				entry.CacheState = store.CacheReady
+				entry.CacheCheckedAt = time.Now()
+				entry.Error = ""
+			}
+			b.PutEntry(entry)
 		}
 		b.SetActiveGcodePath(remote)
 		return nil
@@ -428,10 +525,11 @@ func (s *Service) ActiveGcodeSource(startLine, limit int) (GcodeSourceWindow, er
 }
 
 func (s *Service) ensureActiveGcodeLoaded() activeGcodeState {
+	storedPath := s.store.ActiveGcodePath()
 	s.activeMu.Lock()
 	active := s.activeGcode
 	s.activeMu.Unlock()
-	if active.Path != "" && len(active.SourceOffsets) > 0 {
+	if active.Path != "" && active.Path == storedPath && len(active.SourceOffsets) > 0 {
 		return active
 	}
 	_ = s.ActiveGcode()

@@ -154,6 +154,8 @@ Then:
 - API: `POST /api/files?path=part.nc` (raw body or multipart), `GET /api/files`,
   `DELETE /api/files/{path}`, `POST /api/files/rename`, `GET /api/machine`,
   `GET /api/machine/status`, `GET /api/jobs`, `GET /api/runs`,
+  `GET /api/attention`, `GET /api/notifications`,
+  `POST /api/notifications/test`,
   `POST /api/gcode` (body
   `{"line":"G0 X10"}`), `POST /api/control` (body
   `{"action":"hold|resume|halt|recover|unlock|home|reset"}`), `GET /api/gcode/log` (recent gcode I/O),
@@ -248,6 +250,11 @@ password; default user `cnc`) or explicitly pass `-allow-insecure-http`.
 | `-jog-status-interval` | 100ms | status polling interval while a jog lease is armed |
 | `-jog-deadman-timeout` | 150ms | maximum age of held-deadman input before motion stops |
 | `-jog-motion` | instant | gamepad jog motion primitive: `instant` (`$J`) or `g53` |
+| `-notify-ntfy-url` | (empty) | complete ntfy topic URL; empty disables mobile notifications |
+| `-notify-ntfy-token` | (empty) | optional bearer token for a protected ntfy topic |
+| `-notify-machine-name` | `Makera Z1` | machine name used in mobile notifications |
+| `-notify-dashboard-url` | (empty) | authenticated controller/Tailscale URL opened when a notification is tapped |
+| `-notify-resolved` | `false` | also notify when an attention state clears |
 
 (`-no-advertise` still exists as a deprecated no-op so older invocations don't
 break; advertising is now opt-in via `-advertise`.)
@@ -256,6 +263,36 @@ Every flag can also be set through the environment as `CNC_<NAME>` with `-`
 mapped to `_` (e.g. `CNC_MACHINE=192.168.1.42:2222`, `CNC_NAME="Shop CNC"`,
 `CNC_AUTH_TOKEN=...`, `CNC_ADVERTISE=true`). Explicit command-line flags win
 over the environment.
+
+### Mobile attention notifications (ntfy)
+
+The proxy derives a single attention episode from firmware `Tool`, `Wait`,
+`Pause`, `Hold`, and `Alarm` transitions. Repeated status polls are deduplicated,
+and the Z1 firmware's normal `Wait` → `Pause` sequence for `M600` remains one
+episode. Generated G-code may include a validated `@z1-attention` marker before
+`M600`; when the active cached file contains one, the event and notification can
+identify the intended A-axis target instead of reporting a generic pause.
+
+Notification delivery is disabled unless a complete ntfy topic URL is supplied:
+
+```sh
+./cnc-proxy \
+  -notify-ntfy-url https://ntfy.example.net/private-z1-topic \
+  -notify-ntfy-token 'replace-with-a-topic-token' \
+  -notify-machine-name 'Workshop Z1' \
+  -notify-dashboard-url 'http://z1-controller.your-tailnet.ts.net:8420/'
+```
+
+The sender uses ntfy's documented POST headers for title, priority, tags, click
+URL, sequence ID, and optional bearer authentication. It deliberately sends no
+HTTP action button that could start, resume, or move the machine. Keep the click
+URL behind Tailscale/authentication.
+
+`GET /api/attention` returns the active attention event plus bounded history.
+`GET /api/notifications` returns provider state and delivery history, including
+failed attempts. `POST /api/notifications/test` performs one real provider test
+and returns success only after ntfy accepts it. The test endpoint does not touch
+the CNC.
 
 ## Windows Tray Manager
 

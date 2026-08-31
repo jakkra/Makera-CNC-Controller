@@ -29,6 +29,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/uwin/cnc-proxy/internal/attention"
 	"github.com/uwin/cnc-proxy/internal/client"
 	"github.com/uwin/cnc-proxy/internal/filepolicy"
 	"github.com/uwin/cnc-proxy/internal/gcodelog"
@@ -93,6 +94,17 @@ type Service struct {
 	// status stream. It never performs machine I/O.
 	runHistory *runhistory.History
 
+	// attention derives deduplicated, read-only operator-attention events from
+	// the same observed status stream.
+	attention *attention.Monitor
+
+	attentionMetaMu        sync.Mutex
+	attentionMetaJobPath   string
+	attentionMetaSource    string
+	attentionMetaMarkers   []attention.Marker
+	attentionMetaNext      int
+	attentionMetaLastState machine.State
+
 	// activeGcode is the web/API-selected file and cached preview. This mirrors
 	// the controller's selected_remote_filename concept, with one firmware-backed
 	// recovery path: while a file is actually running, the firmware's read-only
@@ -100,10 +112,11 @@ type Service struct {
 	activeMu    sync.Mutex
 	activeGcode activeGcodeState
 
-	activeProbeMu       sync.Mutex
-	activeProbeInFlight bool
-	activeProbeLast     time.Time
-	activeProbeLoaded   bool
+	activeProbeMu          sync.Mutex
+	activeProbeInFlight    bool
+	activeProbeLast        time.Time
+	activeProbeLoaded      bool
+	activeProbeUnsupported bool
 
 	autoLearnMu         sync.Mutex
 	autoLearnGeneration uint64
@@ -128,6 +141,7 @@ func New(st *store.Store, arb *session.Arbiter) (*Service, error) {
 		cacheDir:   cacheDir,
 		gcodeLog:   gcodelog.New(500),
 		runHistory: runhistory.New(100),
+		attention:  attention.New(100),
 	}
 	s.startRunHistoryObservers()
 	return s, nil
@@ -140,18 +154,23 @@ func (s *Service) GcodeLog() *gcodelog.Log { return s.gcodeLog }
 // RunHistory returns recent observed runs, newest first.
 func (s *Service) RunHistory() []runhistory.Run { return s.runHistory.Recent() }
 
+// Attention returns the active operator-attention event and recent history.
+func (s *Service) Attention() attention.Snapshot { return s.attention.Snapshot() }
+
 // ClearRunHistory removes retained local run history. It never touches the machine.
 func (s *Service) ClearRunHistory() { s.runHistory.Clear() }
 
 func (s *Service) startRunHistoryObservers() {
 	if st, _ := s.arb.Tracker().Current(); !st.ObservedAt.IsZero() {
 		s.runHistory.ObserveStatus(st)
+		s.attention.ObserveStatus(st, s.attentionContext(st))
 		s.maybeLoadActiveGcodeFromMachine(st)
 	}
 	statusCh, _ := s.arb.Tracker().Subscribe()
 	go func() {
 		for st := range statusCh {
 			s.runHistory.ObserveStatus(st)
+			s.attention.ObserveStatus(st, s.attentionContext(st))
 			s.maybeLoadActiveGcodeFromMachine(st)
 		}
 	}()
@@ -161,6 +180,104 @@ func (s *Service) startRunHistoryObservers() {
 			s.runHistory.ObserveLine(ln)
 		}
 	}()
+}
+
+func (s *Service) attentionContext(st machine.Status) attention.Context {
+	jobPath := s.store.ActiveGcodePath()
+	ctx := attention.Context{JobPath: jobPath}
+
+	s.attentionMetaMu.Lock()
+	defer s.attentionMetaMu.Unlock()
+
+	source := s.attentionMarkerSource(jobPath)
+	metadataChanged := jobPath != s.attentionMetaJobPath || source != s.attentionMetaSource
+	if metadataChanged {
+		s.attentionMetaJobPath = jobPath
+		s.attentionMetaSource = source
+		s.attentionMetaMarkers = s.loadAttentionMarkers(jobPath)
+		s.attentionMetaNext = 0
+	}
+	if st.State == machine.Run && runStartedAfter(s.attentionMetaLastState) {
+		s.attentionMetaSource = s.attentionMarkerSource(jobPath)
+		s.attentionMetaMarkers = s.loadAttentionMarkers(jobPath)
+		s.attentionMetaNext = 0
+	}
+	enteringPause := (st.State == machine.Wait || st.State == machine.Pause) &&
+		s.attentionMetaLastState != machine.Wait && s.attentionMetaLastState != machine.Pause
+	if enteringPause || ((st.State == machine.Wait || st.State == machine.Pause) && metadataChanged) {
+		if marker, next, ok := selectAttentionMarker(s.attentionMetaMarkers, s.attentionMetaNext, st.Progress); ok {
+			copy := marker
+			if marker.Target != nil {
+				target := *marker.Target
+				copy.Target = &target
+			}
+			ctx.Marker = &copy
+			s.attentionMetaNext = next
+		}
+	}
+	s.attentionMetaLastState = st.State
+	return ctx
+}
+
+// attentionMarkerSource changes when a persisted cache transitions from
+// validating/unavailable to readable (or its content identity changes). It
+// lets a pause already in progress acquire metadata after startup validation
+// without rereading the G-code on every status poll.
+func (s *Service) attentionMarkerSource(jobPath string) string {
+	if jobPath == "" {
+		return ""
+	}
+	entry, ok := s.store.GetEntry(jobPath)
+	if !ok {
+		return "missing"
+	}
+	return string(entry.CacheState) + "\x00" + entry.CachePath + "\x00" + entry.MD5
+}
+
+func (s *Service) loadAttentionMarkers(jobPath string) []attention.Marker {
+	if jobPath == "" {
+		return nil
+	}
+	entry, ok := s.store.GetEntry(jobPath)
+	if !ok || entry.CacheState != store.CacheReady || entry.CachePath == "" {
+		return nil
+	}
+	file, err := os.Open(entry.CachePath)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+	return attention.ParseGcodeMarkers(file, 100)
+}
+
+func runStartedAfter(previous machine.State) bool {
+	switch previous {
+	case machine.Idle, machine.Sleep, machine.Alarm, machine.Unknown:
+		return true
+	default:
+		return false
+	}
+}
+
+func selectAttentionMarker(markers []attention.Marker, next int, progress []float64) (attention.Marker, int, bool) {
+	if next < 0 {
+		next = 0
+	}
+	if next >= len(markers) {
+		return attention.Marker{}, next, false
+	}
+	if len(progress) > 0 && progress[0] > 0 {
+		playedLine := int64(progress[0])
+		selected := -1
+		for i := next; i < len(markers) && markers[i].Line <= playedLine; i++ {
+			selected = i
+		}
+		if selected >= 0 {
+			return markers[selected], selected + 1, true
+		}
+		return attention.Marker{}, next, false
+	}
+	return markers[next], next + 1, true
 }
 
 // MachineStatus is the snapshot returned to clients.
@@ -513,6 +630,12 @@ func (s *Service) Subscribe() (<-chan store.Event, func()) { return s.store.Subs
 // clients. Consumers call Status after each signal to include proxy metadata.
 func (s *Service) SubscribeMachineStatus() (<-chan machine.Status, func()) {
 	return s.arb.Tracker().Subscribe()
+}
+
+// SubscribeAttention exposes future attention-event changes for SSE and
+// notification delivery. It never performs machine I/O.
+func (s *Service) SubscribeAttention() (<-chan attention.Change, func()) {
+	return s.attention.Subscribe()
 }
 
 // Backup is the portable JSON export for the proxy's local state.
@@ -3465,6 +3588,15 @@ func (s *Service) Open(remotePath string) (io.ReadCloser, store.Entry, error) {
 // goes through the arbiter, so it waits for owner mode and an idle machine and
 // returns session.ErrRelayActive / session.ErrNotIdle when those aren't met.
 func (s *Service) FetchToCache(remotePath string) error {
+	return s.fetchToCache(remotePath, true, "")
+}
+
+// fetchToCache performs the shared download/cache commit. Normal user-facing
+// reads require Idle. Active-playback discovery may set requireIdle=false for
+// the one file the firmware has just identified as playing; that transfer is
+// read-only and still serialized by the arbiter/mux. expectedMD5, when known
+// from PLAY_STATUS, prevents a changed or misrouted file from being published.
+func (s *Service) fetchToCache(remotePath string, requireIdle bool, expectedMD5 string) error {
 	remote, err := normalizeRemote(remotePath)
 	if err != nil {
 		return err
@@ -3487,7 +3619,7 @@ func (s *Service) FetchToCache(remotePath string) error {
 	tmp := f.Name()
 
 	var remoteMD5 string
-	derr := s.arb.WithMachine(true, func(c *client.Conn) error {
+	derr := s.arb.WithMachine(requireIdle, func(c *client.Conn) error {
 		md5hex, _, dErr := c.Download(remote, f, downloadTimeout, nil)
 		remoteMD5 = md5hex
 		return dErr
@@ -3516,6 +3648,11 @@ func (s *Service) FetchToCache(remotePath string) error {
 		// If decompression didn't help, fall through and store what we got;
 		// the size/MD5 will still be recorded from the actual content.
 	}
+	contentMD5 := md5hex(content)
+	if expectedMD5 != "" && contentMD5 != strings.ToLower(expectedMD5) {
+		os.Remove(tmp)
+		return fmt.Errorf("download %q: active playback md5 mismatch (got %s, want %s)", remote, contentMD5, expectedMD5)
+	}
 	// Write the final content atomically: stage to a sibling temp then rename,
 	// so a concurrent reader of cachePath never sees a partial file.
 	final, err := os.CreateTemp(s.cacheDir, "fetched-*.tmp")
@@ -3536,7 +3673,7 @@ func (s *Service) FetchToCache(remotePath string) error {
 
 	entry.CachePath = cachePath
 	entry.Size = int64(len(content))
-	entry.MD5 = md5hex(content)
+	entry.MD5 = contentMD5
 	entry.CacheState = store.CacheReady
 	entry.CacheCheckedAt = time.Now()
 	entry.Sync = store.Synced

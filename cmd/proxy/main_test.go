@@ -30,6 +30,29 @@ func TestValidateMachineTransport(t *testing.T) {
 	}
 }
 
+func TestShouldListenForDiscovery(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		kind      string
+		machine   string
+		advertise bool
+		advName   string
+		want      bool
+	}{
+		{name: "tcp auto discover", kind: "tcp", want: true},
+		{name: "tcp fixed no advertise", kind: "tcp", machine: "192.168.1.43:2222", want: false},
+		{name: "tcp fixed advertise derives name", kind: "tcp", machine: "192.168.1.43:2222", advertise: true, want: true},
+		{name: "tcp fixed advertise with explicit name", kind: "tcp", machine: "192.168.1.43:2222", advertise: true, advName: "Makera Z1 Proxy", want: false},
+		{name: "usb never listens", kind: "usb", machine: "/dev/cu.usbserial-test", advertise: true, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shouldListenForDiscovery(tc.kind, tc.machine, tc.advertise, tc.advName); got != tc.want {
+				t.Fatalf("shouldListenForDiscovery() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestResolveUSBAdvertiseAddrsExplicit(t *testing.T) {
 	pip, bcast, err := resolveUSBAdvertiseAddrs("192.168.1.50", "192.168.1.255")
 	if err != nil {

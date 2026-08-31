@@ -54,6 +54,7 @@ const MACRO_EDITOR_IDS = ["macro-name", "macro-description", "macro-color", "mac
 const state = {
   files: new Map(),
   jobs: new Map(),
+  readOnly: false,
   machine: { state: "", mode: "owner", age_ms: 0, connected: false },
   gcodeSeqs: new Set(),
   gcodeLines: [],
@@ -83,6 +84,7 @@ const state = {
   controlPendingAction: "",
   lastControlResult: null,
   activeGcode: { path: "", runnable: false, message: "" },
+  externalJobObservedAt: 0,
   activeGcodePending: "",
   activeGcodeLoading: false,
   activeSelectPendingPath: "",
@@ -938,6 +940,31 @@ async function loadUISettings() {
   } catch (e) {
     setNotice("UI settings unavailable: " + e.message, "error", "ui-settings");
     applyUISettings(state.ui);
+  }
+}
+
+function applyAPICapabilities(caps) {
+  state.readOnly = !!caps?.read_only;
+  document.body.classList.toggle("read-only", state.readOnly);
+  for (const id of [
+    "command-actions", "ctl-halt", "tab-control", "tab-files",
+    "active-gcode-run", "active-gcode-pause", "paused-job-controls",
+    "feed-override-controls", "alarm-actions",
+  ]) {
+    const element = document.getElementById(id);
+    if (element) element.hidden = state.readOnly;
+  }
+  if (state.readOnly && ["control", "files"].includes(state.activeTab)) {
+    showTab("dashboard", "replace");
+  }
+}
+
+async function loadAPICapabilities() {
+  try {
+    const r = await request("/api/capabilities");
+    applyAPICapabilities(await r.json());
+  } catch (e) {
+    setNotice("API capabilities unavailable: " + e.message, "error", "api-capabilities");
   }
 }
 
@@ -7167,6 +7194,7 @@ function appendJobActions(box, job) {
 
 function renderActiveGcode() {
   const active = state.activeGcode || {};
+  const external = externalJobInfo(state.machine, active);
   const title = document.getElementById("active-gcode-title");
   const meta = document.getElementById("active-gcode-meta");
   const run = document.getElementById("active-gcode-run");
@@ -7176,14 +7204,14 @@ function renderActiveGcode() {
   document.querySelector(".active-gcode-workspace")?.classList.toggle("is-empty", !active.path);
 
   if (!active.path) {
-    title.textContent = "No active gcode selected.";
-    meta.textContent = "-";
+    title.textContent = external ? external.title : "No active gcode selected.";
+    meta.textContent = external ? external.detail : "-";
     run.disabled = false;
     setSoftDisabled(run, true);
     ensureActiveGcodeGeometry(null);
     ensureActiveGcodeSource(null);
     drawGcodePreview(null);
-    renderActiveJobProgress(null);
+    renderActiveJobProgress(null, {}, external);
     renderDashboard();
     if (!state.activeGcodePending) clearNotice("active-gcode");
     return;
@@ -7433,6 +7461,7 @@ function renderDashboardGcodeStream(live = null) {
 function renderDashboard() {
   const machine = state.machine || {};
   const active = state.activeGcode || {};
+  const external = externalJobInfo(machine, active);
   const preview = active.preview || {};
   const dashboardPreview = { ...preview, segments: activeGcodeDisplaySegments(active) };
   const live = active.path ? activeJobPreviewState(machine, dashboardPreview, active.path) : null;
@@ -7464,13 +7493,13 @@ function renderDashboard() {
   setText("dashboard-tool-detail", `${Number.isFinite(offset) ? "TLO " + offset.toFixed(3) : "TLO -"}${Number.isFinite(target) ? " · next " + toolDisplayName(target) : ""}`);
   setText("dashboard-connection", machine.stale ? "Stale" : (machine.connected ? "Connected" : (machine.reconnecting ? "Reconnecting" : "Disconnected")));
   setText("dashboard-mode", `${machine.mode || "owner"} · ${fmtAge(machine.age_ms)}`);
-  setText("dashboard-job-title", active.path ? relPath(active.path) : "No active gcode selected.");
+  setText("dashboard-job-title", active.path ? relPath(active.path) : (external ? external.title : "No active gcode selected."));
 
   const progress = document.getElementById("dashboard-progress-bar");
   if (progress) progress.value = live ? live.percent : 0;
   const lineCount = Math.max(0, Number(preview.line_count) || 0);
-  setText("dashboard-progress-label", live ? `${live.percent}% · line ${live.playedLines}${lineCount ? " / " + lineCount : ""}` : "Progress");
-  setText("dashboard-elapsed", live ? fmtDuration(live.elapsedMs) : "-");
+  setText("dashboard-progress-label", live ? `${live.percent}% · line ${live.playedLines}${lineCount ? " / " + lineCount : ""}` : (external ? external.progressText : "Progress"));
+  setText("dashboard-elapsed", live ? fmtDuration(live.elapsedMs) : (external ? external.observedText : "-"));
   setText("dashboard-remaining", live && Number.isFinite(live.remainingMs) ? fmtDuration(live.remainingMs) : "-");
   renderDashboardTelemetry(machine);
   renderDashboardGcodeStream(live);
@@ -8120,14 +8149,14 @@ function rebuildGcodeContextOverlayForGroup(group, data) {
   }
 }
 
-function renderActiveJobProgress(live, preview = {}) {
+function renderActiveJobProgress(live, preview = {}, external = null) {
   const progress = document.getElementById("active-gcode-progress");
   const elapsed = document.getElementById("active-gcode-elapsed");
   const remaining = document.getElementById("active-gcode-remaining");
   if (!progress || !elapsed || !remaining) return;
   if (!live) {
-    progress.textContent = "-";
-    elapsed.textContent = "-";
+    progress.textContent = external ? external.progressText : "-";
+    elapsed.textContent = external ? external.observedText : "-";
     remaining.textContent = "-";
     return;
   }
@@ -10360,9 +10389,12 @@ async function loadJogCapabilities() {
     state.jog.caps = await r.json();
     state.jog.availability = state.jog.caps.availability || null;
     state.ui.machine = normalizeMachineSettings(state.ui.machine);
+    if (state.jog.caps.enabled) connectJog();
+    else disableJogConnection();
   } catch (e) {
     state.jog.error = e.message;
     state.jog.errorCode = "";
+    state.jog.link = "unavailable";
   }
   renderMachineSettings();
   renderJog();
@@ -10374,6 +10406,19 @@ function jogURL() {
 }
 
 function connectJog() {
+  // Capabilities are authoritative. Do not create a WebSocket until they are
+  // known, and never enter the reconnect loop when the server has disabled
+  // jogging. A disabled feature is a stable UI state, not an operator error.
+  if (!state.jog.caps) {
+    state.jog.link = "checking";
+    renderJog();
+    return;
+  }
+  if (!state.jog.caps.enabled) {
+    disableJogConnection();
+    renderJog();
+    return;
+  }
   if (!("WebSocket" in window)) {
     state.jog.link = "unsupported";
     state.jog.error = "WebSocket unavailable";
@@ -10468,6 +10513,25 @@ function connectJog() {
   };
 }
 
+function disableJogConnection() {
+  clearJogReconnect();
+  const ws = state.jog.ws;
+  state.jog.ws = null;
+  state.jog.link = "disabled";
+  state.jog.armed = false;
+  state.jog.armQueuedAction = "";
+  state.jog.error = "";
+  state.jog.errorCode = "";
+  resetJogInputSender();
+  if (ws) {
+    try {
+      ws.close(1000, "jogging disabled");
+    } catch {
+      // The socket may already be closing; clearing our reference is enough.
+    }
+  }
+}
+
 function clearJogReconnect() {
   if (state.jog.reconnectTimer) {
     clearTimeout(state.jog.reconnectTimer);
@@ -10476,6 +10540,10 @@ function clearJogReconnect() {
 }
 
 function scheduleJogReconnect() {
+  if (!state.jog.caps?.enabled) {
+    clearJogReconnect();
+    return;
+  }
   if (state.jog.reconnectTimer || document.hidden) return;
   const attempt = Math.min(state.jog.reconnectAttempt++, 5);
   const delay = Math.min(10000, 500 * 2 ** attempt);
@@ -12372,9 +12440,30 @@ function applySnapshot(snap) {
 function applyMachineStatus(next, render = true) {
   if (!next) return;
   state.machine = reconcileObservedMachineStatus(next);
+  if (externalJobState(state.machine.state) && !state.activeGcode?.path) {
+    if (!state.externalJobObservedAt) state.externalJobObservedAt = Date.now();
+  } else {
+    state.externalJobObservedAt = 0;
+  }
   syncActiveGcodeFromMachine(next);
   clearNotice("machine-status");
   if (render) renderMachine();
+}
+
+function externalJobState(machineState) {
+  return ["Run", "Hold", "Pause", "Wait", "Tool"].includes(String(machineState || ""));
+}
+
+function externalJobInfo(machine, active) {
+  if (active?.path || !externalJobState(machine?.state)) return null;
+  const rawProgress = String(machine?.fields?.P || "").trim();
+  const observedAt = Number(state.externalJobObservedAt) || Date.now();
+  return {
+    title: "External controller job " + String(machine.state).toLowerCase(),
+    detail: "File and G-code line are unavailable because this job was started outside CNC Proxy.",
+    progressText: rawProgress ? "Machine-reported progress P: " + rawProgress : "External job; machine progress is unavailable.",
+    observedText: "Observed " + fmtDuration(Date.now() - observedAt) + " ago",
+  };
 }
 
 function applyChange(ev) {
@@ -12976,12 +13065,11 @@ function init() {
   bindButtonAction(document.getElementById("jog-arm"), toggleTapMoveArm);
 
   loadUISettings();
+  loadAPICapabilities();
   loadActiveGcode();
   loadJogCapabilities();
-  connectJog();
   window.addEventListener("online", () => {
     loadJogCapabilities();
-    connectJog();
   });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {

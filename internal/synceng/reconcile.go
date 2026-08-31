@@ -166,8 +166,8 @@ func (e *Engine) ValidateStartupCache(maxDepth int) error {
 		if lerr != nil {
 			return lerr
 		}
-		results = e.checkCachedEntries(c, remote, candidates)
-		return nil
+		results, lerr = e.checkCachedEntries(c, remote, candidates)
+		return lerr
 	})
 	if err != nil {
 		return err
@@ -208,7 +208,7 @@ func (e *Engine) reconcile(maxDepth int, deep bool) error {
 		var lerr error
 		remote, lerr = listTree(c, service.GcodeRoot, maxDepth, e.opTimeout)
 		if lerr == nil && deep {
-			e.deepCheck(c, remote)
+			lerr = e.deepCheck(c, remote)
 		}
 		return lerr
 	})
@@ -300,7 +300,7 @@ func remoteOnlyMTimeChanged(existing store.Entry, de protocol.DirEntry) bool {
 	return existing.Sync == store.RemoteOnly && !existing.MTime.IsZero() && !de.MTime.IsZero() && !existing.MTime.Equal(de.MTime)
 }
 
-func (e *Engine) deepCheck(c *client.Conn, remote map[string]protocol.DirEntry) {
+func (e *Engine) deepCheck(c *client.Conn, remote map[string]protocol.DirEntry) error {
 	for _, existing := range e.store.ListEntries() {
 		if existing.Sync != store.Synced || existing.IsDir || existing.CachePath == "" || existing.CacheState == store.CacheNone {
 			continue
@@ -309,9 +309,21 @@ func (e *Engine) deepCheck(c *client.Conn, remote map[string]protocol.DirEntry) 
 		if !ok || de.IsDir {
 			continue
 		}
-		remoteMD5, err := c.Md5(existing.Path, e.opTimeout)
+		if existing.Size != de.Size {
+			// The metadata pass below will invalidate this entry. Never mark a
+			// size-changed cache ready merely because model-specific MD5 is off.
+			continue
+		}
+		if !e.supportsMetadataMD5() {
+			e.markCacheReady(existing, de, "")
+			continue
+		}
+		remoteMD5, err := c.Md5(existing.Path, e.metadataCheckTimeout)
 		if err != nil {
 			log.Printf("synceng: deep reconcile md5 skipped for %s: %v", existing.Path, err)
+			if client.IsConnectionError(err) {
+				return err
+			}
 			continue
 		}
 		if existing.MD5 != "" && remoteMD5 != existing.MD5 {
@@ -320,6 +332,7 @@ func (e *Engine) deepCheck(c *client.Conn, remote map[string]protocol.DirEntry) 
 		}
 		e.markCacheReady(existing, de, remoteMD5)
 	}
+	return nil
 }
 
 func (e *Engine) markRemoteOnly(existing store.Entry, de protocol.DirEntry, remoteMD5 string) {
@@ -345,10 +358,11 @@ func (e *Engine) markRemoteOnly(existing store.Entry, de protocol.DirEntry, remo
 }
 
 type cacheValidationResult struct {
-	remote protocol.DirEntry
-	exists bool
-	md5    string
-	md5Err error
+	remote     protocol.DirEntry
+	exists     bool
+	md5Checked bool
+	md5        string
+	md5Err     error
 }
 
 func (e *Engine) startupCacheValidationCandidates() []store.Entry {
@@ -368,7 +382,7 @@ func (e *Engine) hasStartupCacheValidationPending() bool {
 	return len(e.startupCacheValidationCandidates()) > 0
 }
 
-func (e *Engine) checkCachedEntries(c *client.Conn, remote map[string]protocol.DirEntry, candidates []store.Entry) map[string]cacheValidationResult {
+func (e *Engine) checkCachedEntries(c *client.Conn, remote map[string]protocol.DirEntry, candidates []store.Entry) (map[string]cacheValidationResult, error) {
 	results := make(map[string]cacheValidationResult, len(candidates))
 	for _, existing := range candidates {
 		de, ok := remote[existing.Path]
@@ -377,10 +391,18 @@ func (e *Engine) checkCachedEntries(c *client.Conn, remote map[string]protocol.D
 			results[existing.Path] = res
 			continue
 		}
-		res.md5, res.md5Err = c.Md5(existing.Path, e.opTimeout)
+		if !e.supportsMetadataMD5() {
+			results[existing.Path] = res
+			continue
+		}
+		res.md5Checked = true
+		res.md5, res.md5Err = c.Md5(existing.Path, e.metadataCheckTimeout)
 		results[existing.Path] = res
+		if client.IsConnectionError(res.md5Err) {
+			return results, res.md5Err
+		}
 	}
-	return results
+	return results, nil
 }
 
 func (e *Engine) applyCacheValidationResults(candidates []store.Entry, results map[string]cacheValidationResult) {
@@ -401,11 +423,11 @@ func (e *Engine) applyCacheValidationResults(candidates []store.Entry, results m
 			e.markRemoteOnly(latest, res.remote, "")
 			continue
 		}
-		if res.md5Err != nil {
+		if res.md5Checked && res.md5Err != nil {
 			log.Printf("synceng: startup cache validation md5 skipped for %s: %v", latest.Path, res.md5Err)
 			continue
 		}
-		if latest.MD5 != "" && res.md5 != latest.MD5 {
+		if res.md5Checked && latest.MD5 != "" && res.md5 != latest.MD5 {
 			e.markRemoteOnly(latest, res.remote, res.md5)
 			continue
 		}

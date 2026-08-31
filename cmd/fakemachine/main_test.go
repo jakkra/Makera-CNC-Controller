@@ -528,24 +528,11 @@ func TestSidecarSimulatesControllerJobAndDownloadsEndStock(t *testing.T) {
 	if _, err := c.Write(protocol.Encode(protocol.CmdCtrlMulti, []byte(protocol.PlayLine("/sd/gcodes/sidecar-slot.nc")))); err != nil {
 		t.Fatal(err)
 	}
-	waitSidecarState(t, srv.URL, machine.Idle, time.Second)
-
-	stockResp, err := http.Get(srv.URL + "/api/simulation/stock")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer stockResp.Body.Close()
-	if stockResp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(stockResp.Body)
-		t.Fatalf("stock status=%d body=%q", stockResp.StatusCode, string(b))
-	}
-	var stock carveratest.StockState
-	if err := json.NewDecoder(stockResp.Body).Decode(&stock); err != nil {
-		t.Fatal(err)
-	}
+	stock := waitSidecarStockCut(t, srv.URL, time.Second)
 	if stock.RemovedVolumeMM3 <= 0 || sidecarStockHeight(stock, 10, 6) > -36.8 {
 		t.Fatalf("stock after run removed=%.3f center=%.3f", stock.RemovedVolumeMM3, sidecarStockHeight(stock, 10, 6))
 	}
+	waitSidecarState(t, srv.URL, machine.Idle, time.Second)
 
 	postSidecarJSON(t, srv.URL+"/api/simulation/reset", `{}`)
 	resetResp, err := http.Get(srv.URL + "/api/simulation/stock")
@@ -618,6 +605,34 @@ func postSidecarJSON(t *testing.T, url, body string) {
 		b, _ := io.ReadAll(resp.Body)
 		t.Fatalf("post %s status=%d body=%q", url, resp.StatusCode, string(b))
 	}
+}
+
+func waitSidecarStockCut(t *testing.T, baseURL string, timeout time.Duration) carveratest.StockState {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var stock carveratest.StockState
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(baseURL + "/api/simulation/stock")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			t.Fatalf("stock status=%d body=%q", resp.StatusCode, string(body))
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&stock); err != nil {
+			resp.Body.Close()
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if stock.RemovedVolumeMM3 > 0 {
+			return stock
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("stock was not cut; removed volume = %.3f", stock.RemovedVolumeMM3)
+	return stock
 }
 
 func waitSidecarState(t *testing.T, baseURL string, want machine.State, timeout time.Duration) carveratest.Snapshot {

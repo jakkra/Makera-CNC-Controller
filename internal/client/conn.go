@@ -143,17 +143,15 @@ func (k *Conn) writeFrame(b []byte) error {
 // WriteGcodeLine writes a CTRL_MULTI gcode/console line and does not wait for a
 // reply. It is for higher-level schedulers that own their own status/read loop.
 func (k *Conn) WriteGcodeLine(line string) error {
-	if len(line) == 0 || line[len(line)-1] != '\n' {
-		line += "\n"
-	}
 	return k.WriteConsoleCommand(line)
 }
 
-// WriteConsoleCommand writes a CTRL_MULTI console command exactly as supplied.
-// The official controller uses this form for firmware console commands such as
-// "$X", "$H", and "reset"; callers that need normal gcode line termination
-// should use WriteGcodeLine instead.
+// WriteConsoleCommand writes one OEM-compatible CTRL_MULTI console command.
+// Makera Studio and Carvera Controller remove trailing CR/LF before framing;
+// keeping it in the payload can make the Z1 Wi-Fi firmware include it in a
+// filename and therefore calculate a different play-path CRC than the LPC.
 func (k *Conn) WriteConsoleCommand(line string) error {
+	line = strings.TrimRight(line, "\r\n")
 	return k.writeFrame(protocol.Encode(protocol.CmdCtrlMulti, []byte(line)))
 }
 
@@ -290,6 +288,8 @@ func (k *Conn) Md5(path string, timeout time.Duration) (string, error) {
 				return "", fmt.Errorf("md5sum %q: %s", path, strings.TrimSpace(text))
 			}
 			// Other info noise (e.g. a trailing upload message): keep reading.
+		case protocol.CmdLoadError:
+			return "", fmt.Errorf("md5sum %q failed: %s", path, strings.TrimSpace(string(f.Data)))
 		default:
 			// Ignore STATUS_RES etc.
 		}
@@ -377,10 +377,9 @@ func (k *Conn) SendGcodeLine(line string, opts GcodeOpts) (string, error) {
 	return k.SendConsoleCommand(ensureLineEnding(line), opts)
 }
 
-// SendConsoleCommand sends a CTRL_MULTI console command exactly as supplied and
-// collects output according to opts. This mirrors the official controller's
-// handling of firmware console commands while retaining SendGcodeLine for
-// newline-terminated MDI/gcode.
+// SendConsoleCommand sends a CTRL_MULTI console command and collects output
+// according to opts. WriteConsoleCommand applies the OEM wire convention of
+// stripping trailing CR/LF before framing.
 func (k *Conn) SendConsoleCommand(line string, opts GcodeOpts) (string, error) {
 	if opts.Settle <= 0 {
 		opts.Settle = defaultSettle
@@ -520,6 +519,35 @@ func (k *Conn) QueryState(timeout time.Duration) (string, error) {
 		case protocol.CmdNormalInfo:
 			if err := normalInfoError(f.Data); err != nil {
 				return "", err
+			}
+		}
+	}
+}
+
+// QueryActivePlayback asks the WiFi controller which SD-card file is currently
+// executing. It is a read-only protocol transaction and does not depend on an
+// official controller being connected. STATUS_RES traffic may interleave and
+// is forwarded to the registered observer.
+func (k *Conn) QueryActivePlayback(timeout time.Duration) (protocol.PlayStatus, error) {
+	if err := k.writeFrame(protocol.Encode(protocol.CmdPlayStatus, nil)); err != nil {
+		return protocol.PlayStatus{}, err
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		f, err := k.readFrame(deadline)
+		if err != nil {
+			return protocol.PlayStatus{}, err
+		}
+		switch f.Cmd {
+		case protocol.CmdPlayStatus:
+			return protocol.ParsePlayStatus(f.Data)
+		case protocol.CmdStatusRes:
+			if k.onStatus != nil {
+				k.onStatus(string(f.Data))
+			}
+		case protocol.CmdNormalInfo:
+			if err := normalInfoError(f.Data); err != nil {
+				return protocol.PlayStatus{}, err
 			}
 		}
 	}

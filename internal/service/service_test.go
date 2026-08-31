@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/uwin/cnc-proxy/internal/attention"
 	"github.com/uwin/cnc-proxy/internal/carveratest"
 	"github.com/uwin/cnc-proxy/internal/client"
 	"github.com/uwin/cnc-proxy/internal/machine"
@@ -103,6 +104,78 @@ func TestUploadCreatesEntryAndJob(t *testing.T) {
 	got, _ := io.ReadAll(rc)
 	if !bytes.Equal(got, content) {
 		t.Errorf("cached content mismatch")
+	}
+}
+
+func TestAttentionCorrelatesCachedRotaryMarkerWithFirmwarePause(t *testing.T) {
+	svc, _ := newService(t)
+	gcode := strings.Join([]string{
+		"G21",
+		`(@z1-attention {"type":"rotary_index","axis":"A","target":90,"operation":"Side two"})`,
+		"M600",
+		"G90 G54 G0 A90",
+	}, "\n")
+	if _, err := svc.Upload("rotary.nc", strings.NewReader(gcode)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SelectActiveGcode("rotary.nc"); err != nil {
+		t.Fatal(err)
+	}
+	changes, unsubscribe := svc.SubscribeAttention()
+	defer unsubscribe()
+	tr := svc.arb.Tracker()
+	tr.ObserveStatusPayload("<Run|P:1,10,1>")
+	tr.ObserveStatusPayload("<Wait|P:3,20,2>")
+
+	var opened attention.Change
+	select {
+	case opened = <-changes:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for rotary attention event")
+	}
+	if opened.Kind != attention.ChangeOpened || opened.Event.Kind != attention.KindRotaryIndex || opened.Event.Marker == nil || opened.Event.Marker.Target == nil || *opened.Event.Marker.Target != 90 || opened.Event.JobName != "rotary.nc" {
+		t.Fatalf("opened = %+v", opened)
+	}
+
+	tr.ObserveStatusPayload("<Pause|P:3,20,2>")
+	select {
+	case updated := <-changes:
+		if updated.Kind != attention.ChangeUpdated || updated.Event.ID != opened.Event.ID {
+			t.Fatalf("updated = %+v", updated)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for coalesced Pause update")
+	}
+}
+
+func TestAttentionReloadsMarkerWhenShortJobSkipsObservedRun(t *testing.T) {
+	svc, _ := newService(t)
+	gcode := strings.Join([]string{
+		"G21",
+		`(@z1-attention {"type":"rotary_index","axis":"A","target":0,"operation":"Short pause"})`,
+		"M600",
+	}, "\n")
+	if _, err := svc.Upload("short.nc", strings.NewReader(gcode)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SelectActiveGcode("short.nc"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Model the startup race seen on hardware: the path was already known but
+	// its cache was not ready during the first marker load, and the job is so
+	// short that status polling observes Idle -> Pause without a Run sample.
+	svc.attentionMetaMu.Lock()
+	svc.attentionMetaJobPath = "/sd/gcodes/short.nc"
+	svc.attentionMetaSource = "validating\x00"
+	svc.attentionMetaMarkers = nil
+	svc.attentionMetaNext = 0
+	svc.attentionMetaLastState = machine.Idle
+	svc.attentionMetaMu.Unlock()
+
+	ctx := svc.attentionContext(machine.Status{State: machine.Pause, Progress: []float64{3, 50, 1}})
+	if ctx.Marker == nil || ctx.Marker.Type != string(attention.KindRotaryIndex) || ctx.Marker.Target == nil || *ctx.Marker.Target != 0 {
+		t.Fatalf("attention context marker = %+v, want rotary index target 0", ctx.Marker)
 	}
 }
 
@@ -1400,6 +1473,11 @@ func TestActiveGcodeLoadsRunningFileFromFirmwareProgress(t *testing.T) {
 	svc, m, tr := serviceWithMachine(t)
 	const runningPath = "/sd/gcodes/running part.nc"
 	m.SetGcodeReply("progress", "file: "+runningPath+", 42 % complete, elapsed time: 00:01:02")
+	ui := svc.UISettings()
+	ui.Machine.Learned.Identity.Model = "CarveraAir"
+	if _, err := svc.SetUISettings(ui); err != nil {
+		t.Fatal(err)
+	}
 
 	if !tr.ObserveStatusPayload("<Run|MPos:0,0,0|WPos:0,0,0|P:1,42,62>") {
 		t.Fatal("status payload was not accepted")
@@ -1420,6 +1498,143 @@ func TestActiveGcodeLoadsRunningFileFromFirmwareProgress(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("active gcode path = %q, want %q", svc.store.ActiveGcodePath(), runningPath)
+}
+
+func TestActiveGcodeDoesNotQueryUnsupportedZ1ProgressCommand(t *testing.T) {
+	svc, m, tr := serviceWithMachine(t)
+	ui := svc.UISettings()
+	ui.Machine.Learned.Identity.Model = "Makera Z1"
+	if _, err := svc.SetUISettings(ui); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 3; i++ {
+		if !tr.ObserveStatusPayload("<Run|MPos:0,0,0|WPos:0,0,0|P:1,42,62>") {
+			t.Fatal("status payload was not accepted")
+		}
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := countString(m.Gcodes(), "progress"); got != 0 {
+		t.Fatalf("Z1 progress queries = %d, want 0", got)
+	}
+}
+
+func TestActiveGcodeDiscoversAndCachesExternalZ1Playback(t *testing.T) {
+	svc, m, tr := serviceWithMachine(t)
+	const runningPath = "/sd/gcodes/external job.nc"
+	content := []byte("G21\nG90\nG0 X1 Y2\n")
+	m.PutFile(runningPath, content)
+	m.SetActivePlayback(runningPath)
+	m.SetStatus("<Run|MPos:0,0,0|WPos:0,0,0|P:1,42,62>")
+	ui := svc.UISettings()
+	ui.Machine.Learned.Identity.Model = "Makera Z1"
+	if _, err := svc.SetUISettings(ui); err != nil {
+		t.Fatal(err)
+	}
+
+	if !tr.ObserveStatusPayload("<Run|MPos:0,0,0|WPos:0,0,0|P:1,42,62>") {
+		t.Fatal("status payload was not accepted")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		active := svc.ActiveGcode()
+		if active.Path == runningPath && active.Entry != nil && active.Entry.Sync == store.Synced && active.Preview != nil {
+			if active.Preview.LineCount != 3 {
+				t.Fatalf("preview = %+v", active.Preview)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("active gcode was not discovered and cached: %+v", svc.ActiveGcode())
+}
+
+func TestMachineReportedActiveGcodeReplacesResidentSourceAndSegments(t *testing.T) {
+	svc, _ := newService(t)
+	oldContent := []byte("G21\nM600\n")
+	newContent := []byte("G21\nG90\nG0 X1 Y2\nG1 X3 Y4 F100\n")
+	putCachedEntry(t, svc, "old.nc", oldContent, store.Synced)
+	newEntry := putCachedEntry(t, svc, "running.nc", newContent, store.Synced)
+
+	if _, err := svc.SelectActiveGcode("old.nc"); err != nil {
+		t.Fatalf("SelectActiveGcode old: %v", err)
+	}
+	if err := svc.setMachineReportedActiveGcode(newEntry.Path, newEntry.MD5); err != nil {
+		t.Fatalf("setMachineReportedActiveGcode: %v", err)
+	}
+
+	active := svc.ActiveGcode()
+	if active.Path != newEntry.Path || active.Preview == nil || active.Preview.LineCount != 4 {
+		t.Fatalf("active = %+v, want parsed running file", active)
+	}
+	source, err := svc.ActiveGcodeSource(1, 10)
+	if err != nil {
+		t.Fatalf("ActiveGcodeSource: %v", err)
+	}
+	if source.TotalLines != 4 || len(source.Lines) != 4 || source.Lines[3] != "G1 X3 Y4 F100" {
+		t.Fatalf("source = %+v, want running file", source)
+	}
+	segments, err := svc.ActiveGcodeSegments(0, 10)
+	if err != nil {
+		t.Fatalf("ActiveGcodeSegments: %v", err)
+	}
+	if segments.Total != 1 || len(segments.Segments) != 1 || segments.Segments[0].Line != 4 {
+		t.Fatalf("segments = %+v, want running file toolpath", segments)
+	}
+}
+
+func TestActivePlaybackMD5ValidatesPersistedCacheWhilePaused(t *testing.T) {
+	svc, st := newService(t)
+	content := []byte("G21\nM600\n")
+	entry := putCachedEntry(t, svc, "paused.nc", content, store.Synced)
+	entry.CacheState = store.CacheValidating
+	entry.CacheCheckedAt = time.Time{}
+	if err := st.PutEntry(entry); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.setMachineReportedActiveGcode(entry.Path, entry.MD5); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := st.GetEntry(entry.Path)
+	if !ok || got.CacheState != store.CacheReady || got.CacheCheckedAt.IsZero() {
+		t.Fatalf("validated entry = %+v ok=%v, want ready cache", got, ok)
+	}
+	if st.ActiveGcodePath() != entry.Path {
+		t.Fatalf("active path = %q, want %q", st.ActiveGcodePath(), entry.Path)
+	}
+}
+
+func TestActiveGcodeStopsRetryingWhenProgressCommandIsUnsupported(t *testing.T) {
+	svc, m, tr := serviceWithMachine(t)
+	ui := svc.UISettings()
+	ui.Machine.Learned.Identity.Model = "CarveraAir"
+	if _, err := svc.SetUISettings(ui); err != nil {
+		t.Fatal(err)
+	}
+	m.SetGcodeReply("progress", "error:Unsupported command - progress")
+
+	if !tr.ObserveStatusPayload("<Run|MPos:0,0,0|WPos:0,0,0|P:1,42,62>") {
+		t.Fatal("status payload was not accepted")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && countString(m.Gcodes(), "progress") == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := countString(m.Gcodes(), "progress"); got != 1 {
+		t.Fatalf("initial progress queries = %d, want 1", got)
+	}
+
+	svc.activeProbeMu.Lock()
+	svc.activeProbeLast = time.Time{}
+	svc.activeProbeMu.Unlock()
+	if !tr.ObserveStatusPayload("<Pause|MPos:0,0,0|WPos:0,0,0|P:1,43,62>") {
+		t.Fatal("second status payload was not accepted")
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := countString(m.Gcodes(), "progress"); got != 1 {
+		t.Fatalf("unsupported progress command was retried %d times", got)
+	}
 }
 
 func TestParseGcodePreviewCoversCarveraMotionModes(t *testing.T) {

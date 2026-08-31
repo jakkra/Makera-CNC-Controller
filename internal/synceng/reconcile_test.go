@@ -309,6 +309,97 @@ func TestDeepReconcileMd5FailureIsNonFatal(t *testing.T) {
 	}
 }
 
+func TestDeepReconcileMD5TimeoutIsBoundedAndDropsConnection(t *testing.T) {
+	m, st, arb, tr := setup(t)
+	const remote = "/sd/gcodes/no-md5-reply.nc"
+	content := []byte("G21\n")
+	seedMachineFile(t, m.Addr(), remote, content)
+	cachePath := writeCacheContent(t, content)
+	if err := st.PutEntry(store.Entry{
+		Path:       remote,
+		Size:       int64(len(content)),
+		MD5:        md5HexBytes(content),
+		CachePath:  cachePath,
+		CacheState: store.CacheReady,
+		Sync:       store.Synced,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	tr.Observe(machine.Idle)
+	m.SetDropMD5Replies(true)
+	eng := New(Config{
+		Store:                st,
+		Arbiter:              arb,
+		OpTimeout:            3 * time.Second,
+		MetadataCheckTimeout: 40 * time.Millisecond,
+	})
+
+	started := time.Now()
+	err := eng.DeepReconcile(4)
+	if err == nil || !client.IsConnectionError(err) {
+		t.Fatalf("DeepReconcile error = %v, want surfaced connection timeout", err)
+	}
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("md5 timeout held machine path for %v", elapsed)
+	}
+	firstGeneration := arb.ConnectionGeneration()
+	if firstGeneration == 0 {
+		t.Fatal("first machine connection was not established")
+	}
+
+	m.SetDropMD5Replies(false)
+	if err := arb.WithMachine(false, func(c *client.Conn) error {
+		_, err := c.QueryState(time.Second)
+		return err
+	}); err != nil {
+		t.Fatalf("fresh status query after md5 timeout: %v", err)
+	}
+	if got := arb.ConnectionGeneration(); got <= firstGeneration {
+		t.Fatalf("connection generation = %d, want greater than %d after timeout", got, firstGeneration)
+	}
+}
+
+func TestZ1StartupCacheValidationDoesNotProbeUnsupportedMD5(t *testing.T) {
+	m, st, arb, tr := setup(t)
+	const remote = "/sd/gcodes/z1-cached.nc"
+	content := []byte("G21\nG90\n")
+	seedMachineFile(t, m.Addr(), remote, content)
+	cachePath := writeCacheContent(t, content)
+	if err := st.PutEntry(store.Entry{
+		Path:       remote,
+		Size:       int64(len(content)),
+		MD5:        md5HexBytes(content),
+		CachePath:  cachePath,
+		CacheState: store.CacheReady,
+		Sync:       store.Synced,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ui := st.UISettings()
+	ui.Machine.Learned.Identity.Model = "Z1, 3, 1, 0, Idle"
+	if _, err := st.SetUISettings(ui); err != nil {
+		t.Fatal(err)
+	}
+	eng := New(Config{Store: st, Arbiter: arb, OpTimeout: time.Second})
+	if err := eng.PrepareStartupCacheValidation(); err != nil {
+		t.Fatal(err)
+	}
+	m.SetDropMD5Replies(true)
+	tr.Observe(machine.Idle)
+
+	started := time.Now()
+	if err := eng.ValidateStartupCache(4); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("Z1 cache validation took %v; md5sum was likely probed", elapsed)
+	}
+	got, ok := st.GetEntry(remote)
+	if !ok || got.Sync != store.Synced || got.CacheState != store.CacheReady || got.CachePath != cachePath {
+		t.Fatalf("validated Z1 cache = %+v, ok=%v", got, ok)
+	}
+}
+
 func TestPrepareStartupCacheValidationMarksSyncedOnly(t *testing.T) {
 	st, _ := store.Open(filepath.Join(t.TempDir(), "state.json"))
 	eng := New(Config{Store: st})

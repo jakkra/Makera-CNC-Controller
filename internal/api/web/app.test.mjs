@@ -89,6 +89,86 @@ function buildContext(functionNames, constNames = [], globals = {}) {
   return context;
 }
 
+test("disabled jog capability is stable and never opens a WebSocket", () => {
+  let socketCloses = 0;
+  let socketCreates = 0;
+  const state = {
+    jog: {
+      caps: { enabled: false },
+      ws: { close: () => { socketCloses++; } },
+      link: "online",
+      armed: true,
+      armQueuedAction: "arm",
+      error: "jogging is disabled",
+      errorCode: "disabled",
+      reconnectTimer: 123,
+      lastInput: {},
+      lastInputSentAt: 42,
+    },
+  };
+  const ctx = buildContext(
+    ["clearJogReconnect", "resetJogInputSender", "disableJogConnection", "connectJog"],
+    [],
+    {
+      state,
+      clearTimeout: () => {},
+      renderJog: () => {},
+      window: {},
+      WebSocket: function WebSocket() { socketCreates++; },
+    },
+  );
+
+  vm.runInContext("connectJog()", ctx);
+  assert.equal(socketCreates, 0);
+  assert.equal(socketCloses, 1);
+  assert.equal(state.jog.ws, null);
+  assert.equal(state.jog.link, "disabled");
+  assert.equal(state.jog.armed, false);
+  assert.equal(state.jog.armQueuedAction, "");
+  assert.equal(state.jog.error, "");
+  assert.equal(state.jog.errorCode, "");
+  assert.equal(state.jog.reconnectTimer, null);
+});
+
+test("disabled jog capability does not schedule reconnects", () => {
+  let scheduled = 0;
+  const state = { jog: { caps: { enabled: false }, reconnectTimer: null } };
+  const ctx = buildContext(
+    ["clearJogReconnect", "scheduleJogReconnect"],
+    [],
+    {
+      state,
+      document: { hidden: false },
+      clearTimeout: () => {},
+      setTimeout: () => { scheduled++; },
+      connectJog: () => { throw new Error("disabled jog must not reconnect"); },
+    },
+  );
+
+  vm.runInContext("scheduleJogReconnect()", ctx);
+  assert.equal(scheduled, 0);
+  assert.equal(state.jog.reconnectTimer, null);
+});
+
+test("external controller jobs are named without inventing a file or line", () => {
+  const ctx = buildContext(
+    ["externalJobState", "externalJobInfo"],
+    [],
+    {
+      state: { externalJobObservedAt: 90000 },
+      Date: { now: () => 120000 },
+      fmtDuration: (ms) => `${Math.round(ms / 1000)}s`,
+    },
+  );
+  const external = vm.runInContext(`externalJobInfo({state:"Run", fields:{P:"2325,4,238"}}, {path:""})`, ctx);
+  assert.equal(external.title, "External controller job run");
+  assert.match(external.detail, /started outside CNC Proxy/);
+  assert.equal(external.progressText, "Machine-reported progress P: 2325,4,238");
+  assert.equal(external.observedText, "Observed 30s ago");
+  assert.equal(vm.runInContext(`externalJobInfo({state:"Idle"}, {path:""})`, ctx), null);
+  assert.equal(vm.runInContext(`externalJobInfo({state:"Run"}, {path:"known.nc"})`, ctx), null);
+});
+
 function parseDXFPairs(text) {
   const lines = text.split(/\r?\n/);
   if (lines.at(-1) === "") lines.pop();

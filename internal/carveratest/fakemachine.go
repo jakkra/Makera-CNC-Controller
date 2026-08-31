@@ -30,6 +30,7 @@ type FakeMachine struct {
 	probeReplyDelay     time.Duration     // optional test hook: delay G30/G38 replies
 	dropStatusReplies   bool              // optional test hook: ignore "?" replies
 	dropStatusN         int               // optional test hook: ignore the next N "?" replies
+	dropMD5Replies      bool              // optional test hook: ignore md5sum replies
 	failCmd             map[string]bool   // command prefixes to fail (for error-path tests)
 	ftype               string            // advertised upload type ("lz" enables compression)
 	compressDownloads   bool              // if set, downloads send a .lz container
@@ -72,6 +73,8 @@ type FakeMachine struct {
 	cycleSticky         fakeCycleSticky
 	motion              []fakeMotionSegment
 	program             *fakeProgramRun
+	activePlaybackPath  string // B7 PLAY_STATUS identity (may model an externally started job)
+	activePlaybackMD5   string
 	simEnabled          bool
 	simShowVectors      bool
 	simSpeedScale       float64
@@ -191,6 +194,14 @@ func (m *FakeMachine) DropNextStatusReplies(n int) {
 	m.dropStatusN = n
 }
 
+// SetDropMD5Replies makes md5sum commands receive no response, modelling the
+// production Z1 WiFi bridge behavior that motivated bounded reconcile probes.
+func (m *FakeMachine) SetDropMD5Replies(v bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.dropMD5Replies = v
+}
+
 // SetFtype sets the upload type advertised via "ftype" ("lz" enables QuickLZ
 // upload compression; "nc" or empty disables it).
 func (m *FakeMachine) SetFtype(s string) {
@@ -250,6 +261,18 @@ func (m *FakeMachine) PutFile(path string, content []byte) {
 	cp := make([]byte, len(content))
 	copy(cp, content)
 	m.files[path] = cp
+}
+
+// SetActivePlayback configures the read-only B7 player identity. It is a test
+// hook for a job started by an external controller before Sensei connects.
+func (m *FakeMachine) SetActivePlayback(path string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.activePlaybackPath = path
+	m.activePlaybackMD5 = ""
+	if content, ok := m.files[path]; ok {
+		m.activePlaybackMD5 = md5hex(content)
+	}
 }
 
 // HasDir reports whether a directory was created.
@@ -372,6 +395,11 @@ func (m *FakeMachine) handle(c net.Conn) {
 		if n > 0 {
 			for _, f := range scan.Push(buf[:n]) {
 				switch f.Cmd {
+				case protocol.CmdPlayStatus:
+					m.mu.Lock()
+					path, digest := m.activePlaybackPath, m.activePlaybackMD5
+					m.mu.Unlock()
+					m.send(c, protocol.CmdPlayStatus, protocol.Escape(path)+"|"+digest)
 				case protocol.CmdCtrlSingle:
 					if len(f.Data) == 1 {
 						switch f.Data[0] {
@@ -431,7 +459,7 @@ func (m *FakeMachine) handle(c net.Conn) {
 					nextSeq = 0
 					if verb == "download" {
 						m.mu.Lock()
-						if !m.beginTransferLocked(time.Now()) {
+						if !m.beginDownloadTransferLocked(xferPath, time.Now()) {
 							m.mu.Unlock()
 							m.send(c, protocol.CmdFileCancel, "ok\r\n")
 							m.send(c, protocol.CmdNormalInfo, "error: Machine is busy.\r\n")
@@ -599,6 +627,17 @@ func (m *FakeMachine) beginTransferLocked(now time.Time) bool {
 		return false
 	}
 	if !m.fileOpsIdleLocked(now) {
+		return false
+	}
+	m.transferActive = true
+	return true
+}
+
+func (m *FakeMachine) beginDownloadTransferLocked(path string, now time.Time) bool {
+	if m.transferActive {
+		return false
+	}
+	if !m.fileOpsIdleLocked(now) && path != m.activePlaybackPath {
 		return false
 	}
 	m.transferActive = true
@@ -776,6 +815,8 @@ func (m *FakeMachine) startProgramLocked(path string, content []byte, now time.T
 		end = now.Add(50 * time.Millisecond)
 	}
 	m.program = &fakeProgramRun{path: path, start: now, end: end, lines: len(lines)}
+	m.activePlaybackPath = path
+	m.activePlaybackMD5 = md5hex(content)
 	m.upsertStatusFieldLocked("P", "0,0,0")
 	m.setStatusStateLocked("Run")
 }
@@ -966,6 +1007,12 @@ func (m *FakeMachine) handleManaged(c net.Conn, line string) {
 		}
 		m.send(c, protocol.CmdLoadFinish, "Load directory finished.\r\n")
 	case strings.HasPrefix(line, "md5sum"):
+		m.mu.Lock()
+		dropReply := m.dropMD5Replies
+		m.mu.Unlock()
+		if dropReply {
+			return
+		}
 		if !m.withIdleFileOp() {
 			m.send(c, protocol.CmdNormalInfo, "error: Machine is busy.\n")
 			return
@@ -2418,11 +2465,15 @@ func (m *FakeMachine) advanceProgramLocked(now time.Time) {
 	bracketed, state, fields, ok := parseFakeStatus(m.status)
 	if !ok {
 		m.program = nil
+		m.activePlaybackPath = ""
+		m.activePlaybackMD5 = ""
 		return
 	}
 	if !now.Before(m.program.end) {
 		m.removeStatusFieldFrom(&fields, "P")
 		m.program = nil
+		m.activePlaybackPath = ""
+		m.activePlaybackMD5 = ""
 		if len(m.motion) == 0 && state == "Run" {
 			state = "Idle"
 		}

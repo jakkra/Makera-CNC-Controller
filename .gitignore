@@ -23,6 +23,9 @@ coverage.out
 /data/
 /dist/
 /output/
+/bin/
+/.gui-test/
+/.test-run2/
 
 # Machine-specific Claude Code settings (contains local IPs, /tmp paths, and
 # per-session permission grants). The shared .claude/settings.json IS tracked.

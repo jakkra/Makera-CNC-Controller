@@ -29,6 +29,39 @@ func dialFake(t *testing.T, m *carveratest.FakeMachine) *Conn {
 	return conn
 }
 
+func TestQueryActivePlayback(t *testing.T) {
+	m, err := carveratest.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(m.Close)
+	content := []byte("G21\nG0 X1\n")
+	const path = "/sd/gcodes/external job.nc"
+	m.PutFile(path, content)
+	m.SetActivePlayback(path)
+
+	got, err := dialFake(t, m).QueryActivePlayback(testTimeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantMD5 := md5.Sum(content)
+	if got.Path != path || got.MD5 != hex.EncodeToString(wantMD5[:]) {
+		t.Fatalf("active playback = %+v", got)
+	}
+}
+
+func TestQueryActivePlaybackNone(t *testing.T) {
+	m, err := carveratest.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(m.Close)
+	got, err := dialFake(t, m).QueryActivePlayback(testTimeout)
+	if err != nil || got.Path != "" || got.MD5 != "" {
+		t.Fatalf("active playback = %+v, %v", got, err)
+	}
+}
+
 // uploadFixture uploads content to remote via the client so the fake machine
 // holds it, returning the content for later comparison.
 func uploadFixture(t *testing.T, conn *Conn, remote string, size int) []byte {
@@ -225,11 +258,46 @@ func TestWriteGcodeLineCompletesShortTransportWrites(t *testing.T) {
 	}
 	select {
 	case frame := <-got:
-		if frame.Cmd != protocol.CmdCtrlMulti || string(frame.Data) != "$J X4.0000 F1.0000\n" {
+		if frame.Cmd != protocol.CmdCtrlMulti || string(frame.Data) != "$J X4.0000 F1.0000" {
 			t.Fatalf("short-write frame = cmd=%02x data=%q", byte(frame.Cmd), frame.Data)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("short transport writes never produced a complete frame")
+	}
+}
+
+func TestWriteConsoleCommandStripsOEMLineEnding(t *testing.T) {
+	clientSide, serverSide := net.Pipe()
+	defer clientSide.Close()
+	defer serverSide.Close()
+
+	conn := New(clientSide)
+	got := make(chan protocol.Frame, 1)
+	go func() {
+		var scan protocol.Scanner
+		buf := make([]byte, 64)
+		for {
+			n, err := serverSide.Read(buf)
+			for _, frame := range scan.Push(buf[:n]) {
+				got <- frame
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	if err := conn.WriteConsoleCommand("play /sd/gcodes/test.nc\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case frame := <-got:
+		if frame.Cmd != protocol.CmdCtrlMulti || string(frame.Data) != "play /sd/gcodes/test.nc" {
+			t.Fatalf("console frame = cmd=%02x data=%q", byte(frame.Cmd), frame.Data)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("console command never produced a complete frame")
 	}
 }
 

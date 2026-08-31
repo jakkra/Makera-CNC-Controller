@@ -21,11 +21,13 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/uwin/cnc-proxy/internal/attention"
 	"github.com/uwin/cnc-proxy/internal/carveratest"
 	"github.com/uwin/cnc-proxy/internal/client"
 	"github.com/uwin/cnc-proxy/internal/httpauth"
 	"github.com/uwin/cnc-proxy/internal/jog"
 	"github.com/uwin/cnc-proxy/internal/machine"
+	"github.com/uwin/cnc-proxy/internal/notifications"
 	"github.com/uwin/cnc-proxy/internal/service"
 	"github.com/uwin/cnc-proxy/internal/session"
 	"github.com/uwin/cnc-proxy/internal/store"
@@ -51,6 +53,16 @@ func get(t *testing.T, url string) *http.Response {
 func md5Hex(content []byte) string {
 	sum := md5.Sum(content)
 	return hex.EncodeToString(sum[:])
+}
+
+type apiNotificationSender struct {
+	messages []notifications.Message
+}
+
+func (s *apiNotificationSender) Name() string { return "test" }
+func (s *apiNotificationSender) Send(_ context.Context, msg notifications.Message) error {
+	s.messages = append(s.messages, msg)
+	return nil
 }
 
 func apiSeedMachineFile(t *testing.T, addr, remote string, content []byte) {
@@ -94,6 +106,53 @@ func TestPostFileRawBody(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&entry)
 	if entry.Path != "/sd/gcodes/part.nc" || entry.Sync != store.PendingUpload {
 		t.Errorf("entry = %+v", entry)
+	}
+}
+
+func TestReadOnlyObserverModeRejectsMutationsAndKeepsStatusAvailable(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	arb := session.New(session.Config{Dial: func() (*client.Conn, error) { return nil, io.EOF }})
+	svc, err := service.New(st, arb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(NewWithOptions(svc, Options{ReadOnly: true}).Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/capabilities")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("capabilities status = %d", resp.StatusCode)
+	}
+	var caps struct {
+		ReadOnly bool `json:"read_only"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&caps); err != nil || !caps.ReadOnly {
+		t.Fatalf("capabilities = %+v err=%v, want read_only", caps, err)
+	}
+
+	mutating, err := http.Post(srv.URL+"/api/control", "application/json", strings.NewReader(`{"action":"halt"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mutating.Body.Close()
+	if mutating.StatusCode != http.StatusForbidden {
+		t.Fatalf("mutation status = %d, want %d", mutating.StatusCode, http.StatusForbidden)
+	}
+
+	status, err := http.Get(srv.URL + "/api/machine")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer status.Body.Close()
+	if status.StatusCode != http.StatusOK {
+		t.Fatalf("machine status = %d, want %d", status.StatusCode, http.StatusOK)
 	}
 }
 
@@ -763,6 +822,105 @@ func TestRunsEndpointDerivesObservedRun(t *testing.T) {
 	}
 	if len(runs) != 0 {
 		t.Fatalf("runs after clear = %+v, want empty", runs)
+	}
+}
+
+func TestAttentionEndpointDeduplicatesAndResolvesPause(t *testing.T) {
+	srv, _, tr := serverWithMachine(t)
+	tr.ObserveStatusPayload("<Run|MPos:0,0,0>")
+	tr.ObserveStatusPayload("<Pause|MPos:0,0,0>")
+	tr.ObserveStatusPayload("<Pause|MPos:0,0,0>")
+
+	var snapshot attention.Snapshot
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		resp := get(t, srv.URL+"/api/attention")
+		if got := resp.Header.Get("Cache-Control"); got != "no-store" {
+			resp.Body.Close()
+			t.Fatalf("Cache-Control = %q, want no-store", got)
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&snapshot); err != nil {
+			resp.Body.Close()
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if snapshot.Active != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if snapshot.Active == nil || snapshot.Active.Kind != attention.KindPause || len(snapshot.Events) != 1 {
+		t.Fatalf("pause snapshot = %+v", snapshot)
+	}
+
+	tr.ObserveStatusPayload("<Run|MPos:0,0,0>")
+	deadline = time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		resp := get(t, srv.URL+"/api/attention")
+		if err := json.NewDecoder(resp.Body).Decode(&snapshot); err != nil {
+			resp.Body.Close()
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if snapshot.Active == nil && len(snapshot.Events) == 1 && !snapshot.Events[0].Active {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("resolved snapshot = %+v", snapshot)
+}
+
+func TestNotificationEndpointsDisabledAndConfigured(t *testing.T) {
+	disabled, _ := newTestServer(t)
+	resp := get(t, disabled.URL+"/api/notifications")
+	var disabledSnapshot notifications.Snapshot
+	if err := json.NewDecoder(resp.Body).Decode(&disabledSnapshot); err != nil {
+		resp.Body.Close()
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if disabledSnapshot.Enabled {
+		t.Fatalf("disabled snapshot = %+v", disabledSnapshot)
+	}
+	resp, err := http.Post(disabled.URL+"/api/notifications/test", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("disabled test status = %d, want 409", resp.StatusCode)
+	}
+
+	st, _ := store.Open(filepath.Join(t.TempDir(), "state.json"))
+	arb := session.New(session.Config{Dial: func() (*client.Conn, error) { return nil, io.EOF }})
+	svc, err := service.New(st, arb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &apiNotificationSender{}
+	dispatcher, err := notifications.New(notifications.Config{Sender: sender, MachineName: "Shop Z1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	configured := httptest.NewServer(NewWithOptions(svc, Options{Notifications: dispatcher}).Handler())
+	defer configured.Close()
+	resp, err = http.Post(configured.URL+"/api/notifications/test", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || len(sender.messages) != 1 {
+		t.Fatalf("configured test status=%d messages=%d", resp.StatusCode, len(sender.messages))
+	}
+	resp = get(t, configured.URL+"/api/notifications")
+	var snapshot notifications.Snapshot
+	if err := json.NewDecoder(resp.Body).Decode(&snapshot); err != nil {
+		resp.Body.Close()
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if !snapshot.Enabled || snapshot.Provider != "test" || len(snapshot.Deliveries) != 1 || snapshot.Deliveries[0].State != notifications.DeliverySent {
+		t.Fatalf("configured snapshot = %+v", snapshot)
 	}
 }
 
@@ -2825,6 +2983,53 @@ func TestEventsControlScopeStreamsLiveMachineStatus(t *testing.T) {
 	}
 	if status.State != machine.Run || status.WPos["x"] != 4 || status.ProbeV == nil || *status.ProbeV != 3.71 || status.ATCState == nil || *status.ATCState != 2 || status.LevelDelta == nil || *status.LevelDelta != 0.25 {
 		t.Fatalf("streamed machine status = %+v", status)
+	}
+}
+
+func TestEventsControlScopeStreamsAttentionChange(t *testing.T) {
+	srv, _, tr := serverWithMachine(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/events?scope=control", nil)
+	resp := do(t, req)
+	defer resp.Body.Close()
+	scanner := bufio.NewScanner(resp.Body)
+	readEvent := func() (string, string) {
+		t.Helper()
+		var event, data string
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line == "" && event != "" {
+				return event, data
+			}
+			if strings.HasPrefix(line, "event: ") {
+				event = strings.TrimPrefix(line, "event: ")
+			} else if strings.HasPrefix(line, "data: ") {
+				data = strings.TrimPrefix(line, "data: ")
+			}
+		}
+		t.Fatalf("event stream ended: %v", scanner.Err())
+		return "", ""
+	}
+	if event, data := readEvent(); event != "snapshot" || !strings.Contains(data, `"attention"`) {
+		t.Fatalf("first event = %q data=%s, want snapshot with attention", event, data)
+	}
+
+	tr.ObserveStatusPayload("<Run|MPos:0,0,0>")
+	tr.ObserveStatusPayload("<Tool|MPos:0,0,0|T:2,1.25,4>")
+	for {
+		event, data := readEvent()
+		if event != "attention" {
+			continue
+		}
+		var change attention.Change
+		if err := json.Unmarshal([]byte(data), &change); err != nil {
+			t.Fatal(err)
+		}
+		if change.Kind != attention.ChangeOpened || change.Event.Kind != attention.KindToolChange || change.Event.Tool == nil || change.Event.Tool.Target == nil || *change.Event.Tool.Target != 4 {
+			t.Fatalf("attention change = %+v", change)
+		}
+		return
 	}
 }
 

@@ -38,6 +38,7 @@ func (e machineCompletedError) Unwrap() error { return e.err }
 
 const (
 	defaultPostUploadCheckTimeout = 2 * time.Second
+	defaultMetadataCheckTimeout   = 2 * time.Second
 	zeroByteUploadSettle          = 15 * time.Second
 )
 
@@ -47,6 +48,7 @@ type Engine struct {
 	arb                    *session.Arbiter
 	opTimeout              time.Duration
 	postUploadCheckTimeout time.Duration
+	metadataCheckTimeout   time.Duration
 
 	// backoff bounds. A failed job's next attempt waits up to maxBackoff.
 	baseBackoff time.Duration
@@ -77,6 +79,10 @@ type Config struct {
 	// The upload is already accepted once FILE_END arrives; this check must
 	// never hold the queue for the full operation timeout.
 	PostUploadCheckTimeout time.Duration
+	// MetadataCheckTimeout bounds best-effort md5sum checks during periodic and
+	// startup reconcile. These checks must never starve status polling for the
+	// full file-operation timeout when a WiFi bridge does not answer md5sum.
+	MetadataCheckTimeout time.Duration
 	// Compress enables QuickLZ compression for large uploads when the firmware
 	// advertises ".lz" support. Defaults to true.
 	Compress *bool
@@ -99,6 +105,9 @@ func New(cfg Config) *Engine {
 	if cfg.PostUploadCheckTimeout == 0 {
 		cfg.PostUploadCheckTimeout = defaultPostUploadCheckTimeout
 	}
+	if cfg.MetadataCheckTimeout == 0 {
+		cfg.MetadataCheckTimeout = defaultMetadataCheckTimeout
+	}
 	compress := true
 	if cfg.Compress != nil {
 		compress = *cfg.Compress
@@ -108,12 +117,25 @@ func New(cfg Config) *Engine {
 		arb:                    cfg.Arbiter,
 		opTimeout:              cfg.OpTimeout,
 		postUploadCheckTimeout: cfg.PostUploadCheckTimeout,
+		metadataCheckTimeout:   cfg.MetadataCheckTimeout,
 		baseBackoff:            cfg.BaseBackoff,
 		maxBackoff:             cfg.MaxBackoff,
 		maxAttempts:            cfg.MaxAttempts,
 		compress:               compress,
 		now:                    time.Now,
 	}
+}
+
+// supportsMetadataMD5 is deliberately model-gated. Production Z1 firmware
+// 1.1.2 does not answer the console md5sum command, while transfer handshakes
+// still provide and verify MD5. Repeatedly probing md5sum would monopolize the
+// serialized machine path and make otherwise healthy status appear stale.
+func (e *Engine) supportsMetadataMD5() bool {
+	if e.store == nil {
+		return true
+	}
+	model := strings.ToLower(strings.TrimSpace(e.store.UISettings().Machine.Learned.Identity.Model))
+	return !strings.Contains(model, "z1")
 }
 
 // Run drives the queue until ctx is canceled, polling at the given interval.
