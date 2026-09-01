@@ -107,11 +107,12 @@ test("disabled jog capability is stable and never opens a WebSocket", () => {
     },
   };
   const ctx = buildContext(
-    ["clearJogReconnect", "resetJogInputSender", "disableJogConnection", "connectJog"],
+    ["clearJogReconnect", "resetJogInputSender", "clearDisconnectedJogInput", "disableJogConnection", "connectJog"],
     [],
     {
       state,
       clearTimeout: () => {},
+      resetMobileWorkAreaJog: () => false,
       renderJog: () => {},
       window: {},
       WebSocket: function WebSocket() { socketCreates++; },
@@ -776,7 +777,7 @@ test("tab URL updates are canonical and avoid duplicate history entries", () => 
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ method: "push", state: { tab: "files" }, url: "/files" }]);
 });
 
-test("leaving Control requests a Movement disarm and releases live input", () => {
+test("leaving either movement view requests a Movement disarm and releases live input", () => {
   const calls = [];
   const state = {
     activeTab: "control",
@@ -803,6 +804,43 @@ test("leaving Control requests a Movement disarm and releases live input", () =>
   calls.length = 0;
   assert.equal(vm.runInContext(`disarmMovementOnControlExit("control")`, ctx), false);
   assert.deepEqual(calls, []);
+
+  state.activeTab = "jog";
+  assert.equal(vm.runInContext(`disarmMovementOnControlExit("active-job")`, ctx), true);
+  assert.deepEqual(calls, [["release", true], ["arm-action", "disarm"]]);
+  calls.length = 0;
+  assert.equal(vm.runInContext(`disarmMovementOnControlExit("jog")`, ctx), false);
+  assert.deepEqual(calls, []);
+});
+
+test("jog disconnect clears every local continuous-motion intent", () => {
+  const state = {
+    jog: {
+      surfaceInput: { axis: "x", sign: 1 },
+      surfaceWheel: { pointerId: 7, remainder: 19 },
+      pad: "Surface",
+      deadman: true,
+      axes: { x: 1, y: 0, z: 0 },
+      buttons: [true],
+      lastInput: { deadman: true, axes: { x: 1, y: 0, z: 0 } },
+      lastInputSentAt: 42,
+    },
+  };
+  const ctx = buildContext(
+    ["resetJogInputSender", "clearDisconnectedJogInput"],
+    [],
+    { state, resetMobileWorkAreaJog: () => true },
+  );
+  vm.runInContext("clearDisconnectedJogInput()", ctx);
+  assert.equal(state.jog.surfaceInput, null);
+  assert.equal(state.jog.surfaceWheel.pointerId, null);
+  assert.equal(state.jog.surfaceWheel.remainder, 0);
+  assert.equal(state.jog.pad, "");
+  assert.equal(state.jog.deadman, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(state.jog.axes)), { x: 0, y: 0, z: 0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(state.jog.buttons)), []);
+  assert.equal(state.jog.lastInput, null);
+  assert.equal(state.jog.lastInputSentAt, 0);
 });
 
 test("leaving Control while Arm is pending disarms immediately after its acknowledgement", () => {
@@ -5000,4 +5038,30 @@ test("3D probe action does not submit a predicted soft-limit conflict", async ()
   assert.equal(state.jog.probe3DPending, false);
   assert.deepEqual(state.jog.target, { x: -250, y: -160, z: -90 }, "rejected probe retains the Tap Move marker");
   assert.equal(state.jog.targetLabel, "X -250.0 Y -160.0");
+});
+
+test("Surface automatic routing is local-device-only and maps machine state to the agreed views", () => {
+  const calls = [];
+  const state = { surface: { auto_switch: true, start_view: "jog" }, machine: { state: "Idle" }, activeTab: "dashboard" };
+  const ctx = buildContext(["applySurfaceAutomaticView"], [], {
+    state,
+    isSurfaceKiosk: () => true,
+    showTab: (...args) => calls.push(args),
+  });
+  vm.runInContext("applySurfaceAutomaticView()", ctx);
+  assert.deepEqual(calls.pop(), ["jog", "replace"]);
+  state.machine.state = "Run";
+  vm.runInContext("applySurfaceAutomaticView()", ctx);
+  assert.deepEqual(calls.pop(), ["active-job", "replace"]);
+  state.machine.state = "Tool";
+  vm.runInContext("applySurfaceAutomaticView()", ctx);
+  assert.deepEqual(calls.pop(), ["attention", "replace"]);
+  state.surface.auto_switch = false;
+  vm.runInContext("applySurfaceAutomaticView()", ctx);
+  assert.equal(calls.length, 0);
+});
+
+test("Surface map remains a preview until the server supports a held target move", () => {
+  const mapBinding = extractFunction("bindSurfaceXYMap");
+  assert.doesNotMatch(mapBinding, /sendTapMove|sendJog\(/);
 });

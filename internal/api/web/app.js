@@ -32,7 +32,9 @@ const ACTIVE_JOB_SPLIT_STEP_PERCENT = 2;
 const ACTIVE_JOB_SPLIT_MIN_LEFT_PX = 260;
 const ACTIVE_JOB_SPLIT_MIN_PREVIEW_PX = 320;
 const ACTIVE_JOB_SPLITTER_PX = 16;
-const VIEW_TABS = ["dashboard", "active-job", "control", "files"];
+const VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files", "attention"];
+const NAV_VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files"];
+const SURFACE_VIEW_PREFERENCES_KEY = "cnc-proxy.surface-view-preferences.v1";
 const DASHBOARD_PANEL_DEFS = [{ id: "machine", label: "Machine" }, { id: "job", label: "Current job" }, { id: "telemetry", label: "Machine telemetry" }, { id: "gcode", label: "Gcode stream" }];
 const JOG_INPUT_HEARTBEAT_MS = 100;
 const JOG_INPUT_DEADZONE = 0.12;
@@ -70,6 +72,7 @@ const state = {
   machineLearnPending: false,
   macroRunning: false,
   activeTab: "active-job",
+  surface: loadSurfaceViewPreferences(),
   activeJobLeftTab: "source",
   activeJobSplitPercent: ACTIVE_JOB_SPLIT_DEFAULT_PERCENT,
   dashboardProfileID: "overview",
@@ -131,6 +134,7 @@ const state = {
     targetLabel: "",
     zStepPending: 0,
     zStepLabel: "",
+    surfaceStepPending: 0,
     commandDisarm: null,
     zProbePending: false,
     probe3DPending: false,
@@ -155,6 +159,8 @@ const state = {
     lastInput: null,
     lastInputSentAt: 0,
     inputSuspended: false,
+    surfaceInput: null,
+    surfaceWheel: { pointerId: null, lastY: 0, remainder: 0, value: 0 },
     outlineCaptureIntents: [],
   },
   outline: defaultOutlineState(),
@@ -523,6 +529,43 @@ function defaultGamepadSettings() {
     outline_button: 7,
     macro_buttons: [],
   };
+}
+
+function defaultSurfaceViewPreferences() {
+  return { auto_switch: true, start_view: "jog", method: "directional", motion: "step", step_mm: 1, mpg_axis: "x", position_space: "work" };
+}
+
+function loadSurfaceViewPreferences() {
+  const fallback = defaultSurfaceViewPreferences();
+  try {
+    const raw = globalThis.localStorage?.getItem(SURFACE_VIEW_PREFERENCES_KEY);
+    if (!raw) return fallback;
+    const saved = JSON.parse(raw);
+    return {
+      auto_switch: saved?.auto_switch !== false,
+      start_view: ["jog", "active-job", "dashboard"].includes(saved?.start_view) ? saved.start_view : fallback.start_view,
+      method: saved?.method === "mpg" ? "mpg" : "directional",
+      motion: saved?.motion === "hold" ? "hold" : "step",
+      step_mm: [10, 1, 0.1, 0.01].includes(Number(saved?.step_mm)) ? Number(saved.step_mm) : fallback.step_mm,
+      mpg_axis: ["x", "y", "z"].includes(saved?.mpg_axis) ? saved.mpg_axis : fallback.mpg_axis,
+      position_space: saved?.position_space === "machine" ? "machine" : fallback.position_space,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveSurfaceViewPreferences() {
+  try {
+    globalThis.localStorage?.setItem(SURFACE_VIEW_PREFERENCES_KEY, JSON.stringify(state.surface));
+  } catch {
+    // Per-device view preferences are optional; a storage restriction must not
+    // affect machine control.
+  }
+}
+
+function isSurfaceKiosk() {
+  return typeof window !== "undefined" && window.matchMedia?.("(any-pointer: coarse) and (min-width: 700px)")?.matches === true;
 }
 
 function defaultMachineSettings() {
@@ -947,14 +990,14 @@ function applyAPICapabilities(caps) {
   state.readOnly = !!caps?.read_only;
   document.body.classList.toggle("read-only", state.readOnly);
   for (const id of [
-    "command-actions", "ctl-halt", "tab-control", "tab-files",
+    "command-actions", "ctl-halt", "tab-jog", "tab-control", "tab-files",
     "active-gcode-run", "active-gcode-pause", "paused-job-controls",
     "feed-override-controls", "alarm-actions",
   ]) {
     const element = document.getElementById(id);
     if (element) element.hidden = state.readOnly;
   }
-  if (state.readOnly && ["control", "files"].includes(state.activeTab)) {
+  if (state.readOnly && ["jog", "control", "files"].includes(state.activeTab)) {
     showTab("dashboard", "replace");
   }
 }
@@ -1836,7 +1879,7 @@ function renderJog() {
   dead.textContent = j.deadman ? "on" : "off";
   dead.className = j.deadman ? "on" : "";
   const msg = jogPanelMessage();
-  if (state.activeTab === "control") setStatusMessage("jog-availability", msg.text, msg.kind);
+  if (state.activeTab === "control" || state.activeTab === "jog") setStatusMessage("jog-availability", msg.text, msg.kind);
   else clearNotice("jog-availability");
   const arm = document.getElementById("jog-arm");
   setTextIfChanged(arm, j.armPending ? (j.armPendingAction === "arm" ? "Arming..." : "Disarming...") :
@@ -1876,6 +1919,140 @@ function renderJog() {
   const plot = document.getElementById("workarea-plot");
   if (plot) plot.classList.toggle("not-armed", !j.armed);
   renderWorkArea();
+  renderSurfaceJog();
+}
+
+function surfaceJogReady() {
+  return !!state.jog.caps?.enabled && state.jog.link === "online" && state.jog.armed &&
+    !tapMoveTargetBusy() && !state.jog.zStepPending && !state.jog.surfaceStepPending && !hasPendingOriginOperation();
+}
+
+function renderSurfaceJog() {
+  const surface = state.surface;
+  const j = state.jog;
+  const ready = surfaceJogReady();
+  const busy = !!j.surfaceStepPending || !!j.zStepPending || tapMoveTargetBusy() || hasPendingOriginOperation();
+  const arm = document.getElementById("surface-jog-arm");
+  if (arm) {
+    setTextIfChanged(arm, j.armPending ? (j.armPendingAction === "arm" ? "Arming..." : "Disarming...") : (j.armed ? "Disarm Movement" : "Arm Movement"));
+    arm.classList.toggle("armed", j.armed);
+    arm.disabled = !!j.armPending || !!j.armQueuedAction;
+    setSoftDisabled(arm, !arm.disabled && (!!j.caps && !j.caps.enabled));
+  }
+  for (const id of ["surface-jog-motion", "surface-jog-step", "surface-auto-switch", "surface-start-view"]) {
+    const el = document.getElementById(id);
+    if (!el || el === document.activeElement) continue;
+    if (id === "surface-jog-motion") el.value = surface.motion;
+    else if (id === "surface-jog-step") el.value = String(surface.step_mm);
+    else if (id === "surface-auto-switch") el.checked = surface.auto_switch;
+    else el.value = surface.start_view;
+  }
+  document.getElementById("surface-directional-panel")?.toggleAttribute("hidden", surface.method !== "directional");
+  document.getElementById("surface-mpg-panel")?.toggleAttribute("hidden", surface.method !== "mpg");
+  document.getElementById("surface-jog-directional")?.setAttribute("aria-pressed", String(surface.method === "directional"));
+  document.getElementById("surface-jog-mpg")?.setAttribute("aria-pressed", String(surface.method === "mpg"));
+  document.getElementById("surface-position-work")?.setAttribute("aria-pressed", String(surface.position_space !== "machine"));
+  document.getElementById("surface-position-machine")?.setAttribute("aria-pressed", String(surface.position_space === "machine"));
+  const positions = currentAxisValues();
+  const position = surface.position_space === "machine" ? positions.mpos : positions.wpos;
+  for (const axis of ["x", "y", "z", "a"]) {
+    setTextIfChanged(document.getElementById("surface-position-" + axis), fmtCoord(axisValue(position, axis)));
+  }
+  const machineState = String(state.machine?.state || "Unknown");
+  setTextIfChanged(document.getElementById("surface-position-state"), machineState === "Idle" ? "Ready to position" : "Machine: " + machineState);
+  const detail = state.machine?.connected === false
+    ? "Machine connection unavailable"
+    : `${fmtActiveTool(state.machine?.tool)} · ${fmtSpindle(state.machine?.spindle)}`;
+  setTextIfChanged(document.getElementById("surface-position-detail"), detail);
+  const attentionDetails = {
+    Tool: "Tool change requested. Check the active job before continuing.",
+    Pause: "The job is paused and waiting for operator input.",
+    Wait: "The machine is waiting for operator input.",
+    Hold: "Motion is on hold. Check the active job before resuming.",
+    Alarm: "The machine reported an alarm. Inspect the alarm before continuing.",
+  };
+  setTextIfChanged(document.getElementById("attention-state"), "Machine state: " + machineState);
+  setTextIfChanged(document.getElementById("attention-detail"), attentionDetails[machineState] || "Open the active job for details and operator actions.");
+  for (const button of document.querySelectorAll(".surface-mpg-axis")) button.setAttribute("aria-pressed", String(button.dataset.surfaceMpgAxis === surface.mpg_axis));
+  for (const button of document.querySelectorAll("[data-surface-axis], [data-surface-z-sign], [data-surface-hold-sign]")) {
+    button.disabled = busy;
+    setSoftDisabled(button, !busy && !ready);
+  }
+  const wheel = document.getElementById("surface-mpg-wheel");
+  if (wheel) {
+    wheel.setAttribute("aria-valuenow", String(j.surfaceWheel.value));
+    wheel.setAttribute("aria-valuetext", `${j.surfaceWheel.value} increments on ${surface.mpg_axis.toUpperCase()}`);
+    wheel.classList.toggle("is-disabled", !ready);
+    wheel.tabIndex = ready ? 0 : -1;
+  }
+}
+
+function selectSurfaceJogMethod(method) {
+  state.surface.method = method === "mpg" ? "mpg" : "directional";
+  saveSurfaceViewPreferences();
+  renderSurfaceJog();
+}
+
+function selectSurfaceMPGAxis(axis) {
+  if (!["x", "y", "z"].includes(axis)) return;
+  state.surface.mpg_axis = axis;
+  saveSurfaceViewPreferences();
+  renderSurfaceJog();
+}
+
+function selectSurfacePositionSpace(space) {
+  state.surface.position_space = space === "machine" ? "machine" : "work";
+  saveSurfaceViewPreferences();
+  renderSurfaceJog();
+}
+
+function surfaceStepDistance() {
+  return [10, 1, 0.1, 0.01].includes(Number(state.surface.step_mm)) ? Number(state.surface.step_mm) : 1;
+}
+
+function sendSurfaceStep(axis, sign) {
+  if (!surfaceJogReady()) {
+    setStatusMessage("surface-jog", "Arm Movement after a fresh Idle status before jogging.", "error", { force: true });
+    return;
+  }
+  const distance = surfaceStepDistance() * (sign < 0 ? -1 : 1);
+  const seq = sendJog({ type: "step", axis, distance });
+  if (!seq) {
+    setStatusMessage("surface-jog", "Jog service is not connected.", "error", { force: true });
+    connectJog();
+    return;
+  }
+  state.jog.surfaceStepPending = seq;
+  state.jog.zStepLabel = `${axis.toUpperCase()}${distance >= 0 ? "+" : "−"} ${Math.abs(distance)} mm`;
+  setStatusMessage("surface-jog", "Sending " + state.jog.zStepLabel + "...", "", { timeoutMs: 0, force: true });
+  renderJog();
+}
+
+function beginSurfaceHoldJog(axis, sign) {
+  if (!surfaceJogReady()) {
+    setStatusMessage("surface-jog", "Arm Movement after a fresh Idle status before jogging.", "error", { force: true });
+    return false;
+  }
+  state.jog.surfaceInput = { axis, sign: sign < 0 ? -1 : 1 };
+  state.jog.pad = "Surface";
+  state.jog.deadman = true;
+  state.jog.axes = { x: axis === "x" ? (sign < 0 ? -1 : 1) : 0, y: axis === "y" ? (sign < 0 ? -1 : 1) : 0, z: axis === "z" ? (sign < 0 ? -1 : 1) : 0 };
+  setStatusMessage("surface-jog", "Jogging " + axis.toUpperCase() + "; release to stop.", "", { timeoutMs: 0, force: true });
+  sendJogInput({ deadman: true, axes: state.jog.axes }, true);
+  renderJog();
+  return true;
+}
+
+function stopSurfaceHoldJog() {
+  if (!state.jog.surfaceInput) return false;
+  state.jog.surfaceInput = null;
+  state.jog.pad = "";
+  state.jog.deadman = false;
+  state.jog.axes = { x: 0, y: 0, z: 0 };
+  if (state.jog.armed) sendJogInput({ deadman: false, axes: state.jog.axes }, true);
+  clearNotice("surface-jog");
+  renderJog();
+  return true;
 }
 
 function setSoftDisabled(el, disabled) {
@@ -10446,11 +10623,7 @@ function connectJog() {
     state.jog.ws = null;
     state.jog.link = "offline";
     state.jog.armed = false;
-    if (resetMobileWorkAreaJog()) {
-      state.jog.pad = "";
-      state.jog.deadman = false;
-      state.jog.axes = { x: 0, y: 0, z: 0 };
-    }
+    clearDisconnectedJogInput();
     state.jog.disarmAfterPendingArm = false;
     state.jog.sent.clear();
     failOutlineCaptureIntents("movement connection closed before the position was captured");
@@ -10481,6 +10654,10 @@ function connectJog() {
       state.jog.zStepPending = 0;
       state.jog.tapFeedback = "Z move failed: jog service disconnected.";
       state.jog.tapFeedbackKind = "error";
+    }
+    if (state.jog.surfaceStepPending) {
+      state.jog.surfaceStepPending = 0;
+      setStatusMessage("surface-jog", "Jog failed: jog service disconnected.", "error", { force: true });
     }
     if (state.jog.originPendingMode === "jog" && hasPendingOriginOperation()) {
       const label = originTargetLabel(state.jog.originPendingLabel, state.jog.originPendingTargets);
@@ -10522,7 +10699,7 @@ function disableJogConnection() {
   state.jog.armQueuedAction = "";
   state.jog.error = "";
   state.jog.errorCode = "";
-  resetJogInputSender();
+  clearDisconnectedJogInput();
   if (ws) {
     try {
       ws.close(1000, "jogging disabled");
@@ -10566,6 +10743,20 @@ function jogInputActive(input) {
 function resetJogInputSender() {
   state.jog.lastInput = null;
   state.jog.lastInputSentAt = 0;
+}
+
+function clearDisconnectedJogInput() {
+  resetMobileWorkAreaJog();
+  state.jog.surfaceInput = null;
+  if (state.jog.surfaceWheel) {
+    state.jog.surfaceWheel.pointerId = null;
+    state.jog.surfaceWheel.remainder = 0;
+  }
+  state.jog.pad = "";
+  state.jog.deadman = false;
+  state.jog.axes = { x: 0, y: 0, z: 0 };
+  state.jog.buttons = [];
+  resetJogInputSender();
 }
 
 function sendJogInput(msg, force = false) {
@@ -10687,7 +10878,8 @@ function requestMovementDisarm() {
 }
 
 function disarmMovementOnControlExit(nextTab) {
-  if (state.activeTab !== "control" || nextTab === "control") return false;
+  const movementView = state.activeTab === "control" || state.activeTab === "jog";
+  if (!movementView || nextTab === state.activeTab) return false;
   return requestMovementDisarm();
 }
 
@@ -11963,6 +12155,7 @@ function bindWorkAreaInteractions() {
 }
 
 function clearDisarmedMovementState() {
+  state.jog.surfaceInput = null;
   if (resetMobileWorkAreaJog()) {
     state.jog.pad = "";
     state.jog.deadman = false;
@@ -12115,6 +12308,10 @@ function applyJogEvent(ev) {
       state.jog.tapFeedback = "Z move sent: " + state.jog.zStepLabel;
       state.jog.tapFeedbackKind = "";
     }
+    if (ev.seq && ev.seq === state.jog.surfaceStepPending) {
+      state.jog.surfaceStepPending = 0;
+      setStatusMessage("surface-jog", state.jog.zStepLabel + " accepted; wait for the position readout to settle.", "", { force: true });
+    }
     if (ev.seq && ev.seq === state.jog.originPending) {
       if (state.jog.originPendingMode === "jog-reference") {
         state.jog.originPending = 0;
@@ -12188,6 +12385,10 @@ function applyJogEvent(ev) {
       state.jog.tapFeedback = "Z move failed: " + (ev.message || jogErrorText(ev.code));
       state.jog.tapFeedbackKind = "error";
     }
+    if (ev.seq && ev.seq === state.jog.surfaceStepPending) {
+      state.jog.surfaceStepPending = 0;
+      setStatusMessage("surface-jog", "Jog failed: " + (ev.message || jogErrorText(ev.code)), "error", { force: true });
+    }
     if (ev.seq && ev.seq === state.jog.originPending) {
       const label = originTargetLabel(state.jog.originPendingLabel, state.jog.originPendingTargets);
       clearOriginVerification();
@@ -12205,6 +12406,10 @@ function applyJogEvent(ev) {
       state.jog.zStepPending = 0;
       state.jog.tapFeedback = "Z move failed: " + (ev.message || jogErrorText(ev.code));
       state.jog.tapFeedbackKind = "error";
+    }
+    if (!ev.seq && terminalSessionError && state.jog.surfaceStepPending) {
+      state.jog.surfaceStepPending = 0;
+      setStatusMessage("surface-jog", "Jog failed: " + (ev.message || jogErrorText(ev.code)), "error", { force: true });
     }
     if (!ev.seq && terminalSessionError && state.jog.originPendingMode === "jog" && hasPendingOriginOperation()) {
       const label = originTargetLabel(state.jog.originPendingLabel, state.jog.originPendingTargets);
@@ -12337,6 +12542,15 @@ function sampleJog() {
       if (changed) renderJog();
       return;
     }
+    if (state.jog.surfaceInput) {
+      const { axis, sign } = state.jog.surfaceInput;
+      const axes = { x: axis === "x" ? sign : 0, y: axis === "y" ? sign : 0, z: axis === "z" ? sign : 0 };
+      state.jog.pad = "Surface";
+      state.jog.deadman = true;
+      state.jog.axes = axes;
+      if (state.jog.armed) sendJog({ type: "input", deadman: true, axes });
+      return;
+    }
     if (state.workarea?.mobileJogActive) {
       const axes = state.workarea.mobileJogAxes || { x: 0, y: 0, z: 0 };
       state.jog.pad = "Touch";
@@ -12389,7 +12603,9 @@ function sampleJog() {
 
 function releaseJogInput(force = false) {
   const touchChanged = resetMobileWorkAreaJog();
-  const changed = touchChanged || !!state.jog.pad || !!state.jog.deadman ||
+  const surfaceChanged = !!state.jog.surfaceInput;
+  state.jog.surfaceInput = null;
+  const changed = touchChanged || surfaceChanged || !!state.jog.pad || !!state.jog.deadman ||
     !sameJogAxes(state.jog.axes, { x: 0, y: 0, z: 0 }) ||
     (Array.isArray(state.jog.buttons) && state.jog.buttons.length > 0);
   state.jog.pad = "";
@@ -12446,6 +12662,7 @@ function applyMachineStatus(next, render = true) {
     state.externalJobObservedAt = 0;
   }
   syncActiveGcodeFromMachine(next);
+  applySurfaceAutomaticView();
   clearNotice("machine-status");
   if (render) renderMachine();
 }
@@ -12553,9 +12770,18 @@ function showTab(name, urlMode = "push") {
   if (name === "files") connectFilesSSE();
   if (name === "active-job") renderActiveGcode();
   if (name === "dashboard") renderDashboard();
-  if (name === "control") renderJog();
+  if (name === "control" || name === "jog") renderJog();
   else clearNotice("jog-availability");
   syncViewTabURL(name, urlMode);
+}
+
+function applySurfaceAutomaticView() {
+  if (!isSurfaceKiosk() || !state.surface.auto_switch || !state.machine?.state) return;
+  const machineState = String(state.machine.state);
+  const target = ["Tool", "Pause", "Wait", "Hold", "Alarm"].includes(machineState)
+    ? "attention"
+    : (machineState === "Run" ? "active-job" : (machineState === "Idle" ? state.surface.start_view : ""));
+  if (target && target !== state.activeTab) showTab(target, "replace");
 }
 
 function showActiveJobLeftTab(name) {
@@ -12723,6 +12949,102 @@ function initializeResponsiveControlSections(isMobile = window.matchMedia?.("(ma
   }
 }
 
+function bindSurfaceHoldButton(button, axis, sign, useSelectedAxis = false) {
+  if (!button) return;
+  let pointerId = null;
+  const targetAxis = () => useSelectedAxis ? state.surface.mpg_axis : axis;
+  const start = () => {
+    if (state.surface.motion === "step" && !useSelectedAxis) return;
+    beginSurfaceHoldJog(targetAxis(), sign);
+  };
+  const stop = () => stopSurfaceHoldJog();
+  button.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    pointerId = e.pointerId;
+    button.setPointerCapture?.(pointerId);
+    if (state.surface.motion === "hold" || useSelectedAxis) start();
+  });
+  button.addEventListener("pointerup", (e) => {
+    if (pointerId !== e.pointerId) return;
+    if (state.surface.motion === "hold" || useSelectedAxis) stop();
+    else sendSurfaceStep(targetAxis(), sign);
+    pointerId = null;
+  });
+  button.addEventListener("pointercancel", stop);
+  button.addEventListener("lostpointercapture", stop);
+  button.addEventListener("keydown", (e) => {
+    if (e.repeat || (e.key !== "Enter" && e.key !== " ")) return;
+    e.preventDefault();
+    if (state.surface.motion === "hold" || useSelectedAxis) start();
+    else sendSurfaceStep(targetAxis(), sign);
+  });
+  button.addEventListener("keyup", (e) => {
+    if (e.key === "Enter" || e.key === " ") stop();
+  });
+  button.addEventListener("click", (e) => e.preventDefault());
+}
+
+function bindSurfaceMPGWheel() {
+  const wheel = document.getElementById("surface-mpg-wheel");
+  if (!wheel) return;
+  const release = (e) => {
+    if (state.jog.surfaceWheel.pointerId !== e.pointerId) return;
+    state.jog.surfaceWheel.pointerId = null;
+    state.jog.surfaceWheel.remainder = 0;
+  };
+  wheel.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || !surfaceJogReady()) return;
+    state.jog.surfaceWheel.pointerId = e.pointerId;
+    state.jog.surfaceWheel.lastY = e.clientY;
+    state.jog.surfaceWheel.remainder = 0;
+    wheel.setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+  });
+  wheel.addEventListener("pointermove", (e) => {
+    if (state.jog.surfaceWheel.pointerId !== e.pointerId) return;
+    const delta = state.jog.surfaceWheel.lastY - e.clientY;
+    state.jog.surfaceWheel.lastY = e.clientY;
+    state.jog.surfaceWheel.remainder += delta;
+    while (Math.abs(state.jog.surfaceWheel.remainder) >= 28 && !state.jog.surfaceStepPending) {
+      const sign = state.jog.surfaceWheel.remainder > 0 ? 1 : -1;
+      state.jog.surfaceWheel.remainder -= 28 * sign;
+      state.jog.surfaceWheel.value += sign;
+      sendSurfaceStep(state.surface.mpg_axis, sign);
+    }
+    renderSurfaceJog();
+  });
+  wheel.addEventListener("pointerup", release);
+  wheel.addEventListener("pointercancel", release);
+  wheel.addEventListener("lostpointercapture", release);
+  wheel.addEventListener("keydown", (e) => {
+    if (!["ArrowUp", "ArrowRight", "ArrowDown", "ArrowLeft"].includes(e.key)) return;
+    e.preventDefault();
+    const sign = ["ArrowUp", "ArrowRight"].includes(e.key) ? 1 : -1;
+    if (state.jog.surfaceStepPending) return;
+    state.jog.surfaceWheel.value += sign;
+    sendSurfaceStep(state.surface.mpg_axis, sign);
+    renderSurfaceJog();
+  });
+}
+
+function bindSurfaceXYMap() {
+  const modal = document.getElementById("surface-xy-map-modal");
+  const plot = document.getElementById("surface-xy-map-plot");
+  const target = document.getElementById("surface-xy-map-target");
+  const close = () => modal?.close();
+  document.getElementById("surface-map-open")?.addEventListener("click", () => modal?.showModal());
+  document.getElementById("surface-map-close")?.addEventListener("click", close);
+  document.getElementById("surface-map-close-bottom")?.addEventListener("click", close);
+  modal?.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
+  plot?.addEventListener("pointerdown", (e) => {
+    const rect = plot.getBoundingClientRect();
+    const work = normalizeMachineSettings(state.ui.machine).work_area;
+    const x = work.x_min + clampNumber((e.clientX - rect.left) / Math.max(1, rect.width), 0, 1) * (work.x_max - work.x_min);
+    const y = work.y_max - clampNumber((e.clientY - rect.top) / Math.max(1, rect.height), 0, 1) * (work.y_max - work.y_min);
+    target.textContent = `X ${x.toFixed(1)}  Y ${y.toFixed(1)} mm`;
+  });
+}
+
 function init() {
   initializeResponsiveControlSections();
   applyDashboardURLState();
@@ -12731,19 +13053,19 @@ function init() {
   document.getElementById("header-toggle").onclick = () => setHeaderCollapsed(!document.body.classList.contains("header-collapsed"));
   initDashboardControlsMenu();
   initWorkAreaActionsMenu();
-  for (const [index, name] of VIEW_TABS.entries()) {
+  for (const [index, name] of NAV_VIEW_TABS.entries()) {
     const tab = document.getElementById("tab-" + name);
     tab.onclick = () => showTab(name);
     tab.onkeydown = (e) => {
       let next = index;
-      if (e.key === "ArrowRight") next = (index + 1) % VIEW_TABS.length;
-      else if (e.key === "ArrowLeft") next = (index - 1 + VIEW_TABS.length) % VIEW_TABS.length;
+      if (e.key === "ArrowRight") next = (index + 1) % NAV_VIEW_TABS.length;
+      else if (e.key === "ArrowLeft") next = (index - 1 + NAV_VIEW_TABS.length) % NAV_VIEW_TABS.length;
       else if (e.key === "Home") next = 0;
-      else if (e.key === "End") next = viewTabs.length - 1;
+      else if (e.key === "End") next = NAV_VIEW_TABS.length - 1;
       else return;
       e.preventDefault();
-      const nextTab = document.getElementById("tab-" + VIEW_TABS[next]);
-      showTab(VIEW_TABS[next]);
+      const nextTab = document.getElementById("tab-" + NAV_VIEW_TABS[next]);
+      showTab(NAV_VIEW_TABS[next]);
       nextTab.focus();
     };
   }
@@ -13063,6 +13385,48 @@ function init() {
   bindDataControlButtons();
   initCommandPopouts();
   bindButtonAction(document.getElementById("jog-arm"), toggleTapMoveArm);
+  bindButtonAction(document.getElementById("surface-jog-arm"), toggleTapMoveArm);
+  document.getElementById("surface-jog-directional").onclick = () => selectSurfaceJogMethod("directional");
+  document.getElementById("surface-jog-mpg").onclick = () => selectSurfaceJogMethod("mpg");
+  document.getElementById("surface-position-work").onclick = () => selectSurfacePositionSpace("work");
+  document.getElementById("surface-position-machine").onclick = () => selectSurfacePositionSpace("machine");
+  document.getElementById("surface-jog-motion").onchange = (e) => {
+    stopSurfaceHoldJog();
+    state.surface.motion = e.target.value === "hold" ? "hold" : "step";
+    saveSurfaceViewPreferences();
+    renderSurfaceJog();
+  };
+  document.getElementById("surface-jog-step").onchange = (e) => {
+    state.surface.step_mm = [10, 1, 0.1, 0.01].includes(Number(e.target.value)) ? Number(e.target.value) : 1;
+    saveSurfaceViewPreferences();
+  };
+  document.getElementById("surface-auto-switch").onchange = (e) => {
+    state.surface.auto_switch = !!e.target.checked;
+    saveSurfaceViewPreferences();
+    applySurfaceAutomaticView();
+  };
+  document.getElementById("surface-start-view").onchange = (e) => {
+    state.surface.start_view = ["jog", "active-job", "dashboard"].includes(e.target.value) ? e.target.value : "jog";
+    saveSurfaceViewPreferences();
+  };
+  for (const button of document.querySelectorAll("[data-surface-axis]")) {
+    bindSurfaceHoldButton(button, button.dataset.surfaceAxis, Number(button.dataset.surfaceSign), false);
+  }
+  for (const button of document.querySelectorAll("[data-surface-z-sign]")) {
+    bindSurfaceHoldButton(button, "z", Number(button.dataset.surfaceZSign), false);
+  }
+  for (const button of document.querySelectorAll("[data-surface-hold-sign]")) {
+    bindSurfaceHoldButton(button, "", Number(button.dataset.surfaceHoldSign), true);
+  }
+  for (const button of document.querySelectorAll(".surface-mpg-axis")) {
+    button.onclick = () => selectSurfaceMPGAxis(button.dataset.surfaceMpgAxis);
+  }
+  bindSurfaceMPGWheel();
+  bindSurfaceXYMap();
+  document.getElementById("surface-jog-settings-open").onclick = () => document.getElementById("surface-settings-modal")?.showModal();
+  document.getElementById("surface-settings-close").onclick = () => document.getElementById("surface-settings-modal")?.close();
+  document.getElementById("surface-open-active-job").onclick = () => showTab("active-job");
+  document.getElementById("attention-open-active-job").onclick = () => showTab("active-job");
 
   loadUISettings();
   loadAPICapabilities();

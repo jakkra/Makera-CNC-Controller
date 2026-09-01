@@ -61,6 +61,19 @@ hold-to-run confirmation and an explicit, verified safe-Z-then-XY sequence.
 Named locations such as front, clamp access and tool change may coexist with
 free XY target selection.
 
+### Current XY-map backend gap
+
+The first web implementation deliberately provides only the map's XY target
+preview. The existing `target` jog WebSocket message begins a move as soon as
+it is accepted, so it cannot truthfully provide the required hold-to-run
+interaction. Do not wire the map preview to that message. Server work is still
+needed for a server-authoritative target preview, continuous hold lease and
+verified safe-Z-then-XY execution before the map can move the machine.
+
+The current jog service exposes X/Y/Z only. A-axis controls remain absent from
+the Surface prototype until the backend can enforce the same motion lease and
+safety policy for that axis.
+
 ## Physical evaluation
 
 The three methods are intentionally implemented before choosing a winner. Test

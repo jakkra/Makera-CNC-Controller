@@ -1057,7 +1057,7 @@ func TestWebUIServed(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		`grid-template-columns: repeat(4, minmax(112px, 1fr))`,
+		`grid-template-columns: repeat(5, minmax(112px, 1fr))`,
 		`main > *, .view > .page-section { width: 100%; min-width: 0; }`,
 		`role="tablist"`,
 		`role="tab" aria-selected="true" aria-controls="active-job-view"`,

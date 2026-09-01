@@ -103,13 +103,60 @@
   @media (prefers-reduced-motion: reduce) {
     .status-item.entering, .status-item.leaving { animation-duration: .01ms; }
   }
-  .tabs { display: grid; grid-template-columns: repeat(4, minmax(112px, 1fr)); gap: 4px; min-width: 0; margin: 0; padding: 4px; background: rgba(14,18,19,.55); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; scrollbar-width: none; }
+  .tabs { display: grid; grid-template-columns: repeat(5, minmax(112px, 1fr)); gap: 4px; min-width: 0; margin: 0; padding: 4px; background: rgba(14,18,19,.55); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; scrollbar-width: none; }
   .tabs::-webkit-scrollbar { display: none; }
   .tab { width: 100%; min-width: 0; min-height: var(--control-h); border-color: transparent; border-radius: 4px; padding: 5px 12px; background: transparent; color: var(--muted); font-weight: 550; white-space: nowrap; }
   .tab:hover { border-color: rgba(87,166,214,.45); color: var(--text); }
   .tab.active { color: var(--text); border-color: rgba(87,166,214,.55); background: var(--panel-2); }
   .view { display: grid; gap: var(--gap-xl); min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
   .view[hidden] { display: none; }
+  .surface-jog { min-height: 0; display: grid; grid-template-columns: minmax(300px, 1fr) minmax(240px, .68fr); gap: var(--gap-lg); align-items: stretch; }
+  .surface-jog-panel { min-width: 0; padding: 18px; display: grid; gap: var(--gap-lg); background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+  .surface-jog-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-md); }
+  .surface-jog-heading h2 { color: var(--text); font-size: 16px; letter-spacing: .02em; text-transform: none; }
+  .surface-jog-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-sm); }
+  .surface-jog-options label { display: grid; gap: 4px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .surface-jog-options select { width: 100%; }
+  .surface-jog-mode { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; background: rgba(14,18,19,.55); border: 1px solid var(--border); border-radius: var(--radius); }
+  .surface-jog-mode button[aria-pressed="true"] { color: var(--text); background: var(--panel-2); border-color: rgba(87,166,214,.55); }
+  .surface-direction-pad { width: min(100%, 440px); aspect-ratio: 1; justify-self: center; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 8px; }
+  .surface-direction-pad button { min-height: 76px; font-size: clamp(20px, 3vw, 30px); font-weight: 750; justify-content: center; }
+  .surface-direction-pad button[data-surface-axis="x"][data-surface-sign="-1"] { grid-area: 2 / 1; }
+  .surface-direction-pad button[data-surface-axis="y"][data-surface-sign="1"] { grid-area: 1 / 2; }
+  .surface-direction-pad button[data-surface-axis="y"][data-surface-sign="-1"] { grid-area: 3 / 2; }
+  .surface-direction-pad button[data-surface-axis="x"][data-surface-sign="1"] { grid-area: 2 / 3; }
+  .surface-jog-center { grid-area: 2 / 2; display: grid; place-items: center; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; border: 1px dashed var(--border); border-radius: 50%; }
+  .surface-mpg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap-sm); }
+  .surface-mpg-axis[aria-pressed="true"] { border-color: rgba(87,166,214,.8); background: rgba(87,166,214,.15); color: var(--text); }
+  .surface-wheel { width: min(100%, 360px); aspect-ratio: 1; justify-self: center; display: grid; place-items: center; border: 18px solid #30393c; border-radius: 50%; background: radial-gradient(circle, #1c2427 0 48%, #121719 49%); color: var(--text); font-weight: 750; letter-spacing: .06em; touch-action: none; user-select: none; }
+  .surface-wheel:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+  .surface-wheel::before { content: "TURN"; display: grid; place-items: center; width: 48%; aspect-ratio: 1; border: 1px solid var(--border); border-radius: 50%; color: var(--muted); font-size: 12px; }
+  .surface-hold-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-sm); }
+  .surface-hold-controls button { min-height: 72px; justify-content: center; font-size: 18px; font-weight: 750; }
+  .surface-jog-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-sm); }
+  .surface-jog-actions button { min-height: 52px; justify-content: center; }
+  .surface-jog-actions button:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .surface-position-panel { align-content: start; grid-template-rows: auto auto auto auto; }
+  .surface-position-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; border-bottom: 1px solid var(--border); }
+  .surface-position-tabs button { min-height: 42px; border-color: transparent; background: transparent; }
+  .surface-position-tabs button[aria-pressed="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+  .surface-position-readout { display: grid; gap: 0; }
+  .surface-position-row { min-height: 74px; display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; border-bottom: 1px solid var(--border); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .surface-position-axis { color: var(--muted); font-size: 24px; font-weight: 700; }
+  .surface-position-value { color: var(--text); font-size: clamp(30px, 3.3vw, 48px); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+  .surface-position-unit { color: var(--muted); font-size: 14px; }
+  .surface-position-summary { display: grid; gap: 8px; color: var(--muted); }
+  .surface-position-summary strong { color: var(--text); }
+  .surface-position-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-sm); }
+  .surface-settings { width: min(520px, calc(100vw - 32px)); }
+  .surface-settings-body { display: grid; gap: var(--gap-md); padding: 16px; }
+  .surface-settings-body label { min-height: 44px; display: flex; gap: 10px; align-items: center; color: var(--muted); }
+  .surface-settings-body select { width: 100%; }
+  .surface-xy-map { width: min(720px, calc(100vw - 32px)); }
+  .surface-xy-map-body { display: grid; gap: var(--gap-md); padding: 16px; }
+  .surface-xy-map-plot { aspect-ratio: 1.5; width: 100%; border: 1px solid var(--border); border-radius: var(--radius); background: repeating-linear-gradient(0deg, transparent 0 39px, rgba(145,160,174,.10) 40px), repeating-linear-gradient(90deg, transparent 0 39px, rgba(145,160,174,.10) 40px), #12171c; touch-action: none; }
+  .surface-xy-map-target { min-height: 44px; display: grid; place-items: center; color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .surface-xy-map-actions { display: flex; justify-content: flex-end; }
   .page-section { display: grid; gap: var(--gap-sm); min-width: 0; }
   details { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); margin: 0; overflow: hidden; }
   summary { cursor: pointer; color: var(--muted); padding: 8px 10px; font-weight: 650; }
@@ -749,8 +796,12 @@
     .position-line b { min-width: 0; font-size: clamp(9px, 3vw, 11px); letter-spacing: -.02em; }
     .connection-status { width: 36px; height: 36px; }
     .badge { min-height: 32px; display: inline-flex; align-items: center; }
-    .tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: hidden; }
+    .tabs { display: flex; grid-template-columns: none; overflow-x: auto; }
+    .tab { flex: 0 0 auto; min-width: 104px; }
     .tab { min-height: 44px; }
+    .surface-jog { grid-template-columns: 1fr; }
+    .surface-jog-panel { padding: 12px; }
+    .surface-direction-pad button { min-height: 72px; }
     body[data-active-tab="dashboard"] #view-navigation { grid-template-columns: minmax(0, 1fr) 38px; }
     body[data-active-tab="dashboard"] .dashboard-controls { position: absolute; top: calc(100% + 8px); right: 10px; }
     #dashboard-controls-toggle { width: 44px; min-width: 44px; padding: 0; font-size: 0; }
@@ -1024,6 +1075,7 @@
     <nav class="tabs" role="tablist" aria-label="Views">
       <button type="button" id="tab-dashboard" class="tab" role="tab" aria-selected="false" aria-controls="dashboard-view" tabindex="-1">Dashboard</button>
       <button type="button" id="tab-active-job" class="tab active" role="tab" aria-selected="true" aria-controls="active-job-view">Active job</button>
+      <button type="button" id="tab-jog" class="tab" role="tab" aria-selected="false" aria-controls="jog-view" tabindex="-1">Jog</button>
       <button type="button" id="tab-control" class="tab" role="tab" aria-selected="false" aria-controls="control-view" tabindex="-1">Control</button>
       <button type="button" id="tab-files" class="tab" role="tab" aria-selected="false" aria-controls="files-view" tabindex="-1">Files</button>
     </nav>
@@ -1199,6 +1251,64 @@
           </div>
         </div>
       </div>
+    </section>
+  </section>
+
+  <section id="jog-view" class="view" role="tabpanel" aria-labelledby="tab-jog" hidden>
+    <section class="surface-jog" aria-label="Surface jog pendant">
+      <section class="surface-jog-panel">
+        <div class="surface-jog-heading"><h2>Position machine</h2><button type="button" id="surface-jog-arm">Arm Movement</button></div>
+        <div class="surface-jog-options">
+          <label>Motion<select id="surface-jog-motion"><option value="step">Step</option><option value="hold">Hold to move</option></select></label>
+          <label>Increment<select id="surface-jog-step"><option value="10">10 mm</option><option value="1" selected>1 mm</option><option value="0.1">0.1 mm</option><option value="0.01">0.01 mm</option></select></label>
+        </div>
+        <div class="surface-jog-mode" role="group" aria-label="Jog method">
+          <button type="button" id="surface-jog-directional" aria-pressed="true">Directional</button>
+          <button type="button" id="surface-jog-mpg" aria-pressed="false">Virtual MPG</button>
+        </div>
+        <div id="surface-directional-panel">
+          <div class="surface-direction-pad" aria-label="XY jog directions">
+            <button type="button" data-surface-axis="y" data-surface-sign="1" aria-label="Jog Y positive">Y+</button>
+            <button type="button" data-surface-axis="x" data-surface-sign="-1" aria-label="Jog X negative">X−</button>
+            <span class="surface-jog-center" aria-hidden="true">XY</span>
+            <button type="button" data-surface-axis="x" data-surface-sign="1" aria-label="Jog X positive">X+</button>
+            <button type="button" data-surface-axis="y" data-surface-sign="-1" aria-label="Jog Y negative">Y−</button>
+          </div>
+        </div>
+        <div id="surface-mpg-panel" hidden>
+          <div class="surface-mpg" role="group" aria-label="Virtual MPG axis">
+            <button type="button" class="surface-mpg-axis" data-surface-mpg-axis="x" aria-pressed="true">X axis</button>
+            <button type="button" class="surface-mpg-axis" data-surface-mpg-axis="y" aria-pressed="false">Y axis</button>
+            <button type="button" class="surface-mpg-axis" data-surface-mpg-axis="z" aria-pressed="false">Z axis</button>
+          </div>
+          <div id="surface-mpg-wheel" class="surface-wheel" role="slider" tabindex="0" aria-label="Virtual MPG wheel" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0 increments"></div>
+          <div class="surface-hold-controls"><button type="button" data-surface-hold-sign="-1" aria-label="Hold to move selected axis negative">− Hold</button><button type="button" data-surface-hold-sign="1" aria-label="Hold to move selected axis positive">+ Hold</button></div>
+        </div>
+        <div class="surface-jog-actions"><button type="button" data-surface-z-sign="1">Z+</button><button type="button" data-surface-z-sign="-1">Z−</button><button type="button" id="surface-map-open">XY map</button></div>
+      </section>
+      <aside class="surface-jog-panel surface-position-panel" aria-label="Live machine position">
+        <div class="surface-position-tabs" role="group" aria-label="Coordinate system">
+          <button type="button" id="surface-position-work" aria-pressed="true">Work position</button>
+          <button type="button" id="surface-position-machine" aria-pressed="false">Machine position</button>
+        </div>
+        <div class="surface-position-readout" aria-live="off">
+          <div class="surface-position-row"><span class="surface-position-axis">X</span><span class="surface-position-value" id="surface-position-x">—</span><span class="surface-position-unit">mm</span></div>
+          <div class="surface-position-row"><span class="surface-position-axis">Y</span><span class="surface-position-value" id="surface-position-y">—</span><span class="surface-position-unit">mm</span></div>
+          <div class="surface-position-row"><span class="surface-position-axis">Z</span><span class="surface-position-value" id="surface-position-z">—</span><span class="surface-position-unit">mm</span></div>
+          <div class="surface-position-row"><span class="surface-position-axis">A</span><span class="surface-position-value" id="surface-position-a">—</span><span class="surface-position-unit">°</span></div>
+        </div>
+        <div class="surface-position-summary"><strong id="surface-position-state">Machine state unknown</strong><span id="surface-position-detail">Waiting for machine status</span></div>
+        <div class="surface-position-actions"><button type="button" id="surface-open-active-job">Active job</button><button type="button" id="surface-jog-settings-open">Surface settings</button></div>
+      </aside>
+    </section>
+  </section>
+
+  <section id="attention-view" class="view" role="tabpanel" aria-label="Machine attention" hidden>
+    <section class="surface-jog-panel" aria-label="Machine attention">
+      <h2>Machine needs attention</h2>
+      <strong id="attention-state">Waiting for machine state</strong>
+      <p id="attention-detail">Open the active job for details and operator actions.</p>
+      <button type="button" id="attention-open-active-job">Open active job</button>
     </section>
   </section>
 
@@ -1563,6 +1673,22 @@
       <button type="button" id="probe-3d-cancel">Cancel</button>
       <button type="button" id="probe-3d-run" class="primary" aria-describedby="probe-3d-note probe-3d-preflight">Probe</button>
     </div>
+  </div>
+</dialog>
+<dialog id="surface-settings-modal" class="surface-settings" aria-labelledby="surface-settings-title">
+  <div class="machine-settings-modal-head"><h2 id="surface-settings-title">Surface controller</h2><button type="button" id="surface-settings-close" aria-label="Close Surface settings">Close</button></div>
+  <div class="surface-settings-body">
+    <label><input id="surface-auto-switch" type="checkbox" checked> Automatically switch view for machine state</label>
+    <label>Idle start view<select id="surface-start-view"><option value="jog">Position machine</option><option value="active-job">Active job</option><option value="dashboard">Dashboard</option></select></label>
+    <p class="muted">These preferences are stored only on this device.</p>
+  </div>
+</dialog>
+<dialog id="surface-xy-map-modal" class="surface-xy-map" aria-labelledby="surface-xy-map-title">
+  <div class="machine-settings-modal-head"><h2 id="surface-xy-map-title">XY target preview</h2><button type="button" id="surface-map-close" aria-label="Close XY map">Close</button></div>
+  <div class="surface-xy-map-body">
+    <div id="surface-xy-map-plot" class="surface-xy-map-plot" role="img" aria-label="XY travel map; selecting a point does not move the machine"></div>
+    <div id="surface-xy-map-target" class="surface-xy-map-target">No target selected</div>
+    <div class="surface-xy-map-actions"><button type="button" id="surface-map-close-bottom">Close</button></div>
   </div>
 </dialog>
 <dialog id="origin-set-modal" class="origin-modal" aria-labelledby="origin-set-title">
