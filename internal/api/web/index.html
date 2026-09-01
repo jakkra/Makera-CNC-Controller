@@ -1344,7 +1344,7 @@
       </details>
       </div>
     </div>
-    <button type="button" id="ctl-halt" class="danger" title="Software halt command">STOPP</button>
+    <button type="button" id="ctl-halt" class="danger" title="Software halt command">HALT</button>
     <div id="machine">
       <span id="status-connection" class="connection-status" role="img" aria-label="Machine connection unknown" title="Machine connection unknown"></span>
       <details id="machine-status-popout" class="machine-status-popout">
@@ -1402,10 +1402,10 @@
 </header>
 <nav id="surface-kiosk-nav" aria-label="Surface controller">
   <button type="button" class="surface-nav-button" data-surface-view="dashboard"><span class="surface-nav-icon" aria-hidden="true">◴</span><span>Overview</span></button>
-  <button type="button" class="surface-nav-button" data-surface-view="jog"><span class="surface-nav-icon" aria-hidden="true">⌖</span><span>Jogga</span></button>
+  <button type="button" class="surface-nav-button" data-surface-view="jog"><span class="surface-nav-icon" aria-hidden="true">⌖</span><span>Jog</span></button>
   <button type="button" class="surface-nav-button" data-surface-view="control"><span class="surface-nav-icon" aria-hidden="true">⌁</span><span>Probing</span></button>
   <button type="button" class="surface-nav-button" data-surface-view="active-job"><span class="surface-nav-icon" aria-hidden="true">▤</span><span>Active job</span></button>
-  <button type="button" class="surface-nav-button" data-surface-view="files"><span class="surface-nav-icon" aria-hidden="true">▱</span><span>Filer</span></button>
+  <button type="button" class="surface-nav-button" data-surface-view="files"><span class="surface-nav-icon" aria-hidden="true">▱</span><span>Files</span></button>
   <button type="button" class="surface-nav-button" data-surface-action="camera" title="Open camera monitoring"><span class="surface-nav-icon" aria-hidden="true">▣</span><span>Camera</span></button>
   <button type="button" class="surface-nav-button" data-surface-action="actions"><span class="surface-nav-icon" aria-hidden="true">⌕</span><span>Maintenance</span></button>
 </nav>
@@ -1585,15 +1585,15 @@
       <section class="surface-jog-panel surface-motion-panel">
         <div class="surface-jog-heading"><div><h2>JOG</h2><p>Manual machine movement</p></div><button type="button" id="surface-jog-arm">Arm Movement</button></div>
         <details id="surface-mobile-options" class="surface-mobile-options" open>
-          <summary><span>Precision &amp; val</span><span id="surface-jog-options-summary">Stegvis · 1 mm · Riktning</span></summary>
+          <summary><span>Precision &amp; controls</span><span id="surface-jog-options-summary">Step · 1 mm · Directional</span></summary>
           <div class="surface-options-content">
             <div class="surface-jog-options">
               <label>Motion<select id="surface-jog-motion"><option value="step">Step</option><option value="hold">Hold to move</option></select></label>
               <label>Increment<select id="surface-jog-step"><option value="10">10 mm</option><option value="1" selected>1 mm</option><option value="0.1">0.1 mm</option><option value="0.01">0.01 mm</option></select></label>
             </div>
             <div class="surface-jog-mode" role="group" aria-label="Jog method">
-              <button type="button" id="surface-jog-directional" aria-pressed="true">Riktning</button>
-              <button type="button" id="surface-jog-mpg" aria-pressed="false">Virtuell MPG</button>
+              <button type="button" id="surface-jog-directional" aria-pressed="true">Directional</button>
+              <button type="button" id="surface-jog-mpg" aria-pressed="false">Virtual MPG</button>
             </div>
             <div class="surface-kiosk-precision" role="group" aria-label="Step distance">
               <button type="button" data-surface-step="0.01" aria-pressed="false">0.01 mm</button>
@@ -1602,7 +1602,7 @@
               <button type="button" data-surface-step="10" aria-pressed="false">10 mm</button>
             </div>
             <div class="surface-kiosk-motion" role="group" aria-label="Motion mode">
-              <button type="button" data-surface-motion="step" aria-pressed="true">Stegvis</button>
+              <button type="button" data-surface-motion="step" aria-pressed="true">Step</button>
               <button type="button" data-surface-motion="hold" aria-pressed="false">Hold</button>
             </div>
           </div>

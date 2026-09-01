@@ -116,6 +116,7 @@ test("Overview and Jog mount one shared machine readout with work and machine co
   assert.match(htmlSource, /id="machine-readout-template"/);
   assert.doesNotMatch(htmlSource, /[åäö]/i);
   assert.doesNotMatch(source, /[åäö]/i);
+  assert.doesNotMatch(htmlSource, /\b(Jogga|Filer|STOPP|Stegvis|Riktning)\b/);
   const ctx = buildContext([
     "fmtCoord", "fmtDashboardFeed", "fmtDashboardSpindle", "fmtActiveTool",
     "toolDisplayName", "axisValue", "machineReadoutModel",
