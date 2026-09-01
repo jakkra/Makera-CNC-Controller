@@ -183,6 +183,7 @@ let outlineContextRevision = 1;
 
 const gcodeView = {
   key: "",
+  fitKey: "",
   canvas: null,
   empty: null,
   renderer: null,
@@ -8116,6 +8117,22 @@ function activeGcodeSourceSignature(active) {
   ]);
 }
 
+// A running job updates progress metadata for every executed G-code line. That
+// is deliberately not part of the camera identity: rebuilding the line mesh is
+// fine when its detail level changes, but an operator's orbit/zoom must remain
+// intact until the selected file itself changes.
+function gcodeCameraFitKey(path, entry = {}, preview = {}, hasToolpath = false) {
+  if (!hasToolpath) return "context-only";
+  return JSON.stringify([
+    String(path || ""),
+    entry.md5 || "",
+    Number(entry.size) || 0,
+    entry.mtime || "",
+    Number(preview.line_count) || 0,
+    preview.has_4axis ? "4" : "3",
+  ]);
+}
+
 function clearMissingActiveGcode() {
   state.activeGcode = {};
   clearNotice("active-gcode");
@@ -8808,6 +8825,8 @@ function drawGcodePreview(preview, live = null) {
   ].join(":") : "context-only";
   const key = `${pathKey}|${gcodeView.contextKey}`;
   const sceneBounds = combineGcodeBounds(hasToolpath ? preview.bounds : null, gcodeView.contextBounds);
+  const entry = state.activeGcode?.entry || state.files.get(state.activeGcode?.path || "") || {};
+  const fitKey = gcodeCameraFitKey(state.activeGcode?.path, entry, preview, hasToolpath);
   if (gcodeView.key !== key) {
     const renderedSegments = hasToolpath ? segments : [];
     gcodeView.key = key;
@@ -8815,7 +8834,10 @@ function drawGcodePreview(preview, live = null) {
     gcodeView.has4Axis = hasToolpath && !!preview.has_4axis;
     gcodeView.cursor = live ? live.cursor : renderedSegments.length;
     rebuildGcodeScene({ ...preview, bounds: sceneBounds }, renderedSegments);
-    if (sceneBounds) fitGcodeCamera(sceneBounds);
+    if (sceneBounds && gcodeView.fitKey !== fitKey) {
+      gcodeView.fitKey = fitKey;
+      fitGcodeCamera(sceneBounds);
+    }
   }
   gcodeView.live = live;
   if (live && !gcodeTimelineLocallyOwned()) {
@@ -9234,6 +9256,7 @@ function clearGcodeScene() {
   gcodeView.progressLine = null;
   gcodeView.marker.visible = false;
   gcodeView.key = "";
+  gcodeView.fitKey = "";
   gcodeView.contextKey = "";
   gcodeView.contextBounds = null;
   gcodeView.contextVisible = false;

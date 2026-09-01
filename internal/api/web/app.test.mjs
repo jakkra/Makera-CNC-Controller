@@ -633,6 +633,24 @@ test("active gcode uses the summary overview until streamed full geometry is rea
   assert.equal(vm.runInContext(`activeGcodeDisplaySegments(active).length`, ctx), 3);
 });
 
+test("Active Job keeps its camera fit while only live G-code progress changes", () => {
+  const ctx = buildContext(["gcodeCameraFitKey"]);
+  const entry = { md5: "same-file", size: 1212198, mtime: "2026-09-01T00:00:00Z" };
+  const preview = { line_count: 63980, has_4axis: true };
+  ctx.entry = entry;
+  ctx.preview = preview;
+  const initial = vm.runInContext(`gcodeCameraFitKey("/sd/gcodes/job.cnc", entry, preview, true)`, ctx);
+  preview.plotted_segments = 4321;
+  preview.total_distance = 9999;
+  const afterProgress = vm.runInContext(`gcodeCameraFitKey("/sd/gcodes/job.cnc", entry, preview, true)`, ctx);
+  assert.equal(afterProgress, initial, "executed lines must not refit the operator's camera");
+  assert.notEqual(
+    vm.runInContext(`gcodeCameraFitKey("/sd/gcodes/next-job.cnc", entry, preview, true)`, ctx),
+    initial,
+    "a different active file should receive an initial fit",
+  );
+});
+
 test("gcode source lines preserve instruction numbering across newline styles", () => {
   const ctx = buildContext(["splitGcodeSourceLines"]);
   const lines = JSON.parse(vm.runInContext(
