@@ -1997,7 +1997,10 @@ function renderSurfaceJog() {
   const busy = !!j.surfaceStepPending || !!j.zStepPending || tapMoveTargetBusy() || hasPendingOriginOperation();
   const arm = document.getElementById("surface-jog-arm");
   if (arm) {
-    setTextIfChanged(arm, movementArmLabel(j));
+    const armLabel = j.armPending
+      ? (j.armPendingAction === "arm" ? "Aktiverar..." : "Låser...")
+      : (j.armQueuedAction ? "Ansluter..." : (j.armed ? "Lås rörelse" : (movementOwnedElsewhere(j) ? "Lås annan kontroll" : "Aktivera rörelse")));
+    setTextIfChanged(arm, armLabel);
     arm.classList.toggle("armed", j.armed);
     arm.disabled = !!j.armPending || !!j.armQueuedAction || !movementArmAvailable();
   }
@@ -2021,12 +2024,22 @@ function renderSurfaceJog() {
     setTextIfChanged(document.getElementById("surface-position-" + axis), fmtCoord(axisValue(position, axis)));
   }
   const machineState = String(state.machine?.state || "Unknown");
-  setTextIfChanged(document.getElementById("surface-position-state"), machineState === "Idle" ? "Ready to position" : "Machine: " + machineState);
+  setTextIfChanged(document.getElementById("surface-position-state"), machineState === "Idle" ? "Redo att flytta" : "Maskin: " + machineState);
   const detail = state.machine?.connected === false
-    ? "Machine connection unavailable"
+    ? "Maskinanslutning saknas"
     : `${fmtActiveTool(state.machine?.tool)} · ${fmtSpindle(state.machine?.spindle)}`;
   setTextIfChanged(document.getElementById("surface-position-detail"), detail);
+  setTextIfChanged(document.getElementById("surface-machine-tool"), fmtActiveTool(state.machine?.tool));
+  setTextIfChanged(document.getElementById("surface-machine-spindle"), fmtSpindle(state.machine?.spindle));
+  setTextIfChanged(document.getElementById("surface-machine-connection"), state.machine?.connected ? "Ansluten" : "Frånkopplad");
+  setTextIfChanged(document.getElementById("surface-footer-state"), machineState === "Idle" ? "Maskinen är redo" : `Maskin: ${machineState}`);
   setTextIfChanged(document.getElementById("surface-jog-options-summary"), surfaceJogOptionsSummary(surface));
+  for (const button of document.querySelectorAll("[data-surface-step]")) {
+    button.setAttribute("aria-pressed", String(Number(button.dataset.surfaceStep) === surfaceStepDistance()));
+  }
+  for (const button of document.querySelectorAll("[data-surface-motion]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.surfaceMotion === surface.motion));
+  }
   for (const button of document.querySelectorAll(".surface-mpg-axis")) button.setAttribute("aria-pressed", String(button.dataset.surfaceMpgAxis === surface.mpg_axis));
   for (const button of document.querySelectorAll("[data-surface-axis], [data-surface-z-sign], [data-surface-hold-sign]")) {
     button.disabled = busy;
@@ -2042,9 +2055,9 @@ function renderSurfaceJog() {
 }
 
 function surfaceJogOptionsSummary(surface = state.surface) {
-  const motion = surface.motion === "hold" ? "Hold" : "Step";
+  const motion = surface.motion === "hold" ? "Håll" : "Stegvis";
   const step = [10, 1, 0.1, 0.01].includes(Number(surface.step_mm)) ? Number(surface.step_mm) : 1;
-  const method = surface.method === "mpg" ? "MPG" : "Directional";
+  const method = surface.method === "mpg" ? "MPG" : "Riktning";
   return `${motion} · ${step} mm · ${method}`;
 }
 
@@ -2077,6 +2090,30 @@ function selectSurfacePositionSpace(space) {
   state.surface.position_space = space === "machine" ? "machine" : "work";
   saveSurfaceViewPreferences();
   renderSurfaceJog();
+}
+
+function selectSurfaceStep(step) {
+  const value = Number(step);
+  state.surface.step_mm = [10, 1, 0.1, 0.01].includes(value) ? value : 1;
+  const select = document.getElementById("surface-jog-step");
+  if (select) select.value = String(state.surface.step_mm);
+  saveSurfaceViewPreferences();
+  renderSurfaceJog();
+}
+
+function selectSurfaceMotion(motion) {
+  stopSurfaceHoldJog();
+  state.surface.motion = motion === "hold" ? "hold" : "step";
+  const select = document.getElementById("surface-jog-motion");
+  if (select) select.value = state.surface.motion;
+  saveSurfaceViewPreferences();
+  renderSurfaceJog();
+}
+
+function toggleSurfaceMovementArm() {
+  if (movementOwnedElsewhere() && !confirm("En annan kontroll har aktiverat rörelse. Vill du låsa den sessionen innan du tar över?")) return false;
+  toggleTapMoveArm();
+  return true;
 }
 
 function surfaceStepDistance() {
@@ -12864,12 +12901,47 @@ function showTab(name, urlMode = "push") {
     button?.setAttribute("aria-selected", String(active));
     if (button) button.tabIndex = active ? 0 : -1;
   }
+  for (const button of document.querySelectorAll("[data-surface-view]")) {
+    if (button.dataset.surfaceView === name) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  }
   if (name === "files") connectFilesSSE();
   if (name === "active-job") renderActiveGcode();
   if (name === "dashboard") renderDashboard();
   if (name === "control" || name === "jog") renderJog();
   else clearNotice("jog-availability");
   syncViewTabURL(name, urlMode);
+}
+
+function runSurfaceShellAction(action) {
+  switch (action) {
+  case "home":
+    document.getElementById("ctl-home-main")?.click();
+    break;
+  case "probe-z":
+    document.getElementById("origin-probe-z")?.click();
+    break;
+  case "work-zero": {
+    showTab("control");
+    const section = document.getElementById("work-zero-section");
+    if (section) {
+      section.open = true;
+      section.scrollIntoView?.({ block: "start", behavior: "smooth" });
+    }
+    break;
+  }
+  case "files":
+    showTab("files");
+    break;
+  case "actions": {
+    const actions = document.getElementById("command-actions");
+    const toggle = document.getElementById("mobile-actions-toggle");
+    const open = !actions?.classList.contains("mobile-menu-open");
+    actions?.classList.toggle("mobile-menu-open", open);
+    toggle?.setAttribute("aria-expanded", String(open));
+    break;
+  }
+  }
 }
 
 function applySurfaceAutomaticView() {
@@ -13485,7 +13557,7 @@ function init() {
   initializeSurfaceMobileOptions();
   window.matchMedia?.("(max-width: 600px)")?.addEventListener?.("change", (e) => initializeSurfaceMobileOptions(e.matches));
   bindButtonAction(document.getElementById("jog-arm"), toggleTapMoveArm);
-  bindButtonAction(document.getElementById("surface-jog-arm"), toggleTapMoveArm);
+  bindButtonAction(document.getElementById("surface-jog-arm"), toggleSurfaceMovementArm);
   document.getElementById("surface-jog-directional").onclick = () => selectSurfaceJogMethod("directional");
   document.getElementById("surface-jog-mpg").onclick = () => selectSurfaceJogMethod("mpg");
   document.getElementById("surface-position-work").onclick = () => selectSurfacePositionSpace("work");
@@ -13497,9 +13569,20 @@ function init() {
     renderSurfaceJog();
   };
   document.getElementById("surface-jog-step").onchange = (e) => {
-    state.surface.step_mm = [10, 1, 0.1, 0.01].includes(Number(e.target.value)) ? Number(e.target.value) : 1;
-    saveSurfaceViewPreferences();
+    selectSurfaceStep(e.target.value);
   };
+  for (const button of document.querySelectorAll("[data-surface-step]")) {
+    button.onclick = () => selectSurfaceStep(button.dataset.surfaceStep);
+  }
+  for (const button of document.querySelectorAll("[data-surface-motion]")) {
+    button.onclick = () => selectSurfaceMotion(button.dataset.surfaceMotion);
+  }
+  for (const button of document.querySelectorAll("[data-surface-view]")) {
+    button.onclick = () => showTab(button.dataset.surfaceView);
+  }
+  for (const button of document.querySelectorAll("[data-surface-action]")) {
+    button.onclick = () => runSurfaceShellAction(button.dataset.surfaceAction);
+  }
   document.getElementById("surface-auto-switch").onchange = (e) => {
     state.surface.auto_switch = !!e.target.checked;
     saveSurfaceViewPreferences();

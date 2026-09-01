@@ -780,8 +780,8 @@ test("movement arm labels an external owner before disarming it", () => {
 
 test("mobile jog options summarize the active precision and method", () => {
   const ctx = buildContext(["surfaceJogOptionsSummary"]);
-  assert.equal(vm.runInContext(`surfaceJogOptionsSummary({motion:"step",step_mm:1,method:"directional"})`, ctx), "Step · 1 mm · Directional");
-  assert.equal(vm.runInContext(`surfaceJogOptionsSummary({motion:"hold",step_mm:0.1,method:"mpg"})`, ctx), "Hold · 0.1 mm · MPG");
+  assert.equal(vm.runInContext(`surfaceJogOptionsSummary({motion:"step",step_mm:1,method:"directional"})`, ctx), "Stegvis · 1 mm · Riktning");
+  assert.equal(vm.runInContext(`surfaceJogOptionsSummary({motion:"hold",step_mm:0.1,method:"mpg"})`, ctx), "Håll · 0.1 mm · MPG");
 });
 
 test("mobile jog options start collapsed without changing the desktop default", () => {
@@ -814,6 +814,57 @@ test("mobile jog method selection returns focus to the collapsed options summary
   assert.equal(state.surface.method, "mpg");
   assert.equal(options.open, false);
   assert.equal(focused, true);
+});
+
+test("Surface kiosk step buttons update the shared jog preference and fallback select", () => {
+  const select = { value: "1" };
+  const state = { surface: { step_mm: 1 } };
+  let saved = 0;
+  let rendered = 0;
+  const ctx = buildContext(["selectSurfaceStep"], [], {
+    state,
+    document: { getElementById: () => select },
+    saveSurfaceViewPreferences: () => { saved++; },
+    renderSurfaceJog: () => { rendered++; },
+  });
+  vm.runInContext(`selectSurfaceStep("0.1")`, ctx);
+  assert.equal(state.surface.step_mm, 0.1);
+  assert.equal(select.value, "0.1");
+  assert.equal(saved, 1);
+  assert.equal(rendered, 1);
+});
+
+test("Surface kiosk motion buttons stop held input before changing mode", () => {
+  const select = { value: "step" };
+  const state = { surface: { motion: "step" } };
+  let stopped = 0;
+  const ctx = buildContext(["selectSurfaceMotion"], [], {
+    state,
+    document: { getElementById: () => select },
+    stopSurfaceHoldJog: () => { stopped++; },
+    saveSurfaceViewPreferences: () => {},
+    renderSurfaceJog: () => {},
+  });
+  vm.runInContext(`selectSurfaceMotion("hold")`, ctx);
+  assert.equal(state.surface.motion, "hold");
+  assert.equal(select.value, "hold");
+  assert.equal(stopped, 1);
+});
+
+test("Surface movement takeover requires confirmation before disarming another controller", () => {
+  let confirmed = false;
+  let toggled = 0;
+  const ctx = buildContext(["toggleSurfaceMovementArm"], [], {
+    movementOwnedElsewhere: () => true,
+    confirm: () => confirmed,
+    toggleTapMoveArm: () => { toggled++; },
+  });
+  assert.equal(vm.runInContext(`toggleSurfaceMovementArm()`, ctx), false);
+  assert.equal(toggled, 0);
+  confirmed = true;
+  assert.equal(vm.runInContext(`toggleSurfaceMovementArm()`, ctx), true);
+  assert.equal(toggled, 1);
+  assert.ok(source.includes('bindButtonAction(document.getElementById("surface-jog-arm"), toggleSurfaceMovementArm)'), "the guarded takeover helper is bound to the shipped Surface arm button");
 });
 
 test("top-level tabs resolve from canonical and legacy URLs", () => {

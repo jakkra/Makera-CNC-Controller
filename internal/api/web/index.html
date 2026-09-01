@@ -121,6 +121,11 @@
   .surface-jog-mode button[aria-pressed="true"] { color: var(--text); background: var(--panel-2); border-color: rgba(87,166,214,.55); }
   .surface-mobile-options { display: contents; }
   .surface-mobile-options > summary { display: none; }
+  .surface-options-content { display: contents; }
+  .surface-mobile-options:not([open]) > .surface-options-content { display: none; }
+  .surface-mobile-options[open] > .surface-options-content { display: contents; }
+  .surface-motion-stage, .surface-primary-motion, .surface-axis-column { display: contents; }
+  .surface-kiosk-precision, .surface-kiosk-motion, .surface-a-guard, #surface-kiosk-nav, #surface-quick-actions { display: none; }
   .surface-direction-pad { width: min(100%, 440px); aspect-ratio: 1; justify-self: center; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 8px; }
   .surface-direction-pad button { min-height: 76px; font-size: clamp(20px, 3vw, 30px); font-weight: 750; justify-content: center; }
   .surface-direction-pad button[data-surface-axis="x"][data-surface-sign="-1"] { grid-area: 2 / 1; }
@@ -1010,6 +1015,7 @@
     .surface-position-value { grid-area: value; min-width: 0; overflow: hidden; font-size: clamp(12px, 3.45vw, 17px); line-height: 1.2; text-align: left; white-space: nowrap; text-overflow: clip; }
     .surface-position-unit { grid-area: unit; align-self: center; justify-self: end; font-size: 9px; }
     .surface-position-summary, #surface-open-active-job { display: none; }
+    .surface-machine-facts, .surface-jog-heading p { display: none; }
     .surface-position-actions { grid-template-columns: 1fr; }
     #surface-jog-settings-open { min-height: 36px; font-size: 12px; }
     .surface-jog-heading { justify-content: stretch; }
@@ -1030,6 +1036,111 @@
     .surface-jog-actions button { min-height: 48px; }
     .surface-jog-actions button:last-child:nth-child(odd) { grid-column: auto; }
     #surface-map-open { display: none; }
+  }
+  @media (min-width: 1320px) {
+    :root { --surface-header-h: 72px; --surface-rail-w: 188px; --surface-footer-h: 76px; }
+    body { background: radial-gradient(circle at 52% 18%, #14222c 0, #0b1218 46%, #090e12 100%); }
+    header { position: relative; height: var(--surface-header-h); min-height: var(--surface-header-h); display: block; padding: 0 22px 0 26px; background: rgba(8,14,19,.96); border-bottom-color: #31404a; box-shadow: none; }
+    #command-toolbar { height: 100%; min-height: 0; display: grid; grid-template-columns: 190px minmax(160px, 1fr) 188px; gap: 20px; align-items: center; }
+    #app-brand { min-width: 0; }
+    #app-brand { grid-column: 1; grid-row: 1; }
+    #app-brand strong { font-size: 20px; letter-spacing: .06em; }
+    #app-brand span { font-size: 10px; text-transform: uppercase; }
+    #machine { order: initial; grid-column: 2; grid-row: 1; justify-self: center; font-size: 14px; }
+    #status-connection { width: 18px; height: 18px; border: 0; background: currentColor; }
+    #status-connection::before { color: #07100b; font-size: 10px; }
+    #machine .badge { min-height: 34px; padding-inline: 14px; background: transparent; font-size: 15px; text-transform: uppercase; }
+    #machine-status-toolbar { display: none; }
+    #command-actions { position: fixed; left: calc(var(--surface-rail-w) + 16px); top: calc(var(--surface-header-h) + 12px); z-index: 95; margin: 0; overflow: visible; }
+    #mobile-actions-toggle { display: none; }
+    #command-menu { display: none; width: min(620px, calc(100vw - var(--surface-rail-w) - 40px)); max-height: calc(100dvh - var(--surface-header-h) - var(--surface-footer-h) - 28px); overflow: auto; padding: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; background: #111a20; border: 1px solid #34434c; border-radius: 4px; box-shadow: 0 24px 60px rgba(0,0,0,.55); }
+    #command-actions.mobile-menu-open #command-menu { display: grid; }
+    .command-popout > summary { width: 100%; min-height: 52px; }
+    .command-panel { max-width: calc(100vw - var(--surface-rail-w) - 48px); }
+    #ctl-halt { order: initial; grid-column: 3; grid-row: 1; justify-self: stretch; width: auto; min-height: 52px; border-radius: 2px; border-color: #f04444; color: #fff; background: linear-gradient(#ec3737,#c91924); font-size: 20px; letter-spacing: .05em; text-transform: uppercase; }
+    #view-navigation { display: none; }
+    #surface-kiosk-nav { position: fixed; z-index: 52; top: var(--surface-header-h); left: 0; bottom: var(--surface-footer-h); width: var(--surface-rail-w); display: grid; grid-auto-rows: minmax(68px, auto); align-content: start; background: rgba(9,16,21,.97); border-right: 1px solid #31404a; }
+    .surface-nav-button { position: relative; min-height: 68px; display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 12px; align-items: center; padding: 0 18px; border: 0; border-bottom: 1px solid rgba(49,64,74,.36); border-radius: 0; color: #aab4bc; background: transparent; text-align: left; font-size: 15px; }
+    .surface-nav-button .surface-nav-icon { font-size: 22px; text-align: center; }
+    .surface-nav-button:hover { color: #edf6fb; background: rgba(83,201,224,.06); }
+    .surface-nav-button[aria-current="page"] { color: #68d9ee; background: linear-gradient(90deg,rgba(73,195,218,.14),rgba(73,195,218,.035)); }
+    .surface-nav-button[aria-current="page"]::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: #58d3e9; }
+    .surface-nav-button:disabled { color: #53606a; opacity: 1; }
+    main { width: auto; min-height: 0; margin-left: var(--surface-rail-w); padding: 18px 24px calc(var(--surface-footer-h) + 18px); background: transparent; }
+    .view { gap: 12px; scrollbar-gutter: auto; }
+    .view > .page-section, #jog-view, #attention-view { max-width: none; margin: 0; }
+    #surface-quick-actions { position: fixed; z-index: 54; left: var(--surface-rail-w); right: 0; bottom: 0; height: var(--surface-footer-h); display: grid; grid-template-columns: minmax(250px, 1.25fr) repeat(4,minmax(150px,1fr)); background: rgba(8,14,19,.98); border-top: 1px solid #31404a; }
+    .surface-quick-state { min-width: 0; display: flex; gap: 12px; align-items: center; padding: 0 24px; color: #dbe8ee; border-right: 1px solid #31404a; }
+    .surface-quick-state::before { content: "✓"; width: 30px; height: 30px; display: grid; place-items: center; color: #51da7d; border: 2px solid #51da7d; border-radius: 50%; font-weight: 800; }
+    #surface-footer-state { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .surface-quick-button { min-width: 0; border: 0; border-right: 1px solid #31404a; border-radius: 0; background: transparent; color: #dbe4ea; font-size: 15px; }
+    .surface-quick-button:hover { color: #63d9ee; background: rgba(83,201,224,.06); }
+    #status-bar { left: var(--surface-rail-w); bottom: var(--surface-footer-h); }
+    .surface-jog { min-height: 0; height: 100%; grid-template-columns: minmax(640px,1fr) minmax(330px,390px); gap: 0; border: 1px solid #31404a; background: rgba(9,16,21,.72); }
+    .surface-jog-panel { min-height: 0; padding: 20px 26px; gap: 14px; border: 0; border-radius: 0; background: transparent; }
+    .surface-motion-panel { grid-template-rows: auto minmax(0,1fr) auto; border-right: 1px solid #31404a; }
+    .surface-jog-heading { align-items: flex-start; }
+    .surface-jog-heading h2 { margin: 0; font-size: 24px; letter-spacing: .05em; }
+    .surface-jog-heading p { margin: 2px 0 0; color: var(--muted); }
+    #surface-jog-arm { min-width: 210px; min-height: 48px; justify-content: center; border-color: #45616f; background: #17242c; font-weight: 700; }
+    #surface-jog-arm.armed { color: #071116; border-color: #68d9ee; background: #68d9ee; }
+    .surface-mobile-options { order: 3; display: block; }
+    .surface-mobile-options > summary, .surface-jog-options { display: none; }
+    .surface-mobile-options[open] > .surface-options-content { display: grid; grid-template-columns: minmax(0,1.35fr) minmax(0,.8fr) minmax(0,.9fr); gap: 12px; align-items: stretch; }
+    .surface-kiosk-precision { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); border: 1px solid #3a4a54; }
+    .surface-kiosk-precision { grid-column: 1; grid-row: 1; }
+    .surface-kiosk-precision button, .surface-kiosk-motion button { min-height: 52px; border: 0; border-right: 1px solid #3a4a54; border-radius: 0; background: #10191f; color: #c6d0d6; }
+    .surface-kiosk-precision button:last-child, .surface-kiosk-motion button:last-child { border-right: 0; }
+    .surface-kiosk-precision button[aria-pressed="true"], .surface-kiosk-motion button[aria-pressed="true"], .surface-jog-mode button[aria-pressed="true"] { color: #071116; background: #68d9ee; box-shadow: none; }
+    .surface-kiosk-motion { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); border: 1px solid #3a4a54; }
+    .surface-kiosk-motion { grid-column: 2; grid-row: 1; }
+    .surface-jog-mode { gap: 0; padding: 0; border-color: #3a4a54; border-radius: 0; background: #10191f; }
+    .surface-jog-mode { grid-column: 3; grid-row: 1; }
+    .surface-jog-mode button { min-height: 52px; border: 0; border-right: 1px solid #3a4a54; border-radius: 0; }
+    .surface-jog-mode button:last-child { border-right: 0; }
+    .surface-motion-stage { order: 2; min-height: 0; display: grid; grid-template-columns: minmax(440px,1fr) 180px; gap: 24px; align-items: center; }
+    .surface-primary-motion { min-height: 0; display: grid; align-items: center; }
+    #surface-directional-panel, #surface-mpg-panel { min-height: 0; }
+    .surface-direction-pad { width: min(49vh, 440px); max-width: 100%; gap: 8px; transform: rotate(45deg) scale(.96); }
+    .surface-direction-pad button, .surface-jog-center { border: 1px solid #52626b; border-radius: 14px; background: linear-gradient(145deg,#202b32,#11191e); transform: rotate(-45deg); }
+    .surface-direction-pad button { min-height: 100px; color: #e1e9ed; font-size: 25px; }
+    .surface-jog-center { color: #68d9ee; border-color: #68d9ee; font-size: 13px; }
+    .surface-axis-column { min-height: 0; align-self: stretch; display: grid; grid-template-rows: minmax(0,1fr) 52px 60px; gap: 12px; }
+    .surface-jog-actions { display: grid; grid-template-columns: 1fr; grid-template-rows: repeat(2,minmax(90px,1fr)); gap: 0; }
+    .surface-jog-actions button { min-height: 0; border-radius: 0; border-color: #52626b; font-size: 24px; font-weight: 750; }
+    .surface-jog-actions button:first-child { border-radius: 10px 10px 0 0; }
+    .surface-jog-actions button:nth-child(2) { border-top: 0; border-radius: 0 0 10px 10px; }
+    #surface-map-open { grid-row: 2; min-height: 52px; border-radius: 2px; font-size: 14px; }
+    .surface-a-guard { display: grid; grid-template-columns: 38px 1fr 1fr; gap: 0; align-items: stretch; min-height: 58px; border: 1px solid #3a4a54; color: #77848d; }
+    .surface-a-guard span { display: grid; place-items: center; border-right: 1px solid #3a4a54; }
+    .surface-a-guard button { border: 0; border-radius: 0; background: transparent; color: #65717a; font-weight: 750; }
+    .surface-position-panel { align-content: start; justify-content: stretch; padding-inline: 22px; }
+    .surface-position-tabs { padding: 0; border-bottom-color: #3a4a54; }
+    .surface-position-tabs button { min-height: 48px; font-size: 14px; }
+    .surface-position-readout { border-bottom: 1px solid #31404a; }
+    .surface-position-row { min-height: 68px; grid-template-columns: 34px minmax(0,1fr) 30px; gap: 8px; }
+    .surface-position-axis { font-size: 24px; }
+    .surface-position-value { font-size: clamp(34px,3.5vw,52px); }
+    .surface-position-summary { gap: 4px; padding: 12px 0; border-bottom: 1px solid #31404a; }
+    .surface-machine-facts { display: grid; border-bottom: 1px solid #31404a; }
+    .surface-machine-fact { min-height: 45px; display: grid; grid-template-columns: 92px minmax(0,1fr); gap: 10px; align-items: center; color: var(--muted); border-bottom: 1px solid rgba(49,64,74,.55); }
+    .surface-machine-fact:last-child { border-bottom: 0; }
+    .surface-machine-fact strong { color: #dce7ec; text-align: right; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .surface-position-actions { margin-top: auto; }
+    .surface-position-actions button { min-height: 46px; }
+    .surface-wheel { width: min(43vh,390px); border-width: 22px; box-shadow: 0 0 0 1px #55646c, inset 0 0 36px rgba(0,0,0,.7); }
+    .surface-mpg { max-width: 520px; margin: 0 auto 10px; }
+    .surface-mpg-axis { min-height: 48px; }
+    .surface-hold-controls { max-width: 520px; margin: 10px auto 0; }
+    .surface-hold-controls button { min-height: 54px; }
+    body[data-active-tab="active-job"] #active-job-view > .page-section, body[data-active-tab="active-job"] #active-gcode-panel, body[data-active-tab="active-job"] .active-gcode-body { height: 100%; min-height: 0; }
+    body[data-active-tab="active-job"] #active-gcode-panel { border: 1px solid #31404a; border-radius: 0; background: rgba(9,16,21,.72); }
+    body[data-active-tab="active-job"] .active-gcode-head { min-height: 84px; padding: 14px 18px; }
+    body[data-active-tab="active-job"] .active-gcode-workspace { min-height: 0; grid-template-columns: minmax(0,1fr) 8px minmax(300px,32%); border: 0; border-radius: 0; }
+    body[data-active-tab="active-job"] #gcode-preview-wrap { grid-column: 1; grid-row: 1; border-right: 1px solid #31404a; }
+    body[data-active-tab="active-job"] #active-gcode-splitter { grid-column: 2; grid-row: 1; }
+    body[data-active-tab="active-job"] #active-gcode-left { grid-column: 3; grid-row: 1; }
+    body[data-active-tab="active-job"] .active-gcode-actions button { min-height: 46px; }
   }
 </style>
 </head>
@@ -1167,7 +1278,7 @@
       </details>
       </div>
     </div>
-    <button type="button" id="ctl-halt" class="danger" title="Software halt command">⏹ Halt</button>
+    <button type="button" id="ctl-halt" class="danger" title="Software halt command">STOPP</button>
     <div id="machine">
       <span id="status-connection" class="connection-status" role="img" aria-label="Machine connection unknown" title="Machine connection unknown"></span>
       <details id="machine-status-popout" class="machine-status-popout">
@@ -1223,6 +1334,15 @@
     </div>
   </div>
 </header>
+<nav id="surface-kiosk-nav" aria-label="Surface controller">
+  <button type="button" class="surface-nav-button" data-surface-view="dashboard"><span class="surface-nav-icon" aria-hidden="true">◴</span><span>Översikt</span></button>
+  <button type="button" class="surface-nav-button" data-surface-view="jog"><span class="surface-nav-icon" aria-hidden="true">⌖</span><span>Jogga</span></button>
+  <button type="button" class="surface-nav-button" data-surface-view="control"><span class="surface-nav-icon" aria-hidden="true">⌁</span><span>Probing</span></button>
+  <button type="button" class="surface-nav-button" data-surface-view="active-job"><span class="surface-nav-icon" aria-hidden="true">▤</span><span>Aktivt jobb</span></button>
+  <button type="button" class="surface-nav-button" data-surface-view="files"><span class="surface-nav-icon" aria-hidden="true">▱</span><span>Filer</span></button>
+  <button type="button" class="surface-nav-button" disabled title="Kamerabackend är inte ansluten"><span class="surface-nav-icon" aria-hidden="true">▣</span><span>Kamera</span></button>
+  <button type="button" class="surface-nav-button" data-surface-action="actions"><span class="surface-nav-icon" aria-hidden="true">⌕</span><span>Underhåll</span></button>
+</nav>
 <main>
   <section class="page-section">
     <div id="alarm-panel" hidden>
@@ -1390,43 +1510,63 @@
 
   <section id="jog-view" class="view" role="tabpanel" aria-labelledby="tab-jog" hidden>
     <section class="surface-jog" aria-label="Surface jog pendant">
-      <section class="surface-jog-panel">
-        <div class="surface-jog-heading"><h2>Position machine</h2><button type="button" id="surface-jog-arm">Arm Movement</button></div>
+      <section class="surface-jog-panel surface-motion-panel">
+        <div class="surface-jog-heading"><div><h2>JOGGA</h2><p>Manuell förflyttning av maskinen</p></div><button type="button" id="surface-jog-arm">Arm Movement</button></div>
         <details id="surface-mobile-options" class="surface-mobile-options" open>
-          <summary><span>Precision &amp; options</span><span id="surface-jog-options-summary">Step · 1 mm · Directional</span></summary>
-          <div class="surface-jog-options">
-            <label>Motion<select id="surface-jog-motion"><option value="step">Step</option><option value="hold">Hold to move</option></select></label>
-            <label>Increment<select id="surface-jog-step"><option value="10">10 mm</option><option value="1" selected>1 mm</option><option value="0.1">0.1 mm</option><option value="0.01">0.01 mm</option></select></label>
-          </div>
-          <div class="surface-jog-mode" role="group" aria-label="Jog method">
-            <button type="button" id="surface-jog-directional" aria-pressed="true">Directional</button>
-            <button type="button" id="surface-jog-mpg" aria-pressed="false">Virtual MPG</button>
+          <summary><span>Precision &amp; val</span><span id="surface-jog-options-summary">Stegvis · 1 mm · Riktning</span></summary>
+          <div class="surface-options-content">
+            <div class="surface-jog-options">
+              <label>Motion<select id="surface-jog-motion"><option value="step">Step</option><option value="hold">Hold to move</option></select></label>
+              <label>Increment<select id="surface-jog-step"><option value="10">10 mm</option><option value="1" selected>1 mm</option><option value="0.1">0.1 mm</option><option value="0.01">0.01 mm</option></select></label>
+            </div>
+            <div class="surface-jog-mode" role="group" aria-label="Jog method">
+              <button type="button" id="surface-jog-directional" aria-pressed="true">Riktning</button>
+              <button type="button" id="surface-jog-mpg" aria-pressed="false">Virtuell MPG</button>
+            </div>
+            <div class="surface-kiosk-precision" role="group" aria-label="Stegsträcka">
+              <button type="button" data-surface-step="0.01" aria-pressed="false">0.01 mm</button>
+              <button type="button" data-surface-step="0.1" aria-pressed="false">0.1 mm</button>
+              <button type="button" data-surface-step="1" aria-pressed="true">1 mm</button>
+              <button type="button" data-surface-step="10" aria-pressed="false">10 mm</button>
+            </div>
+            <div class="surface-kiosk-motion" role="group" aria-label="Rörelseläge">
+              <button type="button" data-surface-motion="step" aria-pressed="true">Stegvis</button>
+              <button type="button" data-surface-motion="hold" aria-pressed="false">Håll</button>
+            </div>
           </div>
         </details>
-        <div id="surface-directional-panel">
-          <div class="surface-direction-pad" aria-label="XY jog directions">
-            <button type="button" data-surface-axis="y" data-surface-sign="1" aria-label="Jog Y positive">Y+</button>
-            <button type="button" data-surface-axis="x" data-surface-sign="-1" aria-label="Jog X negative">X−</button>
-            <span class="surface-jog-center" aria-hidden="true">XY</span>
-            <button type="button" data-surface-axis="x" data-surface-sign="1" aria-label="Jog X positive">X+</button>
-            <button type="button" data-surface-axis="y" data-surface-sign="-1" aria-label="Jog Y negative">Y−</button>
+        <div class="surface-motion-stage">
+          <div class="surface-primary-motion">
+            <div id="surface-directional-panel">
+              <div class="surface-direction-pad" aria-label="XY jog directions">
+                <button type="button" data-surface-axis="y" data-surface-sign="1" aria-label="Jog Y positive">Y+</button>
+                <button type="button" data-surface-axis="x" data-surface-sign="-1" aria-label="Jog X negative">X−</button>
+                <span class="surface-jog-center" aria-hidden="true">XY</span>
+                <button type="button" data-surface-axis="x" data-surface-sign="1" aria-label="Jog X positive">X+</button>
+                <button type="button" data-surface-axis="y" data-surface-sign="-1" aria-label="Jog Y negative">Y−</button>
+              </div>
+            </div>
+            <div id="surface-mpg-panel" hidden>
+              <div class="surface-mpg" role="group" aria-label="Virtual MPG axis">
+                <button type="button" class="surface-mpg-axis" data-surface-mpg-axis="x" aria-pressed="true">X axis</button>
+                <button type="button" class="surface-mpg-axis" data-surface-mpg-axis="y" aria-pressed="false">Y axis</button>
+                <button type="button" class="surface-mpg-axis" data-surface-mpg-axis="z" aria-pressed="false">Z axis</button>
+              </div>
+              <div id="surface-mpg-wheel" class="surface-wheel" role="slider" tabindex="0" aria-label="Virtual MPG wheel" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0 increments"></div>
+              <div class="surface-hold-controls"><button type="button" data-surface-hold-sign="-1" aria-label="Hold to move selected axis negative">− Hold</button><button type="button" data-surface-hold-sign="1" aria-label="Hold to move selected axis positive">+ Hold</button></div>
+            </div>
+          </div>
+          <div class="surface-axis-column">
+            <div class="surface-jog-actions"><button type="button" data-surface-z-sign="1">Z+</button><button type="button" data-surface-z-sign="-1">Z−</button></div>
+            <button type="button" id="surface-map-open">XY-karta</button>
+            <div class="surface-a-guard" aria-label="A-axel ej tillgänglig"><span aria-hidden="true">🔒</span><button type="button" disabled>A−</button><button type="button" disabled>A+</button></div>
           </div>
         </div>
-        <div id="surface-mpg-panel" hidden>
-          <div class="surface-mpg" role="group" aria-label="Virtual MPG axis">
-            <button type="button" class="surface-mpg-axis" data-surface-mpg-axis="x" aria-pressed="true">X axis</button>
-            <button type="button" class="surface-mpg-axis" data-surface-mpg-axis="y" aria-pressed="false">Y axis</button>
-            <button type="button" class="surface-mpg-axis" data-surface-mpg-axis="z" aria-pressed="false">Z axis</button>
-          </div>
-          <div id="surface-mpg-wheel" class="surface-wheel" role="slider" tabindex="0" aria-label="Virtual MPG wheel" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0 increments"></div>
-          <div class="surface-hold-controls"><button type="button" data-surface-hold-sign="-1" aria-label="Hold to move selected axis negative">− Hold</button><button type="button" data-surface-hold-sign="1" aria-label="Hold to move selected axis positive">+ Hold</button></div>
-        </div>
-        <div class="surface-jog-actions"><button type="button" data-surface-z-sign="1">Z+</button><button type="button" data-surface-z-sign="-1">Z−</button><button type="button" id="surface-map-open">XY map</button></div>
       </section>
       <aside class="surface-jog-panel surface-position-panel" aria-label="Live machine position">
         <div class="surface-position-tabs" role="group" aria-label="Coordinate system">
-          <button type="button" id="surface-position-work" aria-pressed="true">Work position</button>
-          <button type="button" id="surface-position-machine" aria-pressed="false">Machine position</button>
+          <button type="button" id="surface-position-work" aria-pressed="true">Arbetsposition</button>
+          <button type="button" id="surface-position-machine" aria-pressed="false">Maskinposition</button>
         </div>
         <div class="surface-position-readout" aria-live="off">
           <div class="surface-position-row"><span class="surface-position-axis">X</span><span class="surface-position-value" id="surface-position-x">—</span><span class="surface-position-unit">mm</span></div>
@@ -1435,7 +1575,13 @@
           <div class="surface-position-row"><span class="surface-position-axis">A</span><span class="surface-position-value" id="surface-position-a">—</span><span class="surface-position-unit">°</span></div>
         </div>
         <div class="surface-position-summary"><strong id="surface-position-state">Machine state unknown</strong><span id="surface-position-detail">Waiting for machine status</span></div>
-        <div class="surface-position-actions"><button type="button" id="surface-open-active-job">Active job</button><button type="button" id="surface-jog-settings-open">Surface settings</button></div>
+        <div class="surface-machine-facts" aria-label="Maskinstatus">
+          <div class="surface-machine-fact"><span>Verktyg</span><strong id="surface-machine-tool">—</strong></div>
+          <div class="surface-machine-fact"><span>Spindel</span><strong id="surface-machine-spindle">—</strong></div>
+          <div class="surface-machine-fact"><span>Anslutning</span><strong id="surface-machine-connection">—</strong></div>
+          <div class="surface-machine-fact"><span>Säkerhet</span><strong id="surface-machine-safety">Ej rapporterad</strong></div>
+        </div>
+        <div class="surface-position-actions"><button type="button" id="surface-open-active-job">Aktivt jobb</button><button type="button" id="surface-jog-settings-open">Inställningar</button></div>
       </aside>
     </section>
   </section>
@@ -1734,6 +1880,13 @@
     </section>
   </section>
 </main>
+<div id="surface-quick-actions" aria-label="Snabbåtgärder">
+  <div class="surface-quick-state"><strong id="surface-footer-state">Väntar på maskinstatus</strong></div>
+  <button type="button" class="surface-quick-button" data-surface-action="home">⌂&nbsp; Hemkör</button>
+  <button type="button" class="surface-quick-button" data-surface-action="probe-z">⌁&nbsp; Proba Z</button>
+  <button type="button" class="surface-quick-button" data-surface-action="work-zero">⌖&nbsp; Nollpunkt</button>
+  <button type="button" class="surface-quick-button" data-surface-action="files">▱&nbsp; Öppna jobb</button>
+</div>
 <dialog id="dashboard-settings-modal" aria-labelledby="dashboard-settings-title">
   <div class="machine-settings-modal-head">
     <h2 id="dashboard-settings-title">Dashboard layout</h2>
