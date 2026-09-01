@@ -35,6 +35,7 @@ type Server struct {
 	maxBackupBytes int64
 	notifications  *notifications.Dispatcher
 	readOnly       bool
+	allowedHosts   []string
 }
 
 // Options configures optional API surfaces.
@@ -44,6 +45,9 @@ type Options struct {
 	MaxJSONBytes   int64
 	MaxBackupBytes int64
 	Notifications  *notifications.Dispatcher
+	// AllowedHosts admits exact reverse-proxy Host values in addition to IP
+	// literals and localhost. It never enables wildcard or suffix matching.
+	AllowedHosts []string
 	// ReadOnly rejects every mutating HTTP method while retaining observer data.
 	ReadOnly bool
 }
@@ -70,6 +74,7 @@ func NewWithOptions(svc *service.Service, opts Options) *Server {
 		maxBackupBytes: opts.MaxBackupBytes,
 		notifications:  opts.Notifications,
 		readOnly:       opts.ReadOnly,
+		allowedHosts:   append([]string(nil), opts.AllowedHosts...),
 	}
 }
 
@@ -124,7 +129,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/events", s.events)
 	// Everything not under /api/ is the embedded web UI.
 	mux.Handle("/", webHandler())
-	return sameOriginGuard(s.readOnlyGuard(mux))
+	return sameOriginGuard(s.readOnlyGuard(mux), s.allowedHosts)
 }
 
 func (s *Server) readOnlyGuard(next http.Handler) http.Handler {
@@ -930,10 +935,10 @@ func sendEvent(w io.Writer, event string, v any) {
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
 }
 
-func sameOriginGuard(next http.Handler) http.Handler {
+func sameOriginGuard(next http.Handler, allowedHosts []string) http.Handler {
 	return webguard.Handler(next, webguard.Options{
 		RequiresSameOrigin: requiresSameOrigin,
-		AllowHost:          webguard.AllowIPLiteralOrLocalhost,
+		AllowHost:          webguard.AllowIPLiteralLocalhostOr(allowedHosts...),
 		Reject: func(w http.ResponseWriter, message string) {
 			writeErr(w, http.StatusForbidden, message)
 		},

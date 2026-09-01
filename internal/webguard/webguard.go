@@ -93,6 +93,27 @@ func AllowIPLiteralOrLocalhost(host string) bool {
 	return net.ParseIP(h) != nil
 }
 
+// AllowIPLiteralLocalhostOr returns a host policy that retains the DNS-
+// rebinding-safe defaults while admitting an explicit set of reverse-proxy
+// host names. The configured names are exact matches after default-port and
+// case normalization; suffix and wildcard matching are intentionally absent.
+func AllowIPLiteralLocalhostOr(hosts ...string) func(string) bool {
+	allowed := make(map[string]struct{}, len(hosts))
+	for _, host := range hosts {
+		host = strings.TrimSpace(host)
+		if host != "" {
+			allowed[NormalizeHost(host)] = struct{}{}
+		}
+	}
+	return func(host string) bool {
+		if AllowIPLiteralOrLocalhost(host) {
+			return true
+		}
+		_, ok := allowed[NormalizeHost(host)]
+		return ok
+	}
+}
+
 // RequestScheme returns the effective scheme of the request, honoring
 // X-Forwarded-Proto.
 func RequestScheme(r *http.Request) string {

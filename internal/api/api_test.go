@@ -294,6 +294,30 @@ func TestAPIRejectsForeignHostForReadsAndMutations(t *testing.T) {
 
 }
 
+func TestAPIAcceptsExplicitReverseProxyHost(t *testing.T) {
+	h := sameOriginGuard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}), []string{"jakkra-win11.tail969b66.ts.net"})
+
+	req := httptest.NewRequest(http.MethodGet, "https://jakkra-win11.tail969b66.ts.net/api/machine", nil)
+	req.Host = "jakkra-win11.tail969b66.ts.net"
+	req.Header.Set("Origin", "https://jakkra-win11.tail969b66.ts.net")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("configured reverse-proxy host status=%d, want 204", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "https://evil.example/api/machine", nil)
+	req.Host = "evil.example"
+	req.Header.Set("Origin", "https://evil.example")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("unconfigured reverse-proxy host status=%d, want 403", rec.Code)
+	}
+}
+
 func TestBackupExportRejectsCrossOriginBrowserRequests(t *testing.T) {
 	srv, _ := newTestServer(t)
 	req, _ := http.NewRequest("GET", srv.URL+"/api/backup", nil)

@@ -71,6 +71,7 @@ func main() {
 		nameSuffix        = flag.String("name-suffix", " (proxy)", "suffix appended to the advertised machine name when -name is not set")
 		noAdvertise       = flag.Bool("no-advertise", false, "deprecated no-op; advertising is now opt-in via -advertise")
 		apiAddr           = flag.String("api-addr", "127.0.0.1:8420", "address for the HTTP API + web UI")
+		apiAllowedHosts   = flag.String("api-allowed-hosts", "", "comma-separated exact reverse-proxy Host values allowed by the API")
 		davAddr           = flag.String("dav-addr", "127.0.0.1:8421", "address for the WebDAV filesystem server")
 		authUser          = flag.String("auth-user", "cnc", "HTTP Basic Auth username for API/WebDAV when -auth-token is set")
 		authToken         = flag.String("auth-token", "", "HTTP Basic Auth token/password for API/WebDAV")
@@ -298,6 +299,7 @@ func main() {
 		MaxJSONBytes:   kib(*apiJSONKB),
 		MaxBackupBytes: mib(*apiBackupMB),
 		Notifications:  notificationDispatcher,
+		AllowedHosts:   splitCommaList(*apiAllowedHosts),
 		ReadOnly:       *apiReadOnly,
 	}).Handler()))
 	go func() {
@@ -489,6 +491,16 @@ func isLoopbackBind(addr string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+func splitCommaList(raw string) []string {
+	var values []string
+	for _, value := range strings.Split(raw, ",") {
+		if value = strings.TrimSpace(value); value != "" {
+			values = append(values, value)
+		}
+	}
+	return values
 }
 
 func hardenedAPIServer(addr string, h http.Handler) *http.Server {

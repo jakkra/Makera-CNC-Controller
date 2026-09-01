@@ -51,6 +51,7 @@ func Options() []Option {
 		{Name: "name-suffix", Label: "Advertised Name Suffix", Type: OptionString, Default: " (proxy)"},
 		{Name: "no-advertise", Label: "Deprecated No Advertise", Type: OptionBool, Default: "false"},
 		{Name: "api-addr", Label: "API/Web UI Address", Type: OptionString, Default: "127.0.0.1:8420"},
+		{Name: "api-allowed-hosts", Label: "Allowed Reverse Proxy Hosts", Type: OptionString, Default: "", Placeholder: "z1-controller.your-tailnet.ts.net"},
 		{Name: "dav-addr", Label: "WebDAV Address", Type: OptionString, Default: "127.0.0.1:8421"},
 		{Name: "auth-user", Label: "HTTP Auth User", Type: OptionString, Default: "cnc"},
 		{Name: "auth-token", Label: "HTTP Auth Token", Type: OptionString, Default: "", Secret: true},
