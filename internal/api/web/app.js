@@ -39,6 +39,7 @@ const DASHBOARD_PANEL_DEFS = [{ id: "machine", label: "Machine" }, { id: "job", 
 const JOG_INPUT_HEARTBEAT_MS = 100;
 const JOG_INPUT_DEADZONE = 0.12;
 const JOG_PREDICTION_TOLERANCE_MM = 0.02;
+const EXTERNAL_SNAPSHOT_REFRESH_MS = 1500;
 const MOBILE_WORKAREA_MAX_WIDTH_PX = 600;
 const MOBILE_JOG_RADIUS_MIN_PX = 56;
 const MOBILE_JOG_RADIUS_MAX_PX = 88;
@@ -80,6 +81,16 @@ const state = {
   dashboardEmbed: false,
   dashboardSettingsLoaded: false,
   dashboardDraftProfileID: "",
+  dashboardPositionSpace: "work",
+  cameras: {
+    loaded: false,
+    sources: { builtin: { configured: false }, external: { configured: false } },
+    builtinWS: null,
+    builtinReconnectTimer: null,
+    builtinObjectURL: "",
+    externalURL: "",
+    externalRetryTimer: null,
+  },
 	filesLoaded: false,
 	fileActions: new Map(),
 	fileRenderTimer: null,
@@ -414,7 +425,7 @@ function fmtDashboardFeed(f) {
   const override = Number(f.override);
   return {
     current: Number.isFinite(current) ? `${Math.round(current)} mm/min` : "-",
-    detail: `${Number.isFinite(target) ? Math.round(target) + " target" : "-"} · ${Number.isFinite(override) ? Math.round(override) + "%" : "-"}`,
+    detail: `${Number.isFinite(target) ? "Mål " + Math.round(target) : "Mål -"} · ${Number.isFinite(override) ? Math.round(override) + "%" : "-"}`,
   };
 }
 
@@ -425,7 +436,7 @@ function fmtDashboardSpindle(s) {
   const override = Number(s.override);
   return {
     current: Number.isFinite(current) ? `${Math.round(current)} rpm` : "-",
-    detail: `${Number.isFinite(target) ? Math.round(target) + " target" : "-"} · ${Number.isFinite(override) ? Math.round(override) + "%" : "-"}`,
+    detail: `${Number.isFinite(target) ? "Mål " + Math.round(target) : "Mål -"} · ${Number.isFinite(override) ? Math.round(override) + "%" : "-"}`,
   };
 }
 
@@ -1094,6 +1105,14 @@ function currentDashboardProfile() {
   return find(state.dashboardProfileID) || find(settings.default_profile_id) || settings.profiles[0];
 }
 
+function isWideSurfaceOverview() {
+  return typeof window !== "undefined" && window.matchMedia?.("(min-width: 1320px)")?.matches === true;
+}
+
+function dashboardPanelVisible(panelID, profile, forceSurfaceOverview = isWideSurfaceOverview()) {
+  return profile.panels.includes(panelID) || (forceSurfaceOverview && (panelID === "machine" || panelID === "job"));
+}
+
 function resolveDashboardProfile() {
   state.ui.dashboard = normalizeDashboardSettings(state.ui.dashboard);
   const requested = state.dashboardRequestedProfileID;
@@ -1177,6 +1196,10 @@ function applyDashboardProfile(profile) {
   grid.classList.toggle("dashboard-density-compact", profile.density === "compact");
   document.body.classList.toggle("dashboard-background-transparent", profile.background === "transparent");
   const visible = new Set(profile.panels);
+  if (isWideSurfaceOverview()) {
+    visible.add("machine");
+    visible.add("job");
+  }
   grid.classList.add(`dashboard-panel-count-${visible.size}`);
   grid.classList.toggle(
     "dashboard-job-focus-split",
@@ -1185,7 +1208,7 @@ function applyDashboardProfile(profile) {
   const order = new Map(profile.panels.map((panel, index) => [panel, index]));
   for (const panel of document.querySelectorAll("[data-dashboard-panel]")) {
     const id = panel.dataset.dashboardPanel;
-    panel.hidden = !visible.has(id);
+    panel.hidden = !dashboardPanelVisible(id, profile, isWideSurfaceOverview());
     panel.style.order = String(order.get(id) ?? DASHBOARD_PANEL_DEFS.length);
   }
   const select = document.getElementById("dashboard-profile");
@@ -2032,7 +2055,7 @@ function renderSurfaceJog() {
   setTextIfChanged(document.getElementById("surface-machine-tool"), fmtActiveTool(state.machine?.tool));
   setTextIfChanged(document.getElementById("surface-machine-spindle"), fmtSpindle(state.machine?.spindle));
   setTextIfChanged(document.getElementById("surface-machine-connection"), state.machine?.connected ? "Ansluten" : "Frånkopplad");
-  setTextIfChanged(document.getElementById("surface-footer-state"), machineState === "Idle" ? "Maskinen är redo" : `Maskin: ${machineState}`);
+  renderSurfaceQuickActions(machineState);
   setTextIfChanged(document.getElementById("surface-jog-options-summary"), surfaceJogOptionsSummary(surface));
   for (const button of document.querySelectorAll("[data-surface-step]")) {
     button.setAttribute("aria-pressed", String(Number(button.dataset.surfaceStep) === surfaceStepDistance()));
@@ -2052,6 +2075,40 @@ function renderSurfaceJog() {
     wheel.classList.toggle("is-disabled", !ready);
     wheel.tabIndex = ready ? 0 : -1;
   }
+}
+
+function surfaceQuickActionState(machineState) {
+  return {
+    setup: machineState === "Idle",
+    hold: machineState === "Run",
+    resume: machineState === "Hold" || machineState === "Pause",
+    details: machineState !== "Idle",
+  };
+}
+
+function renderSurfaceQuickActions(machineState = String(state.machine?.state || "Unknown")) {
+  const root = document.getElementById("surface-quick-actions");
+  const actions = surfaceQuickActionState(machineState);
+  for (const button of document.querySelectorAll("[data-surface-setup]")) button.hidden = !actions.setup;
+  const hold = document.getElementById("surface-footer-hold");
+  const resume = document.getElementById("surface-footer-resume");
+  const details = document.getElementById("surface-footer-job");
+  if (hold) hold.hidden = !actions.hold;
+  if (resume) {
+    resume.hidden = !actions.resume;
+    setTextIfChanged(resume, machineState === "Pause" ? "▶ Återuppta jobb" : "▶ Återuppta");
+  }
+  if (details) details.hidden = !actions.details;
+  root?.classList.toggle("is-job-state", !actions.setup);
+  const labels = {
+    Idle: "Maskinen är redo",
+    Run: "Jobb körs — setupkontroller är låsta",
+    Hold: "Rörelsen är pausad",
+    Pause: "Jobbet är pausat",
+    Wait: "Operatörsåtgärd krävs",
+    Tool: "Verktygsbyte krävs",
+  };
+  setTextIfChanged(document.getElementById("surface-footer-state"), labels[machineState] || `Maskin: ${machineState}`);
 }
 
 function surfaceJogOptionsSummary(surface = state.surface) {
@@ -7745,6 +7802,197 @@ function renderDashboardGcodeStream(live = null) {
   container.replaceChildren(fragment);
 }
 
+function dashboardCameraShouldRun() {
+  return state.activeTab === "dashboard" && !document.hidden;
+}
+
+function dashboardCameraSource(kind) {
+  return state.cameras.sources?.[kind] || { configured: false };
+}
+
+function dashboardExternalCameraIsSnapshot(source) {
+  return source?.mode === "snapshot";
+}
+
+function setDashboardCameraState(kind, status, title, detail = "") {
+  const root = document.getElementById(`dashboard-${kind}-camera`);
+  const image = document.getElementById(`dashboard-${kind}-camera-image`);
+  const stateText = document.getElementById(`dashboard-${kind}-camera-state`);
+  const detailText = document.getElementById(`dashboard-${kind}-camera-detail`);
+  const badge = document.getElementById(`dashboard-${kind}-camera-badge`);
+  if (!root) return;
+  root.classList.toggle("is-live", status === "live");
+  root.classList.toggle("is-error", status === "error");
+  root.classList.toggle("is-connecting", status === "connecting");
+  root.classList.toggle("is-unconfigured", status === "unconfigured");
+  if (image) image.hidden = status !== "live";
+  if (stateText) stateText.textContent = title;
+  if (detailText) detailText.textContent = detail;
+  if (badge) badge.textContent = status === "live" ? "Live" :
+    (status === "connecting" ? "Ansluter" : (status === "error" ? "Offline" : "Ej konfigurerad"));
+}
+
+function renderDashboardCameraConfig() {
+  const external = dashboardCameraSource("external");
+  const builtin = dashboardCameraSource("builtin");
+  const stage = document.querySelector(".dashboard-camera-stage");
+  stage?.classList.toggle("builtin-primary", !external.configured && !!builtin.configured);
+  if (!state.cameras.loaded) {
+    setDashboardCameraState("external", "connecting", "Läser kamerakonfiguration", "Kameran startas bara när översikten visas.");
+    setDashboardCameraState("builtin", "connecting", "Läser Z1-kamera", "Väntar på kameratjänsten.");
+    return;
+  }
+  if (!external.configured) {
+    setDashboardCameraState("external", "unconfigured", "Extern kamera ej konfigurerad", "Anslut en USB-kamera på kontrollern och ange dess lokala streamkälla.");
+  }
+  if (!builtin.configured) {
+    setDashboardCameraState("builtin", "unconfigured", "Z1-kamera ej konfigurerad", "Ange Z1-kamerans WebSocket eller starta proxyn med en fast Z1-adress.");
+  }
+}
+
+function dashboardWebSocketURL(path) {
+  const url = new URL(path, window.location.href);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.href;
+}
+
+function stopDashboardBuiltinCamera() {
+  clearTimeout(state.cameras.builtinReconnectTimer);
+  state.cameras.builtinReconnectTimer = null;
+  const ws = state.cameras.builtinWS;
+  state.cameras.builtinWS = null;
+  if (ws) {
+    try { ws.close(1000, "overview hidden"); } catch { /* already closed */ }
+  }
+  if (state.cameras.builtinObjectURL) {
+    URL.revokeObjectURL?.(state.cameras.builtinObjectURL);
+    state.cameras.builtinObjectURL = "";
+  }
+}
+
+function startDashboardBuiltinCamera() {
+  const source = dashboardCameraSource("builtin");
+  if (!dashboardCameraShouldRun() || !source.configured || !source.stream_url || !("WebSocket" in window)) return;
+  const existing = state.cameras.builtinWS;
+  if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) return;
+  clearTimeout(state.cameras.builtinReconnectTimer);
+  setDashboardCameraState("builtin", "connecting", "Ansluter till Z1-kameran", "Videon går genom Sensei för att fungera via Tailscale.");
+  const ws = new WebSocket(dashboardWebSocketURL(source.stream_url));
+  ws.binaryType = "blob";
+  state.cameras.builtinWS = ws;
+  ws.onmessage = (event) => {
+    if (state.cameras.builtinWS !== ws || !dashboardCameraShouldRun()) return;
+    if (typeof event.data === "string") {
+      setDashboardCameraState("builtin", "error", "Z1-kameran används av en annan klient", "Sensei provar igen om kamerastreamen blir tillgänglig.");
+      return;
+    }
+    const blob = event.data instanceof Blob ? event.data : new Blob([event.data], { type: "image/jpeg" });
+    const nextURL = URL.createObjectURL(blob);
+    const previousURL = state.cameras.builtinObjectURL;
+    state.cameras.builtinObjectURL = nextURL;
+    const image = document.getElementById("dashboard-builtin-camera-image");
+    if (image) image.src = nextURL;
+    setDashboardCameraState("builtin", "live", "Z1-kamera live", "Bildström från maskinens inbyggda kamera.");
+    if (previousURL) setTimeout(() => URL.revokeObjectURL?.(previousURL), 1000);
+  };
+  ws.onerror = () => {
+    if (state.cameras.builtinWS === ws) setDashboardCameraState("builtin", "error", "Z1-kameran svarar inte", "Ny anslutning provas automatiskt.");
+  };
+  ws.onclose = () => {
+    if (state.cameras.builtinWS !== ws) return;
+    state.cameras.builtinWS = null;
+    if (!dashboardCameraShouldRun()) return;
+    setDashboardCameraState("builtin", "error", "Z1-kameran är offline", "Ny anslutning provas automatiskt.");
+    state.cameras.builtinReconnectTimer = setTimeout(startDashboardBuiltinCamera, 3000);
+  };
+}
+
+function stopDashboardExternalCamera() {
+  clearTimeout(state.cameras.externalRetryTimer);
+  state.cameras.externalRetryTimer = null;
+  const image = document.getElementById("dashboard-external-camera-image");
+  if (image) {
+    image.onload = null;
+    image.onerror = null;
+    image.removeAttribute("src");
+  }
+  state.cameras.externalURL = "";
+}
+
+function startDashboardExternalCamera() {
+  const source = dashboardCameraSource("external");
+  if (!dashboardCameraShouldRun() || !source.configured || !source.stream_url || state.cameras.externalURL) return;
+  const image = document.getElementById("dashboard-external-camera-image");
+  if (!image) return;
+  clearTimeout(state.cameras.externalRetryTimer);
+  const url = new URL(source.stream_url, window.location.href);
+  url.searchParams.set("v", String(Date.now()));
+  state.cameras.externalURL = url.href;
+  setDashboardCameraState("external", "connecting", "Ansluter till extern kamera", "Bildströmmen går genom Sensei för fjärråtkomst.");
+  image.onload = () => {
+    if (state.cameras.externalURL !== url.href) return;
+    setDashboardCameraState("external", "live", "Extern kamera live", "Huvudkamera på kontrollern.");
+    if (dashboardExternalCameraIsSnapshot(source)) {
+      state.cameras.externalRetryTimer = setTimeout(() => {
+        if (state.cameras.externalURL !== url.href || !dashboardCameraShouldRun()) return;
+        state.cameras.externalURL = "";
+        startDashboardExternalCamera();
+      }, EXTERNAL_SNAPSHOT_REFRESH_MS);
+    }
+  };
+  image.onerror = () => {
+    if (state.cameras.externalURL !== url.href) return;
+    state.cameras.externalURL = "";
+    setDashboardCameraState("external", "error", "Extern kamera är offline", "Ny anslutning provas automatiskt.");
+    state.cameras.externalRetryTimer = setTimeout(startDashboardExternalCamera, 4000);
+  };
+  image.src = url.href;
+}
+
+function syncDashboardCameras() {
+  renderDashboardCameraConfig();
+  if (!dashboardCameraShouldRun()) {
+    stopDashboardBuiltinCamera();
+    stopDashboardExternalCamera();
+    return;
+  }
+  startDashboardBuiltinCamera();
+  startDashboardExternalCamera();
+}
+
+async function loadDashboardCameras() {
+  try {
+    const response = await request("/api/cameras");
+    const sources = await response.json();
+    state.cameras.sources = {
+      builtin: sources?.builtin || { configured: false },
+      external: sources?.external || { configured: false },
+    };
+  } catch {
+    state.cameras.sources = { builtin: { configured: false }, external: { configured: false } };
+  } finally {
+    state.cameras.loaded = true;
+    syncDashboardCameras();
+  }
+}
+
+function selectDashboardPositionSpace(space) {
+  state.dashboardPositionSpace = space === "machine" ? "machine" : "work";
+  renderDashboard();
+}
+
+function renderDashboardPosition(machine) {
+  const machineSpace = state.dashboardPositionSpace === "machine";
+  const position = machineSpace ? machine.mpos : machine.wpos;
+  document.getElementById("dashboard-position-work")?.setAttribute("aria-pressed", String(!machineSpace));
+  document.getElementById("dashboard-position-machine")?.setAttribute("aria-pressed", String(machineSpace));
+  for (const axis of ["x", "y", "z", "a"]) {
+    const element = document.getElementById("dashboard-position-" + axis);
+    if (element) element.textContent = fmtCoord(axisValue(position, axis));
+  }
+  document.querySelector(".dashboard-coordinate-a")?.classList.toggle("is-unavailable", axisValue(position, "a") === null);
+}
+
 function renderDashboard() {
   const machine = state.machine || {};
   const active = state.activeGcode || {};
@@ -7761,35 +8009,38 @@ function renderDashboard() {
 
   const machineState = document.getElementById("dashboard-state");
   if (machineState) {
-    machineState.textContent = machine.state || "Unknown";
+    const labels = { Idle: "Redo", Run: "Kör", Hold: "Pausad", Pause: "Pausad", Wait: "Väntar", Tool: "Verktygsbyte", Alarm: "Larm" };
+    machineState.textContent = labels[machine.state] || machine.state || "Okänd";
     machineState.className = "badge state-" + (machine.state || "Unknown");
   }
   setText("dashboard-wpos", fmtPos(machine.wpos, !!machine.motion_estimated));
   setText("dashboard-mpos", "Machine " + fmtPos(machine.mpos, !!machine.motion_estimated));
+  renderDashboardPosition(machine);
   const feed = fmtDashboardFeed(machine.feed);
   setText("dashboard-feed", feed.current);
   setText("dashboard-feed-detail", feed.detail);
   const spindle = fmtDashboardSpindle(machine.spindle);
   setText("dashboard-spindle", spindle.current);
   setText("dashboard-spindle-detail", spindle.detail);
-  setText("dashboard-spindle-temp", fmtTemperature(machine.spindle?.spindle_temp_c, "Spindle"));
-  setText("dashboard-power-temp", fmtTemperature(machine.spindle?.power_temp_c, "Power"));
+  setText("dashboard-spindle-temp", fmtTemperature(machine.spindle?.spindle_temp_c, "Spindel"));
+  setText("dashboard-power-temp", fmtTemperature(machine.spindle?.power_temp_c, "Effekt"));
   setText("dashboard-tool", fmtActiveTool(machine.tool));
   const offset = Number(machine.tool?.offset);
   const target = Number(machine.tool?.target);
   setText("dashboard-tool-detail", `${Number.isFinite(offset) ? "TLO " + offset.toFixed(3) : "TLO -"}${Number.isFinite(target) ? " · next " + toolDisplayName(target) : ""}`);
-  setText("dashboard-connection", machine.stale ? "Stale" : (machine.connected ? "Connected" : (machine.reconnecting ? "Reconnecting" : "Disconnected")));
+  setText("dashboard-connection", machine.stale ? "Inaktuell" : (machine.connected ? "Ansluten" : (machine.reconnecting ? "Återansluter" : "Frånkopplad")));
   setText("dashboard-mode", `${machine.mode || "owner"} · ${fmtAge(machine.age_ms)}`);
-  setText("dashboard-job-title", active.path ? relPath(active.path) : (external ? external.title : "No active gcode selected."));
+  setText("dashboard-job-title", active.path ? relPath(active.path) : (external ? `Externt jobb · ${machine.state || "aktivt"}` : "Inget aktivt jobb"));
 
   const progress = document.getElementById("dashboard-progress-bar");
   if (progress) progress.value = live ? live.percent : 0;
   const lineCount = Math.max(0, Number(preview.line_count) || 0);
-  setText("dashboard-progress-label", live ? `${live.percent}% · line ${live.playedLines}${lineCount ? " / " + lineCount : ""}` : (external ? external.progressText : "Progress"));
+  setText("dashboard-progress-label", live ? `${live.percent}% · rad ${live.playedLines}${lineCount ? " / " + lineCount : ""}` : (external ? external.progressText : "Förlopp"));
   setText("dashboard-elapsed", live ? fmtDuration(live.elapsedMs) : (external ? external.observedText : "-"));
   setText("dashboard-remaining", live && Number.isFinite(live.remainingMs) ? fmtDuration(live.remainingMs) : "-");
   renderDashboardTelemetry(machine);
   renderDashboardGcodeStream(live);
+  document.getElementById("dashboard-toolpath-fallback")?.classList.toggle("has-toolpath", dashboardPreview.segments.length > 0 && !!dashboardPreview.bounds);
   drawDashboardGcodePreview(dashboardPreview, live);
 }
 
@@ -12910,6 +13161,7 @@ function showTab(name, urlMode = "push") {
   if (name === "dashboard") renderDashboard();
   if (name === "control" || name === "jog") renderJog();
   else clearNotice("jog-availability");
+  syncDashboardCameras();
   syncViewTabURL(name, urlMode);
 }
 
@@ -12933,6 +13185,10 @@ function runSurfaceShellAction(action) {
   case "files":
     showTab("files");
     break;
+  case "camera":
+    showTab("dashboard");
+    document.querySelector(".dashboard-camera-stage")?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    break;
   case "actions": {
     const actions = document.getElementById("command-actions");
     const toggle = document.getElementById("mobile-actions-toggle");
@@ -12949,7 +13205,7 @@ function applySurfaceAutomaticView() {
   const machineState = String(state.machine.state);
   const target = ["Tool", "Pause", "Wait", "Hold", "Alarm"].includes(machineState)
     ? "attention"
-    : (machineState === "Run" ? "active-job" : (machineState === "Idle" ? state.surface.start_view : ""));
+    : (machineState === "Run" ? "dashboard" : (machineState === "Idle" ? state.surface.start_view : ""));
   if (target && target !== state.activeTab) showTab(target, "replace");
 }
 
@@ -13556,6 +13812,7 @@ function init() {
   initCommandPopouts();
   initializeSurfaceMobileOptions();
   window.matchMedia?.("(max-width: 600px)")?.addEventListener?.("change", (e) => initializeSurfaceMobileOptions(e.matches));
+  window.matchMedia?.("(min-width: 1320px)")?.addEventListener?.("change", () => applyDashboardProfile(currentDashboardProfile()));
   bindButtonAction(document.getElementById("jog-arm"), toggleTapMoveArm);
   bindButtonAction(document.getElementById("surface-jog-arm"), toggleSurfaceMovementArm);
   document.getElementById("surface-jog-directional").onclick = () => selectSurfaceJogMethod("directional");
@@ -13583,6 +13840,15 @@ function init() {
   for (const button of document.querySelectorAll("[data-surface-action]")) {
     button.onclick = () => runSurfaceShellAction(button.dataset.surfaceAction);
   }
+  document.getElementById("dashboard-position-work")?.addEventListener("click", () => selectDashboardPositionSpace("work"));
+  document.getElementById("dashboard-position-machine")?.addEventListener("click", () => selectDashboardPositionSpace("machine"));
+  document.getElementById("dashboard-open-job")?.addEventListener("click", () => showTab("active-job"));
+  bindButtonAction(document.getElementById("surface-footer-hold"), () => sendControl("hold"));
+  bindButtonAction(document.getElementById("surface-footer-resume"), () => {
+    if (state.machine?.state === "Pause") runActiveJobControl("resume_job");
+    else if (state.machine?.state === "Hold") sendControl("resume");
+  });
+  bindButtonAction(document.getElementById("surface-footer-job"), () => showTab("active-job"));
   document.getElementById("surface-auto-switch").onchange = (e) => {
     state.surface.auto_switch = !!e.target.checked;
     saveSurfaceViewPreferences();
@@ -13625,12 +13891,14 @@ function init() {
 
   loadUISettings();
   loadAPICapabilities();
+  loadDashboardCameras();
   loadActiveGcode();
   loadJogCapabilities();
   window.addEventListener("online", () => {
     loadJogCapabilities();
   });
   document.addEventListener("visibilitychange", () => {
+    syncDashboardCameras();
     if (document.hidden) {
       state.jog.inputSuspended = true;
       if (releaseJogInput(true)) renderJog();
@@ -13650,6 +13918,8 @@ function init() {
     scheduleJogSample();
   });
   window.addEventListener("pagehide", () => {
+    stopDashboardBuiltinCamera();
+    stopDashboardExternalCamera();
     state.jog.inputSuspended = true;
     releaseJogInput(true);
   });

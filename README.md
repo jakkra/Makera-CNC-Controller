@@ -226,6 +226,9 @@ password; default user `cnc`) or explicitly pass `-allow-insecure-http`.
 | `-tcp-port` | 2222 | port the relay listens on for the controller |
 | `-machine-transport` | `tcp` | machine-side transport: `tcp` or `usb` |
 | `-machine` | (discover) | fixed machine TCP `host:port`; empty = learn via UDP in TCP mode |
+| `-camera-builtin-ws-url` | auto from fixed `-machine` | Z1 camera WebSocket; normally `ws://<z1>:82/ws_video` |
+| `-camera-external-url` | (empty) | fixed HTTP(S) MJPEG or snapshot URL for an external camera service |
+| `-camera-external-mode` | `mjpeg` | `mjpeg` keeps one continuous stream; `snapshot` reloads a still image periodically |
 | `-usb-device` | (empty) | USB/serial device for `-machine-transport=usb` |
 | `-usb-baud` | 115200 | USB serial baud rate |
 | `-usb-reset-on-open` | false | toggle DTR when opening the USB serial device |
@@ -258,6 +261,14 @@ password; default user `cnc`) or explicitly pass `-allow-insecure-http`.
 
 (`-no-advertise` still exists as a deprecated no-op so older invocations don't
 break; advertising is now opt-in via `-advertise`.)
+
+The dashboard consumes both cameras through same-origin proxy routes, so a
+Tailscale/HTTPS client never has to reach a workshop-LAN camera directly. The
+built-in Z1 source is derived automatically when `-machine` is fixed. A UVC
+camera still needs a local Linux streaming service (for example an MJPEG URL),
+whose fixed URL is supplied with `-camera-external-url`. Camera connections are
+opened only while the Overview is visible; unavailable sources stay inline as
+honest offline/unconfigured states instead of producing global error pop-ups.
 
 Every flag can also be set through the environment as `CNC_<NAME>` with `-`
 mapped to `_` (e.g. `CNC_MACHINE=192.168.1.42:2222`, `CNC_NAME="Shop CNC"`,

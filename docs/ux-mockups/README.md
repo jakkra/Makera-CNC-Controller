@@ -35,11 +35,15 @@ stream are progressively disclosed so the primary state/job/progress hierarchy
 remains readable at pendant distance. Attention states use the existing Resume,
 Recover and Tool pathways; no attention-specific machine command is invented.
 
-The active-job preview is the existing machine-coordinate G-code visualization.
-No camera feed is represented until a camera backend and its connection/privacy
-state exist. Attention distinguishes realtime feed-hold resume from restoring
-a firmware-paused job, and offers no blind resume action for an ambiguous Wait
-state. On phones the route fallback is Dashboard (monitoring first); the
+The Overview now reserves its primary surface for camera monitoring. An
+operator-configured external MJPEG/snapshot source is the main image and the Z1
+WebSocket-JPEG camera is shown as an inset when both exist. Both are relayed by
+same-origin backend routes for Tailscale use; unconfigured, connecting, live and
+offline states are rendered inline without notification pop-ups. The existing
+machine-coordinate G-code visualization remains a compact job fallback rather
+than replacing the camera concept. Attention distinguishes realtime feed-hold
+resume from restoring a firmware-paused job, and offers no blind resume action
+for an ambiguous Wait state. On phones the route fallback is Dashboard (monitoring first); the
 Surface automatic routing is enabled only on kiosk-sized coarse-pointer devices.
 
 ## Safety interaction contract
@@ -88,8 +92,8 @@ interaction. Do not wire the map preview to that message. Server work is still
 needed for a server-authoritative target preview, continuous hold lease and
 verified safe-Z-then-XY execution before the map can move the machine.
 
-The current jog service exposes X/Y/Z only. A-axis controls remain absent from
-the Surface prototype until the backend can enforce the same motion lease and
+The current jog service exposes X/Y/Z only. A-axis controls remain guarded and
+unavailable for motion until the backend can enforce the same motion lease and
 safety policy for that axis.
 
 ## Physical evaluation

@@ -952,6 +952,54 @@
   .dashboard-secondary > summary::-webkit-details-marker { display: none; }
   .dashboard-secondary > summary::after { content: "Show"; float: right; color: var(--accent); font-size: 12px; }
   .dashboard-secondary[open] > summary::after { content: "Hide"; }
+  .dashboard-eyebrow { display: block; color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+  .dashboard-machine { grid-template-rows: auto auto auto auto auto; }
+  .dashboard-machine-heading h2, .dashboard-job-heading h2 { margin: 2px 0 0; }
+  .dashboard-position-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; background: rgba(8,13,16,.65); border: 1px solid var(--border); border-radius: 8px; }
+  .dashboard-position-switch button { min-height: 38px; padding: 5px 8px; border: 0; background: transparent; color: var(--muted); }
+  .dashboard-position-switch button[aria-pressed="true"] { color: var(--accent); background: rgba(87,166,214,.13); box-shadow: inset 0 0 0 1px rgba(87,166,214,.3); }
+  .dashboard-coordinate-readout { display: grid; }
+  .dashboard-coordinate-row { min-height: 58px; display: grid; grid-template-columns: 28px minmax(0,1fr) 28px; gap: 8px; align-items: baseline; border-bottom: 1px solid rgba(65,77,82,.7); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .dashboard-coordinate-row > span { color: var(--muted); font-size: 20px; font-weight: 700; }
+  .dashboard-coordinate-row > strong { min-width: 0; color: var(--text); font-size: clamp(28px,4.4vw,42px); line-height: 1.25; text-align: right; font-variant-numeric: tabular-nums; overflow: hidden; }
+  .dashboard-coordinate-row > small { color: var(--muted); font-size: 11px; }
+  .dashboard-coordinate-a.is-unavailable { display: none; }
+  .dashboard-machine-primary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .dashboard-machine-value { min-width: 0; display: grid; gap: 2px; padding: 9px 10px; border-right: 1px solid var(--border); }
+  .dashboard-machine-value:last-child { border-right: 0; }
+  .dashboard-machine-value span, .dashboard-machine-health span { color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+  .dashboard-machine-value strong { min-width: 0; color: var(--text); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dashboard-machine-value b { min-width: 0; color: var(--muted); font-size: 10px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dashboard-machine-health { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .dashboard-machine-health > div { min-width: 0; display: grid; gap: 2px; }
+  .dashboard-machine-health strong, .dashboard-machine-health b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dashboard-machine-health strong { color: var(--text); font-size: 12px; }
+  .dashboard-machine-health b { color: var(--muted); font-size: 10px; font-weight: 500; }
+  .dashboard-job-heading { align-items: center; }
+  .dashboard-job-heading > div { min-width: 0; }
+  .dashboard-job-heading h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #dashboard-open-job { min-height: 38px; flex: 0 0 auto; }
+  .dashboard-camera-stage { position: relative; min-height: 300px; overflow: hidden; border: 1px solid #34444e; border-radius: 10px; background: #080e12; }
+  .dashboard-camera { position: absolute; overflow: hidden; background: radial-gradient(circle at 50% 40%,#17242b,#080d10 72%); }
+  .dashboard-camera img { width: 100%; height: 100%; display: block; object-fit: cover; }
+  .dashboard-camera-main { inset: 0; }
+  .dashboard-camera-inset { z-index: 3; top: 16px; right: 16px; width: min(34%,310px); aspect-ratio: 4/3; border: 1px solid #586872; border-radius: 7px; box-shadow: 0 14px 34px rgba(0,0,0,.5); }
+  .dashboard-camera-empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 7px; padding: 20px; color: var(--muted); text-align: center; }
+  .dashboard-camera-empty strong { color: #c8d3d9; font-size: 15px; }
+  .dashboard-camera-empty small { max-width: 38ch; font-size: 11px; line-height: 1.45; }
+  .dashboard-camera-icon { width: 48px; height: 48px; display: grid; place-items: center; color: #66808d; border: 1px solid #42535c; border-radius: 50%; font-size: 22px; }
+  .dashboard-camera-label { position: absolute; z-index: 4; left: 12px; bottom: 10px; display: flex; gap: 8px; align-items: center; padding: 5px 8px; color: #dce7eb; background: rgba(5,9,11,.78); border: 1px solid rgba(98,119,129,.55); border-radius: 5px; font-size: 10px; backdrop-filter: blur(8px); }
+  .dashboard-camera-label b { color: #8f9ca3; font-weight: 650; }
+  .dashboard-camera.is-live .dashboard-camera-empty { display: none; }
+  .dashboard-camera.is-live .dashboard-camera-label b { color: #55dc81; }
+  .dashboard-camera.is-error .dashboard-camera-label b { color: #ff8181; }
+  .dashboard-toolpath-fallback { position: absolute; z-index: 2; right: 16px; bottom: 16px; width: min(34%,310px); height: auto; aspect-ratio: 16/10; min-height: 0; border-color: #586872; border-radius: 7px; background: #10181d; box-shadow: 0 14px 34px rgba(0,0,0,.5); }
+  .dashboard-toolpath-fallback:not(.has-toolpath) { display: none; }
+  .dashboard-preview-label { position: absolute; left: 8px; bottom: 7px; padding: 3px 6px; color: #c6d4db; background: rgba(5,9,11,.76); border-radius: 3px; font-size: 9px; text-transform: uppercase; }
+  .dashboard-camera-inset + .dashboard-toolpath-fallback { bottom: 16px; }
+  .dashboard-camera-stage.builtin-primary .dashboard-camera-main { display: none; }
+  .dashboard-camera-stage.builtin-primary .dashboard-camera-inset { inset: 0; width: auto; aspect-ratio: auto; border: 0; border-radius: 0; box-shadow: none; }
+  .dashboard-camera-stage.builtin-primary .dashboard-toolpath-fallback { display: none; }
   #active-gcode-panel { border-radius: 12px; }
   .active-gcode-head { gap: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
   .active-gcode-workspace { border-radius: 10px; overflow: hidden; }
@@ -979,9 +1027,16 @@
     .tab { flex: 1 1 0; width: auto; min-width: 0; min-height: 38px; padding-inline: 4px; font-size: 11px; }
     #header-toggle, .dashboard-controls { display: none !important; }
     main { overflow-y: auto; padding: 10px; }
-    .dashboard-grid, .dashboard-grid.layout-job-focus, .dashboard-grid.layout-job-focus.dashboard-job-focus-split, .dashboard-grid.layout-grid { display: grid; height: auto; grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: auto; grid-template-areas: "machine" "job" "telemetry" "gcode"; align-content: start; overflow: visible; }
+    .dashboard-grid, .dashboard-grid.layout-job-focus, .dashboard-grid.layout-job-focus.dashboard-job-focus-split, .dashboard-grid.layout-grid { display: grid; height: auto; grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: auto; grid-template-areas: "job" "machine" "telemetry" "gcode"; align-content: start; overflow: visible; }
     .dashboard-grid.layout-job-focus.dashboard-job-focus-split .dashboard-job { grid-column: auto; grid-row: auto; }
     .dashboard-job { min-height: 330px; }
+    .dashboard-job-heading { align-items: flex-start; }
+    #dashboard-open-job { min-height: 34px; padding-inline: 9px; font-size: 11px; }
+    .dashboard-camera-stage { min-height: 280px; }
+    .dashboard-camera-inset, .dashboard-toolpath-fallback { width: 38%; right: 10px; }
+    .dashboard-camera-inset { top: 10px; }
+    .dashboard-toolpath-fallback { bottom: 10px; }
+    .dashboard-coordinate-row > strong { font-size: clamp(27px,10vw,40px); }
     .dashboard-telemetry, .dashboard-gcode { min-height: auto; }
     .surface-jog { min-height: 0; grid-template-columns: 1fr; }
     .surface-jog-panel { min-height: 0; }
@@ -1075,6 +1130,7 @@
     #surface-footer-state { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .surface-quick-button { min-width: 0; border: 0; border-right: 1px solid #31404a; border-radius: 0; background: transparent; color: #dbe4ea; font-size: 15px; }
     .surface-quick-button:hover { color: #63d9ee; background: rgba(83,201,224,.06); }
+    #surface-quick-actions.is-job-state { grid-template-columns: minmax(250px,1.4fr) repeat(2,minmax(180px,1fr)); }
     #status-bar { left: var(--surface-rail-w); bottom: var(--surface-footer-h); }
     .surface-jog { min-height: 0; height: 100%; grid-template-columns: minmax(640px,1fr) minmax(330px,390px); gap: 0; border: 1px solid #31404a; background: rgba(9,16,21,.72); }
     .surface-jog-panel { min-height: 0; padding: 20px 26px; gap: 14px; border: 0; border-radius: 0; background: transparent; }
@@ -1141,6 +1197,21 @@
     body[data-active-tab="active-job"] #active-gcode-splitter { grid-column: 2; grid-row: 1; }
     body[data-active-tab="active-job"] #active-gcode-left { grid-column: 3; grid-row: 1; }
     body[data-active-tab="active-job"] .active-gcode-actions button { min-height: 46px; }
+    body[data-active-tab="dashboard"] #dashboard-view { height: 100%; min-height: 0; overflow: hidden; }
+    body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) 360px; grid-template-rows: minmax(0,1fr); grid-auto-rows: unset; grid-template-areas: "job machine"; gap: 0; overflow: hidden; border: 1px solid #31404a; background: rgba(9,16,21,.72); }
+    body[data-active-tab="dashboard"] .dashboard-job, body[data-active-tab="dashboard"] .dashboard-machine { min-height: 0; height: 100%; padding: 18px 20px; border: 0; border-radius: 0; background: transparent; }
+    body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid .dashboard-job { grid-area: job; grid-column: job; grid-row: job; grid-template-rows: auto auto minmax(0,1fr); border-right: 1px solid #31404a; }
+    body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid .dashboard-machine { grid-area: machine; grid-template-rows: auto auto minmax(0,1fr) auto auto; gap: 12px; }
+    body[data-active-tab="dashboard"] .dashboard-telemetry, body[data-active-tab="dashboard"] .dashboard-gcode { display: none; }
+    body[data-active-tab="dashboard"] .dashboard-camera-stage { min-height: 0; height: 100%; border-radius: 4px; }
+    body[data-active-tab="dashboard"] .dashboard-coordinate-row { min-height: 66px; }
+    body[data-active-tab="dashboard"] .dashboard-coordinate-row > strong { font-size: 42px; }
+    body[data-active-tab="dashboard"] .dashboard-machine-primary { grid-template-columns: 1fr; }
+    body[data-active-tab="dashboard"] .dashboard-machine-value { min-height: 55px; grid-template-columns: 82px minmax(0,1fr); grid-template-areas: "label value" "label detail"; align-content: center; border-right: 0; border-bottom: 1px solid var(--border); }
+    body[data-active-tab="dashboard"] .dashboard-machine-value:last-child { border-bottom: 0; }
+    body[data-active-tab="dashboard"] .dashboard-machine-value span { grid-area: label; align-self: center; }
+    body[data-active-tab="dashboard"] .dashboard-machine-value strong { grid-area: value; text-align: right; font-size: 17px; }
+    body[data-active-tab="dashboard"] .dashboard-machine-value b { grid-area: detail; text-align: right; }
   }
 </style>
 </head>
@@ -1340,7 +1411,7 @@
   <button type="button" class="surface-nav-button" data-surface-view="control"><span class="surface-nav-icon" aria-hidden="true">⌁</span><span>Probing</span></button>
   <button type="button" class="surface-nav-button" data-surface-view="active-job"><span class="surface-nav-icon" aria-hidden="true">▤</span><span>Aktivt jobb</span></button>
   <button type="button" class="surface-nav-button" data-surface-view="files"><span class="surface-nav-icon" aria-hidden="true">▱</span><span>Filer</span></button>
-  <button type="button" class="surface-nav-button" disabled title="Kamerabackend är inte ansluten"><span class="surface-nav-icon" aria-hidden="true">▣</span><span>Kamera</span></button>
+  <button type="button" class="surface-nav-button" data-surface-action="camera" title="Öppna kameraövervakningen"><span class="surface-nav-icon" aria-hidden="true">▣</span><span>Kamera</span></button>
   <button type="button" class="surface-nav-button" data-surface-action="actions"><span class="surface-nav-icon" aria-hidden="true">⌕</span><span>Underhåll</span></button>
 </nav>
 <main>
@@ -1359,31 +1430,56 @@
   <section id="dashboard-view" class="view" role="tabpanel" aria-labelledby="tab-dashboard" hidden>
     <section class="dashboard-grid layout-job-focus dashboard-job-focus-split dashboard-panel-count-4" aria-label="Machine and active job summary">
       <section class="dashboard-panel dashboard-machine" data-dashboard-panel="machine">
-        <div class="dashboard-heading"><h2>Machine</h2><span id="dashboard-state" class="badge state-Unknown">Unknown</span></div>
-        <div class="dashboard-metrics">
-          <div class="dashboard-metric dashboard-position-metric"><span>Work position</span><strong id="dashboard-wpos">-</strong><b id="dashboard-mpos">-</b></div>
-          <div class="dashboard-metric"><span>Feed</span><strong id="dashboard-feed">-</strong><b id="dashboard-feed-detail">-</b></div>
-          <div class="dashboard-metric"><span>Spindle</span><strong id="dashboard-spindle">-</strong><b id="dashboard-spindle-detail">-</b></div>
-          <div class="dashboard-metric"><span>Temperatures</span><strong id="dashboard-spindle-temp">-</strong><b id="dashboard-power-temp">-</b></div>
-          <div class="dashboard-metric"><span>Tool</span><strong id="dashboard-tool">-</strong><b id="dashboard-tool-detail">-</b></div>
-          <div class="dashboard-metric"><span>Connection</span><strong id="dashboard-connection">-</strong><b id="dashboard-mode">-</b></div>
+        <div class="dashboard-heading dashboard-machine-heading"><div><span class="dashboard-eyebrow">Maskin</span><h2>Position</h2></div><span id="dashboard-state" class="badge state-Unknown">Okänd</span></div>
+        <div class="dashboard-position-switch" role="group" aria-label="Koordinatsystem">
+          <button type="button" id="dashboard-position-work" aria-pressed="true">Arbetsposition</button>
+          <button type="button" id="dashboard-position-machine" aria-pressed="false">Maskinposition</button>
+        </div>
+        <div class="dashboard-coordinate-readout">
+          <div class="dashboard-coordinate-row"><span>X</span><strong id="dashboard-position-x">-</strong><small>mm</small></div>
+          <div class="dashboard-coordinate-row"><span>Y</span><strong id="dashboard-position-y">-</strong><small>mm</small></div>
+          <div class="dashboard-coordinate-row"><span>Z</span><strong id="dashboard-position-z">-</strong><small>mm</small></div>
+          <div class="dashboard-coordinate-row dashboard-coordinate-a"><span>A</span><strong id="dashboard-position-a">-</strong><small>°</small></div>
+          <span id="dashboard-wpos" hidden>-</span><span id="dashboard-mpos" hidden>-</span>
+        </div>
+        <div class="dashboard-machine-primary">
+          <div class="dashboard-machine-value"><span>Verktyg</span><strong id="dashboard-tool">-</strong><b id="dashboard-tool-detail">-</b></div>
+          <div class="dashboard-machine-value"><span>Spindel</span><strong id="dashboard-spindle">-</strong><b id="dashboard-spindle-detail">-</b></div>
+          <div class="dashboard-machine-value"><span>Matning</span><strong id="dashboard-feed">-</strong><b id="dashboard-feed-detail">-</b></div>
+        </div>
+        <div class="dashboard-machine-health">
+          <div><span>Anslutning</span><strong id="dashboard-connection">-</strong><b id="dashboard-mode">-</b></div>
+          <div><span>Temperatur</span><strong id="dashboard-spindle-temp">-</strong><b id="dashboard-power-temp">-</b></div>
         </div>
       </section>
       <section class="dashboard-panel dashboard-job" data-dashboard-panel="job">
-        <div class="dashboard-heading"><h2>Current job</h2><div id="dashboard-job-title">No active gcode selected.</div></div>
+        <div class="dashboard-heading dashboard-job-heading"><div><span class="dashboard-eyebrow">Aktuellt jobb</span><h2 id="dashboard-job-title">Inget aktivt jobb</h2></div><button type="button" id="dashboard-open-job">Öppna jobbdetaljer</button></div>
         <div class="dashboard-progress">
-          <div class="dashboard-progress-main"><span id="dashboard-progress-label">Progress</span><progress id="dashboard-progress-bar" max="100" value="0"></progress></div>
-          <div class="dashboard-time"><span>Elapsed</span><strong id="dashboard-elapsed">-</strong></div>
-          <div class="dashboard-time"><span>Remaining</span><strong id="dashboard-remaining">-</strong></div>
+          <div class="dashboard-progress-main"><span id="dashboard-progress-label">Förlopp</span><progress id="dashboard-progress-bar" max="100" value="0"></progress></div>
+          <div class="dashboard-time"><span>Körtid</span><strong id="dashboard-elapsed">-</strong></div>
+          <div class="dashboard-time"><span>Återstår</span><strong id="dashboard-remaining">-</strong></div>
         </div>
-        <div class="dashboard-preview-frame">
-          <canvas id="dashboard-preview" role="img" aria-label="Active job 3D preview"></canvas>
-          <div id="dashboard-preview-empty">No plotted moves</div>
+        <div class="dashboard-camera-stage" aria-label="Kameraövervakning">
+          <div id="dashboard-external-camera" class="dashboard-camera dashboard-camera-main is-unconfigured">
+            <img id="dashboard-external-camera-image" alt="Extern kamera" hidden>
+            <div class="dashboard-camera-empty"><span class="dashboard-camera-icon" aria-hidden="true">▣</span><strong id="dashboard-external-camera-state">Extern kamera ej konfigurerad</strong><small id="dashboard-external-camera-detail">Anslut en USB-kamera på kontrollern för huvudvyn.</small></div>
+            <div class="dashboard-camera-label"><span>Extern kamera</span><b id="dashboard-external-camera-badge">Ej konfigurerad</b></div>
+          </div>
+          <div id="dashboard-builtin-camera" class="dashboard-camera dashboard-camera-inset is-unconfigured">
+            <img id="dashboard-builtin-camera-image" alt="Z1-kamera" hidden>
+            <div class="dashboard-camera-empty"><span class="dashboard-camera-icon" aria-hidden="true">◉</span><strong id="dashboard-builtin-camera-state">Z1-kamera ej konfigurerad</strong><small id="dashboard-builtin-camera-detail">Ingen kamerakälla är tillgänglig.</small></div>
+            <div class="dashboard-camera-label"><span>Z1-kamera</span><b id="dashboard-builtin-camera-badge">Ej konfigurerad</b></div>
+          </div>
+          <div id="dashboard-toolpath-fallback" class="dashboard-preview-frame dashboard-toolpath-fallback">
+            <canvas id="dashboard-preview" role="img" aria-label="Förhandsvisning av aktivt jobb"></canvas>
+            <div id="dashboard-preview-empty">Ingen kamerabild eller plottad verktygsbana</div>
+            <span class="dashboard-preview-label">Verktygsbana</span>
+          </div>
         </div>
       </section>
       <section class="dashboard-panel dashboard-telemetry" data-dashboard-panel="telemetry">
         <details class="dashboard-secondary">
-        <summary>Machine telemetry</summary>
+        <summary>Diagnostik och extra telemetri</summary>
         <div class="dashboard-telemetry-grid">
           <div class="dashboard-telemetry-item" data-dashboard-telemetry="rotary"><span>Rotary position</span><strong id="dashboard-rotary">-</strong></div>
           <div class="dashboard-telemetry-item" data-dashboard-telemetry="probe"><span>Wireless probe</span><strong id="dashboard-probe-voltage">-</strong></div>
@@ -1401,7 +1497,7 @@
       </section>
       <section class="dashboard-panel dashboard-gcode" data-dashboard-panel="gcode">
         <details class="dashboard-secondary">
-          <summary>Gcode stream <span id="dashboard-gcode-position">-</span></summary>
+          <summary>G-code-ström <span id="dashboard-gcode-position">-</span></summary>
           <div id="dashboard-gcode-lines" class="dashboard-gcode-lines" aria-label="Gcode around the current job line"></div>
         </details>
       </section>
@@ -1882,10 +1978,13 @@
 </main>
 <div id="surface-quick-actions" aria-label="Snabbåtgärder">
   <div class="surface-quick-state"><strong id="surface-footer-state">Väntar på maskinstatus</strong></div>
-  <button type="button" class="surface-quick-button" data-surface-action="home">⌂&nbsp; Hemkör</button>
-  <button type="button" class="surface-quick-button" data-surface-action="probe-z">⌁&nbsp; Proba Z</button>
-  <button type="button" class="surface-quick-button" data-surface-action="work-zero">⌖&nbsp; Nollpunkt</button>
-  <button type="button" class="surface-quick-button" data-surface-action="files">▱&nbsp; Öppna jobb</button>
+  <button type="button" class="surface-quick-button" data-surface-setup data-surface-action="home">⌂&nbsp; Hemkör</button>
+  <button type="button" class="surface-quick-button" data-surface-setup data-surface-action="probe-z">⌁&nbsp; Proba Z</button>
+  <button type="button" class="surface-quick-button" data-surface-setup data-surface-action="work-zero">⌖&nbsp; Nollpunkt</button>
+  <button type="button" class="surface-quick-button" data-surface-setup data-surface-action="files">▱&nbsp; Öppna jobb</button>
+  <button type="button" id="surface-footer-hold" class="surface-quick-button" hidden>Ⅱ&nbsp; Pausa</button>
+  <button type="button" id="surface-footer-resume" class="surface-quick-button" hidden>▶&nbsp; Återuppta</button>
+  <button type="button" id="surface-footer-job" class="surface-quick-button" hidden>▤&nbsp; Jobbdetaljer</button>
 </div>
 <dialog id="dashboard-settings-modal" aria-labelledby="dashboard-settings-title">
   <div class="machine-settings-modal-head">
@@ -2074,6 +2173,6 @@
 <div id="status-bar" role="status" aria-live="polite" hidden>
   <div id="notice"></div>
 </div>
-<script type="module" src="/app.js?v=dashboard-controls-2"></script>
+<script type="module" src="/app.js?v=surface-overview-camera-1"></script>
 </body>
 </html>

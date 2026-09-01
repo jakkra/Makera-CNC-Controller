@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
+const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.html"), "utf8");
 
 test("file rows expose responsive metadata cells", () => {
   for (const marker of [
@@ -88,6 +89,38 @@ function buildContext(functionNames, constNames = [], globals = {}) {
   vm.runInContext(code, context);
   return context;
 }
+
+test("external camera refresh is limited to explicit snapshot sources", () => {
+  const ctx = buildContext(["dashboardExternalCameraIsSnapshot"]);
+  assert.equal(vm.runInContext('dashboardExternalCameraIsSnapshot({mode:"snapshot"})', ctx), true);
+  assert.equal(vm.runInContext('dashboardExternalCameraIsSnapshot({mode:"mjpeg"})', ctx), false);
+  assert.equal(vm.runInContext("dashboardExternalCameraIsSnapshot({})", ctx), false);
+});
+
+test("wide Surface overview keeps job and machine panels regardless of saved profile", () => {
+  const ctx = buildContext(["dashboardPanelVisible"], [], {
+    window: { matchMedia: () => ({ matches: false }) },
+  });
+  assert.equal(vm.runInContext('dashboardPanelVisible("machine", {panels: []}, true)', ctx), true);
+  assert.equal(vm.runInContext('dashboardPanelVisible("job", {panels: []}, true)', ctx), true);
+  assert.equal(vm.runInContext('dashboardPanelVisible("telemetry", {panels: []}, true)', ctx), false);
+  assert.equal(vm.runInContext('dashboardPanelVisible("machine", {panels: []}, false)', ctx), false);
+  assert.ok(
+    htmlSource.includes('body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid'),
+    "wide Surface CSS must outrank saved profile layout selectors",
+  );
+});
+
+test("Surface footer only exposes safe job actions for the reported machine state", () => {
+  const ctx = buildContext(["surfaceQuickActionState"]);
+  const stateFor = (machineState) => vm.runInContext(`JSON.stringify(surfaceQuickActionState(${JSON.stringify(machineState)}))`, ctx);
+  assert.equal(stateFor("Idle"), '{"setup":true,"hold":false,"resume":false,"details":false}');
+  assert.equal(stateFor("Run"), '{"setup":false,"hold":true,"resume":false,"details":true}');
+  assert.equal(stateFor("Hold"), '{"setup":false,"hold":false,"resume":true,"details":true}');
+  assert.equal(stateFor("Pause"), '{"setup":false,"hold":false,"resume":true,"details":true}');
+  assert.equal(stateFor("Wait"), '{"setup":false,"hold":false,"resume":false,"details":true}');
+  assert.equal(stateFor("Tool"), '{"setup":false,"hold":false,"resume":false,"details":true}');
+});
 
 test("disabled jog capability is stable and never opens a WebSocket", () => {
   let socketCloses = 0;
@@ -5185,9 +5218,11 @@ test("Surface automatic routing is local-device-only and maps machine state to t
   });
   vm.runInContext("applySurfaceAutomaticView()", ctx);
   assert.deepEqual(calls.pop(), ["jog", "replace"]);
+  state.activeTab = "jog";
   state.machine.state = "Run";
   vm.runInContext("applySurfaceAutomaticView()", ctx);
-  assert.deepEqual(calls.pop(), ["active-job", "replace"]);
+  assert.deepEqual(calls.pop(), ["dashboard", "replace"]);
+  state.activeTab = "dashboard";
   state.machine.state = "Tool";
   vm.runInContext("applySurfaceAutomaticView()", ctx);
   assert.deepEqual(calls.pop(), ["attention", "replace"]);

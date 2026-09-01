@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/uwin/cnc-proxy/internal/attention"
+	"github.com/uwin/cnc-proxy/internal/camera"
 	"github.com/uwin/cnc-proxy/internal/gcodelog"
 	"github.com/uwin/cnc-proxy/internal/jog"
 	"github.com/uwin/cnc-proxy/internal/machine"
@@ -36,6 +37,7 @@ type Server struct {
 	notifications  *notifications.Dispatcher
 	readOnly       bool
 	allowedHosts   []string
+	camera         *camera.Manager
 }
 
 // Options configures optional API surfaces.
@@ -45,6 +47,9 @@ type Options struct {
 	MaxJSONBytes   int64
 	MaxBackupBytes int64
 	Notifications  *notifications.Dispatcher
+	// Camera contains fixed process-start upstreams. Browser requests cannot
+	// select their own camera URL.
+	Camera *camera.Manager
 	// AllowedHosts admits exact reverse-proxy Host values in addition to IP
 	// literals and localhost. It never enables wildcard or suffix matching.
 	AllowedHosts []string
@@ -75,6 +80,7 @@ func NewWithOptions(svc *service.Service, opts Options) *Server {
 		notifications:  opts.Notifications,
 		readOnly:       opts.ReadOnly,
 		allowedHosts:   append([]string(nil), opts.AllowedHosts...),
+		camera:         opts.Camera,
 	}
 }
 
@@ -83,6 +89,9 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/machine", s.getMachine)
 	mux.HandleFunc("GET /api/machine/status", s.getMachine)
+	mux.HandleFunc("GET /api/cameras", s.getCameras)
+	mux.HandleFunc("GET /api/camera/builtin/ws", s.builtinCameraWS)
+	mux.HandleFunc("GET /api/camera/external", s.externalCamera)
 	mux.HandleFunc("GET /api/capabilities", s.getCapabilities)
 	mux.HandleFunc("GET /api/files", s.getFiles)
 	mux.HandleFunc("POST /api/files", s.postFile)

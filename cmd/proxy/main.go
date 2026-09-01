@@ -39,6 +39,7 @@ import (
 
 	"github.com/uwin/cnc-proxy/internal/api"
 	"github.com/uwin/cnc-proxy/internal/attention"
+	"github.com/uwin/cnc-proxy/internal/camera"
 	"github.com/uwin/cnc-proxy/internal/client"
 	"github.com/uwin/cnc-proxy/internal/davfs"
 	"github.com/uwin/cnc-proxy/internal/discovery"
@@ -61,6 +62,9 @@ func main() {
 		tcpPort           = flag.Int("tcp-port", 2222, "TCP port to listen on for the controller")
 		machineTransport  = flag.String("machine-transport", machinetransport.KindTCP, "machine-side transport: tcp or usb")
 		machineAddr       = flag.String("machine", "", "machine TCP host or host:port (default port 2222); if empty in TCP mode, learned via UDP discovery")
+		cameraBuiltinURL  = flag.String("camera-builtin-ws-url", "", "Z1 built-in camera WebSocket URL; defaults to ws://<fixed -machine host>:82/ws_video")
+		cameraExternalURL = flag.String("camera-external-url", "", "fixed external camera HTTP(S) MJPEG or snapshot URL")
+		cameraExternalMode = flag.String("camera-external-mode", camera.ExternalModeMJPEG, "external camera mode: mjpeg (continuous stream) or snapshot (periodically refreshed image)")
 		usbDevice         = flag.String("usb-device", "", "USB/serial device for -machine-transport=usb (for example /dev/cu.usbserial-...)")
 		usbBaud           = flag.Int("usb-baud", 115200, "USB serial baud rate")
 		usbResetOnOpen    = flag.Bool("usb-reset-on-open", false, "toggle DTR when opening the USB serial device")
@@ -115,6 +119,29 @@ func main() {
 	}
 	if *jogMotion != string(jog.MotionPrimitiveInstant) && *jogMotion != string(jog.MotionPrimitiveG53) {
 		log.Fatalf("-jog-motion must be %q or %q", jog.MotionPrimitiveInstant, jog.MotionPrimitiveG53)
+	}
+	builtinCameraURL := strings.TrimSpace(*cameraBuiltinURL)
+	builtinCameraDerived := false
+	if builtinCameraURL == "" && transportKind == machinetransport.KindTCP && strings.TrimSpace(*machineAddr) != "" {
+		var derr error
+		builtinCameraURL, derr = camera.DeriveBuiltinWSURL(*machineAddr)
+		if derr != nil {
+			log.Fatalf("cannot derive built-in camera URL from -machine: %v", derr)
+		}
+		builtinCameraDerived = true
+	}
+	cameraMgr, err := camera.New(camera.Config{
+		BuiltinWSURL:   builtinCameraURL,
+		BuiltinDerived: builtinCameraDerived,
+		ExternalURL:    *cameraExternalURL,
+		ExternalMode:   *cameraExternalMode,
+	})
+	if err != nil {
+		log.Fatalf("camera configuration: %v", err)
+	}
+	cameraStatus := cameraMgr.Status()
+	if cameraStatus.Builtin.Configured || cameraStatus.External.Configured {
+		log.Printf("camera: built-in configured=%t external configured=%t", cameraStatus.Builtin.Configured, cameraStatus.External.Configured)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -299,6 +326,7 @@ func main() {
 		MaxJSONBytes:   kib(*apiJSONKB),
 		MaxBackupBytes: mib(*apiBackupMB),
 		Notifications:  notificationDispatcher,
+		Camera:         cameraMgr,
 		AllowedHosts:   splitCommaList(*apiAllowedHosts),
 		ReadOnly:       *apiReadOnly,
 	}).Handler()))

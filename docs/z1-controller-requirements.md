@@ -141,10 +141,10 @@ Vår riktiga Fusion-arbetskopia är `dev-4_axis_fix`. Den skriver i nuläget `M6
 
 | ID | Prio | Status | Krav |
 |---|---:|---|---|
-| CAM-001 | P1 | Saknas | Visa Z1:s inbyggda kamera och en extern kamera samtidigt, lokalt och på distans. |
+| CAM-001 | P1 | Delvis | Visa Z1:s inbyggda kamera och en extern kamera samtidigt, lokalt och på distans. Same-origin-bryggor och samtidig Overview-layout är implementerade; fysisk tvåkameraverifiering återstår. |
 | CAM-002 | P1 | Utred | Extern kamera ska i första hand vara en vanlig UVC USB-kamera med bra Linuxstöd; verifiera upplösning, fokus, montering och ljus. |
-| CAM-003 | P1 | Saknas | Kameraström ska fungera genom Tailscale utan publik portforwarding. |
-| CAM-004 | P1 | Saknas | Kamera-widget ska visa live/stale/offline, senaste bildtid och försöka återansluta utan att låsa controller-GUI:t. |
+| CAM-003 | P1 | Delvis | Kameraström ska fungera genom Tailscale utan publik portforwarding. Same-origin HTTP/WS-proxy är implementerad; verifiera slutlig Surface/Tailscale-installation. |
+| CAM-004 | P1 | Delvis | Kamera-widget visar ej konfigurerad/ansluter/live/offline och återansluter utan globala pop-ups; stale-tröskel och synlig senaste bildtid återstår. |
 | CAM-005 | P2 | Saknas | Snapshot, timelapse och valbar inspelning kopplad till jobbhistoriken. |
 | CAM-006 | P2 | Saknas | Kameraoffline under aktiv körning kan utlösa mobilnotis. |
 
