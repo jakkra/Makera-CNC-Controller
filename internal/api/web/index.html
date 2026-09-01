@@ -905,12 +905,94 @@
   @media (max-width: 440px) {
     .machine-settings-travel-fields, .machine-settings-origin-fields, .machine-settings-motion-fields { grid-template-columns: 1fr; }
   }
+
+  /* Surface controller shell.  These final rules deliberately override the
+     older desktop toolbar without changing the long-lived control DOM. */
+  #command-toolbar { min-height: 58px; gap: 14px; }
+  #app-brand { flex: 0 0 auto; display: grid; gap: 0; min-width: 92px; color: var(--text); line-height: 1.05; }
+  #app-brand strong { font-size: 14px; letter-spacing: .08em; text-transform: uppercase; }
+  #app-brand span { color: var(--muted); font-size: 10px; letter-spacing: .04em; }
+  #machine { order: 1; }
+  #machine-status-toolbar { order: 2; margin-left: 0; }
+  #command-actions { order: 3; margin-left: auto; }
+  #mobile-actions-toggle { display: none; }
+  #ctl-halt { order: 4; flex: 0 0 auto; min-height: 40px; min-width: 96px; border-radius: 8px; font-weight: 750; }
+  #view-navigation { align-items: center; min-height: 42px; }
+  .tabs { gap: 4px; padding: 3px; background: rgba(12,16,17,.46); border: 1px solid var(--border); border-radius: 9px; }
+  .tab { min-height: 34px; padding: 5px 14px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font-weight: 650; }
+  .tab.active { color: var(--text); background: rgba(87,166,214,.17); box-shadow: inset 0 0 0 1px rgba(87,166,214,.28); }
+  main { padding: clamp(12px, 1.8vw, 22px); }
+  .view > .page-section, #jog-view, #attention-view { max-width: 1480px; margin-inline: auto; }
+  .surface-jog { min-height: min(720px, calc(100dvh - 148px)); grid-template-columns: minmax(560px, 1.18fr) minmax(330px, .62fr); }
+  .surface-jog-panel { border-radius: 12px; background: var(--panel); }
+  .surface-jog-heading h2 { font-size: clamp(20px, 2vw, 28px); }
+  .surface-direction-pad { width: min(100%, 520px); }
+  .surface-position-panel { justify-content: space-between; }
+  .surface-position-value { font-size: clamp(34px, 4.2vw, 58px); }
+  .surface-position-row { min-height: 76px; }
+  .dashboard-grid.layout-job-focus.dashboard-job-focus-split { grid-template-columns: minmax(300px, .78fr) minmax(420px, 1.22fr); grid-template-rows: minmax(390px, 1fr) auto; grid-template-areas: "machine job" "telemetry gcode"; gap: 14px; }
+  .dashboard-machine { grid-area: machine; }
+  .dashboard-job { grid-area: job; min-height: 390px; }
+  .dashboard-grid.layout-job-focus.dashboard-job-focus-split .dashboard-job { grid-column: auto; grid-row: auto; }
+  .dashboard-telemetry { grid-area: telemetry; }
+  .dashboard-gcode { grid-area: gcode; }
+  .dashboard-telemetry, .dashboard-gcode { min-height: 54px; height: auto; align-self: start; }
+  .dashboard-panel { border-radius: 12px; }
+  .dashboard-job .dashboard-heading h2, .active-gcode-summary #active-gcode-title { font-size: 20px; }
+  .dashboard-progress { padding-block: 14px; }
+  .dashboard-secondary { min-height: 0; height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 10px; }
+  .dashboard-secondary > summary { cursor: pointer; color: var(--muted); font-weight: 700; list-style: none; }
+  .dashboard-secondary > summary::-webkit-details-marker { display: none; }
+  .dashboard-secondary > summary::after { content: "Show"; float: right; color: var(--accent); font-size: 12px; }
+  .dashboard-secondary[open] > summary::after { content: "Hide"; }
+  #active-gcode-panel { border-radius: 12px; }
+  .active-gcode-head { gap: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+  .active-gcode-workspace { border-radius: 10px; overflow: hidden; }
+  #attention-view { min-height: min(620px, calc(100dvh - 148px)); display: grid; place-items: center; }
+  .attention-surface { width: min(680px, 100%); display: grid; gap: 16px; padding: clamp(20px, 4vw, 42px); }
+  .attention-surface h2 { margin: 0; font-size: clamp(24px, 4vw, 38px); }
+  .attention-surface p { margin: 0; color: var(--muted); font-size: 16px; }
+  .attention-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  .attention-actions button { min-height: 46px; padding-inline: 18px; }
+  @media (max-width: 760px), (pointer: coarse) and (max-width: 900px) {
+    header { gap: 6px; padding: 7px 10px; }
+    #command-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) max-content; grid-template-areas: "brand halt" "machine actions"; min-height: 0; gap: 7px 10px; }
+    #app-brand { grid-area: brand; }
+    #machine { grid-area: machine; }
+    #machine-status-toolbar { display: none; }
+    #command-actions { grid-area: actions; margin-left: 0; }
+    #command-actions { position: relative; justify-self: end; overflow: visible; }
+    #mobile-actions-toggle { display: inline-flex; min-height: 36px; min-width: 96px; justify-content: center; }
+    #command-menu { display: none; position: absolute; top: calc(100% + 7px); right: 0; z-index: 92; width: min(320px, calc(100vw - 20px)); padding: 8px; grid-template-columns: 1fr; gap: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 18px 46px rgba(0,0,0,.42); }
+    #command-actions.mobile-menu-open #command-menu { display: grid; }
+    .command-popout > summary { min-height: 36px; padding: 5px 8px; font-size: 12px; }
+    #ctl-halt { grid-area: halt; min-height: 38px; min-width: 82px; }
+    #view-navigation { display: block; overflow: hidden; }
+    .tabs { display: grid; width: 100%; min-width: 0; grid-template-columns: repeat(5, minmax(0, 1fr)); overflow: hidden; }
+    .tab { flex: 1 1 0; width: auto; min-width: 0; min-height: 38px; padding-inline: 4px; font-size: 11px; }
+    #header-toggle, .dashboard-controls { display: none !important; }
+    main { overflow-y: auto; padding: 10px; }
+    .dashboard-grid, .dashboard-grid.layout-job-focus, .dashboard-grid.layout-job-focus.dashboard-job-focus-split, .dashboard-grid.layout-grid { display: grid; height: auto; grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: auto; grid-template-areas: "machine" "job" "telemetry" "gcode"; align-content: start; overflow: visible; }
+    .dashboard-grid.layout-job-focus.dashboard-job-focus-split .dashboard-job { grid-column: auto; grid-row: auto; }
+    .dashboard-job { min-height: 330px; }
+    .dashboard-telemetry, .dashboard-gcode { min-height: auto; }
+    .surface-jog { min-height: 0; grid-template-columns: 1fr; }
+    .surface-jog-panel { min-height: 0; }
+    .surface-direction-pad { width: min(100%, 440px); }
+    .surface-position-row { min-height: 60px; }
+    .surface-position-value { font-size: clamp(30px, 13vw, 48px); }
+    #attention-view { min-height: 0; place-items: stretch; }
+  }
 </style>
 </head>
 <body>
 <header>
   <div id="command-toolbar" aria-label="Command toolbar">
+    <div id="app-brand" aria-label="CNC controller">
+      <strong>Sensei</strong><span>CNC controller</span>
+    </div>
     <div id="command-actions">
+      <button type="button" id="mobile-actions-toggle" aria-expanded="false" aria-controls="command-menu">Actions</button>
       <div id="command-menu">
       <details class="command-popout">
         <summary>Machine</summary>
@@ -1036,8 +1118,8 @@
         </div>
       </details>
       </div>
-      <button type="button" id="ctl-halt" class="danger" title="Emergency stop (halt)">⏹ Halt</button>
     </div>
+    <button type="button" id="ctl-halt" class="danger" title="Software halt command">⏹ Halt</button>
     <div id="machine">
       <span id="status-connection" class="connection-status" role="img" aria-label="Machine connection unknown" title="Machine connection unknown"></span>
       <details id="machine-status-popout" class="machine-status-popout">
@@ -1132,7 +1214,8 @@
         </div>
       </section>
       <section class="dashboard-panel dashboard-telemetry" data-dashboard-panel="telemetry">
-        <div class="dashboard-heading"><h2>Machine telemetry</h2></div>
+        <details class="dashboard-secondary">
+        <summary>Machine telemetry</summary>
         <div class="dashboard-telemetry-grid">
           <div class="dashboard-telemetry-item" data-dashboard-telemetry="rotary"><span>Rotary position</span><strong id="dashboard-rotary">-</strong></div>
           <div class="dashboard-telemetry-item" data-dashboard-telemetry="probe"><span>Wireless probe</span><strong id="dashboard-probe-voltage">-</strong></div>
@@ -1146,10 +1229,13 @@
           <div class="dashboard-telemetry-item" data-dashboard-telemetry="alarm"><span>Alarm</span><strong id="dashboard-alarm">-</strong></div>
           <div id="dashboard-telemetry-empty" hidden>No optional telemetry reported</div>
         </div>
+        </details>
       </section>
       <section class="dashboard-panel dashboard-gcode" data-dashboard-panel="gcode">
-        <div class="dashboard-heading"><h2>Gcode stream</h2><div id="dashboard-gcode-position">-</div></div>
-        <div id="dashboard-gcode-lines" class="dashboard-gcode-lines" aria-label="Gcode around the current job line"></div>
+        <details class="dashboard-secondary">
+          <summary>Gcode stream <span id="dashboard-gcode-position">-</span></summary>
+          <div id="dashboard-gcode-lines" class="dashboard-gcode-lines" aria-label="Gcode around the current job line"></div>
+        </details>
       </section>
     </section>
   </section>
@@ -1304,11 +1390,16 @@
   </section>
 
   <section id="attention-view" class="view" role="tabpanel" aria-label="Machine attention" hidden>
-    <section class="surface-jog-panel" aria-label="Machine attention">
+    <section class="surface-jog-panel attention-surface" aria-label="Machine attention">
       <h2>Machine needs attention</h2>
       <strong id="attention-state">Waiting for machine state</strong>
       <p id="attention-detail">Open the active job for details and operator actions.</p>
-      <button type="button" id="attention-open-active-job">Open active job</button>
+      <div class="attention-actions">
+        <button type="button" id="attention-resume" class="primary" hidden>Resume job</button>
+        <button type="button" id="attention-recover" class="danger" data-control-action="recover" hidden>Recover alarm</button>
+        <button type="button" id="attention-open-tool" hidden>Open Tool actions</button>
+        <button type="button" id="attention-open-active-job">Open active job</button>
+      </div>
     </section>
   </section>
 

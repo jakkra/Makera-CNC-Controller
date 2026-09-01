@@ -24,6 +24,24 @@ design references, not pixel-perfect implementation specifications.
 - Jog controls may remain spatially stable while unavailable, but must be
   visibly locked whenever the machine is not freshly Idle.
 
+### Implemented controller shell
+
+The web implementation uses a compact global header: product identity,
+connection/machine state, a prominent software Halt, and contextual
+Machine/Macros/Tool drawers (collapsed behind one Actions button on phones).
+The software Halt remains a controller command,
+not a substitute for the physical E-stop. Dashboard telemetry and the G-code
+stream are progressively disclosed so the primary state/job/progress hierarchy
+remains readable at pendant distance. Attention states use the existing Resume,
+Recover and Tool pathways; no attention-specific machine command is invented.
+
+The active-job preview is the existing machine-coordinate G-code visualization.
+No camera feed is represented until a camera backend and its connection/privacy
+state exist. Attention distinguishes realtime feed-hold resume from restoring
+a firmware-paused job, and offers no blind resume action for an ambiguous Wait
+state. On phones the route fallback is Dashboard (monitoring first); the
+Surface automatic routing is enabled only on kiosk-sized coarse-pointer devices.
+
 ## Safety interaction contract
 
 - Releasing touch, losing pointer capture, losing the connection, receiving

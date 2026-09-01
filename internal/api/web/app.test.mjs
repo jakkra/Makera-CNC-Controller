@@ -741,6 +741,43 @@ test("control sections start collapsed on mobile and retain desktop defaults", (
   assert.equal(elements["gamepad-section"].open, false);
 });
 
+test("attention resume chooses the state-safe controller path", () => {
+  const ctx = buildContext(["attentionResumeAction"]);
+  assert.equal(vm.runInContext(`attentionResumeAction("Pause")`, ctx), "resume_job", "firmware job pause restores saved job state");
+  assert.equal(vm.runInContext(`attentionResumeAction("Hold")`, ctx), "resume", "feed hold uses realtime resume");
+  assert.equal(vm.runInContext(`attentionResumeAction("Wait")`, ctx), "", "ambiguous wait state must not expose a blind resume");
+  assert.equal(vm.runInContext(`attentionResumeAction("Tool")`, ctx), "");
+  assert.equal(vm.runInContext(`attentionResumeAction("Alarm")`, ctx), "");
+});
+
+test("movement arm stays locked until status is fresh Idle but disarm remains available", () => {
+  const state = { jog: { caps: { enabled: true }, link: "online", armed: false, availability: { available: true } } };
+  let machineReady = false;
+  let externalOwner = false;
+  const ctx = buildContext(["movementArmAvailable"], [], {
+    state,
+    machineReadyForOriginSet: () => machineReady,
+    movementOwnedElsewhere: () => externalOwner,
+  });
+  assert.equal(vm.runInContext(`movementArmAvailable()`, ctx), false, "unknown or stale status cannot arm movement");
+  machineReady = true;
+  assert.equal(vm.runInContext(`movementArmAvailable()`, ctx), true, "fresh Idle status can arm movement");
+  state.jog.availability.available = false;
+  assert.equal(vm.runInContext(`movementArmAvailable()`, ctx), false, "busy jog ownership cannot arm movement");
+  state.jog.armed = true;
+  assert.equal(vm.runInContext(`movementArmAvailable()`, ctx), true, "the current owner can always disarm");
+  state.jog.armed = false;
+  externalOwner = true;
+  assert.equal(vm.runInContext(`movementArmAvailable()`, ctx), true, "an observing UI can request movement handoff/disarm");
+});
+
+test("movement arm labels an external owner before disarming it", () => {
+  const ctx = buildContext(["movementOwnedElsewhere", "movementArmLabel"], [], { state: { jog: {} } });
+  assert.equal(vm.runInContext(`movementArmLabel({armed:false,availability:{reason:"busy"}})`, ctx), "Disarm other controller");
+  assert.equal(vm.runInContext(`movementArmLabel({armed:true,availability:{reason:"busy"}})`, ctx), "Disarm Movement");
+  assert.equal(vm.runInContext(`movementArmLabel({armed:false,availability:{available:true}})`, ctx), "Arm Movement");
+});
+
 test("top-level tabs resolve from canonical and legacy URLs", () => {
   const ctx = buildContext(["viewTabFromURL"], ["VIEW_TABS"], { URLSearchParams });
   for (const name of ["dashboard", "active-job", "control", "files"]) {
@@ -749,6 +786,11 @@ test("top-level tabs resolve from canonical and legacy URLs", () => {
   assert.equal(vm.runInContext(`viewTabFromURL({ pathname: "/", search: "?tab=dashboard" })`, ctx), "dashboard");
   assert.equal(vm.runInContext(`viewTabFromURL({ pathname: "/", search: "" })`, ctx), "active-job");
   assert.equal(vm.runInContext(`viewTabFromURL({ pathname: "/unknown", search: "?tab=unknown" })`, ctx), "active-job");
+  const phoneCtx = buildContext(["viewTabFromURL"], ["VIEW_TABS"], {
+    URLSearchParams,
+    window: { matchMedia: () => ({ matches: true }) },
+  });
+  assert.equal(vm.runInContext(`viewTabFromURL({ pathname: "/", search: "" })`, phoneCtx), "dashboard", "phone fallback is monitoring-first");
 });
 
 test("tab URL updates are canonical and avoid duplicate history entries", () => {
@@ -1150,6 +1192,7 @@ test("machine snapshots do not overwrite movement ownership from another UI", ()
 
 test("an observing UI disarms the current movement owner before it can arm", () => {
   const actions = [];
+  let confirmations = 0;
   const state = {
     jog: {
       caps: { enabled: true },
@@ -1169,9 +1212,11 @@ test("an observing UI disarms the current movement owner before it can arm", () 
     jogErrorText: () => "",
     connectJog: () => {},
     renderJog: () => {},
+    confirm: () => { confirmations++; return true; },
   });
 
   vm.runInContext("toggleTapMoveArm()", ctx);
+  assert.equal(confirmations, 1);
   assert.deepEqual(actions, ["disarm"]);
 });
 
@@ -1569,6 +1614,7 @@ test("missing active gcode clears stale source pages without an error", async ()
       state,
       activeGcodeSource,
       request: async () => ({ status: 204 }),
+      clearConnectivityIssue: () => {},
       clearNotice: (key) => notices.push(key),
       renderActiveGcode: () => { renders++; },
       document: { getElementById: () => scroll },

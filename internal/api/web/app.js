@@ -97,6 +97,7 @@ const state = {
   noticeSeq: 0,
   notices: new Map(),
   statusMessages: new Map(),
+  connectivityIssues: new Map(),
   controlES: null,
   filesES: null,
   jog: {
@@ -979,9 +980,9 @@ async function loadUISettings() {
   try {
     const r = await request("/api/ui/settings");
     applyUISettings(await r.json());
-    clearNotice("ui-settings");
+    clearConnectivityIssue("ui-settings");
   } catch (e) {
-    setNotice("UI settings unavailable: " + e.message, "error", "ui-settings");
+    setConnectivityIssue("ui-settings", "UI settings unavailable: " + e.message);
     applyUISettings(state.ui);
   }
 }
@@ -992,7 +993,7 @@ function applyAPICapabilities(caps) {
   for (const id of [
     "command-actions", "ctl-halt", "tab-jog", "tab-control", "tab-files",
     "active-gcode-run", "active-gcode-pause", "paused-job-controls",
-    "feed-override-controls", "alarm-actions",
+    "feed-override-controls", "alarm-actions", "attention-resume", "attention-recover",
   ]) {
     const element = document.getElementById(id);
     if (element) element.hidden = state.readOnly;
@@ -1006,8 +1007,9 @@ async function loadAPICapabilities() {
   try {
     const r = await request("/api/capabilities");
     applyAPICapabilities(await r.json());
+    clearConnectivityIssue("api-capabilities");
   } catch (e) {
-    setNotice("API capabilities unavailable: " + e.message, "error", "api-capabilities");
+    setConnectivityIssue("api-capabilities", "API capabilities unavailable: " + e.message);
   }
 }
 
@@ -1496,6 +1498,24 @@ function clearNotice(key = "") {
   clearVisibleNotices();
 }
 
+// Bootstrap, polling and event-stream failures often arrive together. Expose
+// one durable connection item in the bottom status bar, then clear it only
+// once every source has recovered.
+function setConnectivityIssue(source, text) {
+  state.connectivityIssues.set(source, String(text || "Connection unavailable."));
+  const summary = [...state.connectivityIssues.values()][0] || "Connection unavailable.";
+  setNotice(summary, "error", "connectivity", { timeoutMs: 0 });
+}
+
+function clearConnectivityIssue(source) {
+  state.connectivityIssues.delete(source);
+  if (state.connectivityIssues.size === 0) {
+    clearNotice("connectivity");
+    return;
+  }
+  setNotice([...state.connectivityIssues.values()][0], "error", "connectivity", { timeoutMs: 0 });
+}
+
 function noticeItemRects() {
   const list = document.getElementById("notice");
   const rects = new Map();
@@ -1734,11 +1754,42 @@ function renderMachine() {
     connection.title = label;
   }
   renderAlarmPanel(m);
+  renderAttention(m);
   renderActiveGcode();
   syncJogAvailabilityFromMachine(m);
   checkOriginVerification();
   renderJog();
   renderOutlineCapture();
+}
+
+function renderAttention(m) {
+  const machineState = String(m?.state || "Unknown");
+  const details = {
+    Tool: "Tool change requested. Open Tool actions to confirm the tool and continue only when the physical change is complete.",
+    Pause: "The job is paused. Review the job before resuming motion.",
+    Wait: "The controller is waiting for an operator decision. Review the active job before resuming.",
+    Hold: "Motion is on hold. Make sure the work area is clear before resuming.",
+    Alarm: "The machine reported an alarm. Clear the physical cause before attempting recovery.",
+  };
+  setTextIfChanged(document.getElementById("attention-state"), "Machine state: " + machineState);
+  setTextIfChanged(document.getElementById("attention-detail"), details[machineState] || "No operator action is currently requested.");
+  const resume = document.getElementById("attention-resume");
+  const recover = document.getElementById("attention-recover");
+  const tool = document.getElementById("attention-open-tool");
+  const resumeAction = attentionResumeAction(machineState);
+  if (resume) {
+    resume.hidden = state.readOnly || !resumeAction;
+    resume.dataset.resumeAction = resumeAction;
+    setTextIfChanged(resume, machineState === "Pause" ? "Resume paused job" : "Resume motion");
+  }
+  if (recover) recover.hidden = state.readOnly || machineState !== "Alarm";
+  if (tool) tool.hidden = state.readOnly || machineState !== "Tool";
+}
+
+function attentionResumeAction(machineState) {
+  if (machineState === "Pause") return "resume_job";
+  if (machineState === "Hold") return "resume";
+  return "";
 }
 
 function renderToolStatus(m) {
@@ -1872,7 +1923,6 @@ function movementOwnedElsewhere(j = state.jog) {
 
 function renderJog() {
   const j = state.jog;
-  const externalOwner = movementOwnedElsewhere(j);
   document.getElementById("jog-link").textContent = j.link;
   document.getElementById("jog-pad").textContent = j.pad || "-";
   const dead = document.getElementById("jog-deadman");
@@ -1882,15 +1932,13 @@ function renderJog() {
   if (state.activeTab === "control" || state.activeTab === "jog") setStatusMessage("jog-availability", msg.text, msg.kind);
   else clearNotice("jog-availability");
   const arm = document.getElementById("jog-arm");
-  setTextIfChanged(arm, j.armPending ? (j.armPendingAction === "arm" ? "Arming..." : "Disarming...") :
-    (j.armQueuedAction ? "Connecting..." : ((j.armed || externalOwner) ? "Disarm Movement" : "Arm Movement")));
+  setTextIfChanged(arm, movementArmLabel(j));
   arm.classList.toggle("armed", j.armed);
   arm.setAttribute("aria-pressed", j.armed ? "true" : "false");
   const armBusy = !!j.armPending || !!j.armQueuedAction;
   const originBusy = hasPendingOriginOperation();
   const tapOperationBusy = originBusy || !!j.zProbePending;
-  arm.disabled = armBusy;
-  setSoftDisabled(arm, !armBusy && ((j.caps && !j.caps.enabled) || j.link === "unsupported" || tapOperationBusy));
+  arm.disabled = armBusy || tapOperationBusy || !movementArmAvailable();
   const feed = document.getElementById("tap-feed-mm-min");
   const machine = normalizeMachineSettings(state.ui.machine);
   const feedBounds = feedBoundsFor(machine);
@@ -1927,6 +1975,21 @@ function surfaceJogReady() {
     !tapMoveTargetBusy() && !state.jog.zStepPending && !state.jog.surfaceStepPending && !hasPendingOriginOperation();
 }
 
+function movementArmAvailable() {
+  const j = state.jog;
+  if (j.armed || movementOwnedElsewhere()) return true;
+  if (!j.caps?.enabled || j.link !== "online" || !machineReadyForOriginSet()) return false;
+  return !j.availability || j.availability.available !== false;
+}
+
+function movementArmLabel(j = state.jog) {
+  if (j.armPending) return j.armPendingAction === "arm" ? "Arming..." : "Disarming...";
+  if (j.armQueuedAction) return "Connecting...";
+  if (j.armed) return "Disarm Movement";
+  if (movementOwnedElsewhere(j)) return "Disarm other controller";
+  return "Arm Movement";
+}
+
 function renderSurfaceJog() {
   const surface = state.surface;
   const j = state.jog;
@@ -1934,10 +1997,9 @@ function renderSurfaceJog() {
   const busy = !!j.surfaceStepPending || !!j.zStepPending || tapMoveTargetBusy() || hasPendingOriginOperation();
   const arm = document.getElementById("surface-jog-arm");
   if (arm) {
-    setTextIfChanged(arm, j.armPending ? (j.armPendingAction === "arm" ? "Arming..." : "Disarming...") : (j.armed ? "Disarm Movement" : "Arm Movement"));
+    setTextIfChanged(arm, movementArmLabel(j));
     arm.classList.toggle("armed", j.armed);
-    arm.disabled = !!j.armPending || !!j.armQueuedAction;
-    setSoftDisabled(arm, !arm.disabled && (!!j.caps && !j.caps.enabled));
+    arm.disabled = !!j.armPending || !!j.armQueuedAction || !movementArmAvailable();
   }
   for (const id of ["surface-jog-motion", "surface-jog-step", "surface-auto-switch", "surface-start-view"]) {
     const el = document.getElementById(id);
@@ -1964,15 +2026,6 @@ function renderSurfaceJog() {
     ? "Machine connection unavailable"
     : `${fmtActiveTool(state.machine?.tool)} · ${fmtSpindle(state.machine?.spindle)}`;
   setTextIfChanged(document.getElementById("surface-position-detail"), detail);
-  const attentionDetails = {
-    Tool: "Tool change requested. Check the active job before continuing.",
-    Pause: "The job is paused and waiting for operator input.",
-    Wait: "The machine is waiting for operator input.",
-    Hold: "Motion is on hold. Check the active job before resuming.",
-    Alarm: "The machine reported an alarm. Inspect the alarm before continuing.",
-  };
-  setTextIfChanged(document.getElementById("attention-state"), "Machine state: " + machineState);
-  setTextIfChanged(document.getElementById("attention-detail"), attentionDetails[machineState] || "Open the active job for details and operator actions.");
   for (const button of document.querySelectorAll(".surface-mpg-axis")) button.setAttribute("aria-pressed", String(button.dataset.surfaceMpgAxis === surface.mpg_axis));
   for (const button of document.querySelectorAll("[data-surface-axis], [data-surface-z-sign], [data-surface-hold-sign]")) {
     button.disabled = busy;
@@ -7880,6 +7933,7 @@ async function fetchActiveGcodeSourcePage(index) {
     const response = await request(`/api/gcode/active/source?start_line=${pageStartIndex + 1}&limit=${GCODE_SOURCE_PAGE_SIZE}`);
     if (response.status === 204) {
       if (requestID !== activeGcodeSource.requestID || signature !== activeGcodeSource.signature) return;
+      clearConnectivityIssue("active-gcode-source");
       clearMissingActiveGcode();
       return;
     }
@@ -7890,7 +7944,7 @@ async function fetchActiveGcodeSourcePage(index) {
     while (activeGcodeSource.pages.size > GCODE_SOURCE_MAX_PAGES) {
       activeGcodeSource.pages.delete(activeGcodeSource.pages.keys().next().value);
     }
-    clearNotice("active-gcode-source");
+    clearConnectivityIssue("active-gcode-source");
     renderActiveGcodeSource();
     const active = state.activeGcode || {};
     const preview = { ...(active.preview || {}), segments: activeGcodeDisplaySegments(active) };
@@ -7898,7 +7952,7 @@ async function fetchActiveGcodeSourcePage(index) {
     renderDashboardGcodeStream(live);
   } catch (error) {
     if (requestID === activeGcodeSource.requestID) {
-      setNotice("Gcode source unavailable: " + error.message, "error", "active-gcode-source");
+      setConnectivityIssue("active-gcode-source", "Gcode source unavailable: " + error.message);
     }
   } finally {
     activeGcodeSource.loadingPages.delete(pageStartIndex);
@@ -9439,9 +9493,10 @@ async function loadActiveGcode() {
   try {
     const r = await request("/api/gcode/active");
     state.activeGcode = await r.json();
+    clearConnectivityIssue("active-gcode");
     renderActiveGcode();
   } catch (e) {
-    setNotice("Active gcode unavailable: " + e.message, "error", "active-gcode");
+    setConnectivityIssue("active-gcode", "Active gcode unavailable: " + e.message);
   } finally {
     state.activeGcodeLoading = false;
   }
@@ -10495,7 +10550,20 @@ function closeCommandPopout(popout, restoreFocus = true) {
 function initCommandPopouts() {
   const popouts = Array.from(document.querySelectorAll(".command-popout"));
   const commandMenu = document.getElementById("command-menu");
+  const commandActions = document.getElementById("command-actions");
+  const mobileToggle = document.getElementById("mobile-actions-toggle");
   let positionFrame = 0;
+
+  function setMobileMenuOpen(open) {
+    commandActions?.classList.toggle("mobile-menu-open", !!open);
+    mobileToggle?.setAttribute("aria-expanded", String(!!open));
+  }
+
+  mobileToggle?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMobileMenuOpen(!commandActions?.classList.contains("mobile-menu-open"));
+  });
 
   const directChild = (el, predicate) => Array.from(el.children).find(predicate) || null;
   function positionPopout(popout) {
@@ -10548,10 +10616,13 @@ function initCommandPopouts() {
     const target = e.target instanceof Element ? e.target : null;
     if (target?.closest(".command-popout")) return;
     for (const popout of popouts) closeCommandPopout(popout, false);
+    if (!target?.closest("#command-actions")) setMobileMenuOpen(false);
   });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     for (const popout of popouts) closeCommandPopout(popout);
+    setMobileMenuOpen(false);
+    mobileToggle?.focus();
   });
   window.addEventListener("resize", schedulePopoutPosition);
   window.addEventListener("scroll", schedulePopoutPosition, true);
@@ -10565,11 +10636,13 @@ async function loadJogCapabilities() {
     const r = await request("/api/jog/capabilities");
     state.jog.caps = await r.json();
     state.jog.availability = state.jog.caps.availability || null;
+    clearConnectivityIssue("jog-capabilities");
     state.ui.machine = normalizeMachineSettings(state.ui.machine);
     if (state.jog.caps.enabled) connectJog();
     else disableJogConnection();
   } catch (e) {
-    state.jog.error = e.message;
+    setConnectivityIssue("jog-capabilities", "Jog controls unavailable: " + e.message);
+    state.jog.error = "";
     state.jog.errorCode = "";
     state.jog.link = "unavailable";
   }
@@ -10903,6 +10976,7 @@ function toggleTapMoveArm() {
     setTapFeedback("Jog service is unavailable in this browser.", "error");
     return;
   }
+  if (movementOwnedElsewhere() && !confirm("Movement is armed in another controller. Disarm that controller's movement session?")) return;
   const action = (state.jog.armed || movementOwnedElsewhere()) ? "disarm" : "arm";
   if (state.jog.armed) releaseJogInput(true);
   if (state.jog.link !== "online") {
@@ -12709,34 +12783,37 @@ function connectControlSSE() {
   if (state.controlES) return;
   const es = new EventSource("/api/events?scope=control");
   state.controlES = es;
-  es.onopen = () => clearNotice("control-sse");
+  es.onopen = () => clearConnectivityIssue("control-sse");
   es.addEventListener("snapshot", (e) => {
-    clearNotice("control-sse");
+    clearConnectivityIssue("control-sse");
     applySnapshot(JSON.parse(e.data));
   });
   es.addEventListener("machine", (e) => applyMachineStatus(JSON.parse(e.data)));
   es.addEventListener("gcode", (e) => appendGcodeLine(JSON.parse(e.data)));
-  es.onerror = () => setNotice("Control event stream disconnected; retrying.", "error", "control-sse");
+  es.onerror = () => setConnectivityIssue("control-sse", "Control event stream disconnected; retrying.");
 }
 
 function connectFilesSSE() {
   if (state.filesES) return;
   const es = new EventSource("/api/events?scope=files");
   state.filesES = es;
-  es.onopen = () => clearNotice("files-sse");
+  es.onopen = () => clearConnectivityIssue("files-sse");
   es.addEventListener("snapshot", (e) => {
-    clearNotice("files-sse");
+    clearConnectivityIssue("files-sse");
     applySnapshot(JSON.parse(e.data));
   });
   es.addEventListener("change", (e) => applyChange(JSON.parse(e.data)));
-  es.onerror = () => setNotice("Files event stream disconnected; retrying.", "error", "files-sse");
+  es.onerror = () => setConnectivityIssue("files-sse", "Files event stream disconnected; retrying.");
 }
 
 function viewTabFromURL(locationLike = window.location) {
   const pathname = String(locationLike?.pathname || "/").replace(/^\/+|\/+$/g, "");
   if (VIEW_TABS.includes(pathname)) return pathname;
   const queryTab = new URLSearchParams(String(locationLike?.search || "")).get("tab");
-  return VIEW_TABS.includes(queryTab) ? queryTab : "active-job";
+  if (VIEW_TABS.includes(queryTab)) return queryTab;
+  // Phone defaults favour monitoring. Surface kiosk routing happens only after
+  // a fresh state report is available in applySurfaceAutomaticView().
+  return globalThis.window?.matchMedia?.("(max-width: 600px)")?.matches ? "dashboard" : "active-job";
 }
 
 function syncViewTabURL(name, mode) {
@@ -12875,8 +12952,9 @@ async function pollMachine() {
     const r = await request("/api/machine/status");
     const next = await r.json();
     applyMachineStatus(next);
+    clearConnectivityIssue("machine-status");
   } catch (e) {
-    setNotice("Machine status unavailable: " + e.message, "error", "machine-status");
+    setConnectivityIssue("machine-status", "Machine status unavailable: " + e.message);
   }
   try {
     await refreshJobs();
@@ -13427,6 +13505,18 @@ function init() {
   document.getElementById("surface-settings-close").onclick = () => document.getElementById("surface-settings-modal")?.close();
   document.getElementById("surface-open-active-job").onclick = () => showTab("active-job");
   document.getElementById("attention-open-active-job").onclick = () => showTab("active-job");
+  bindButtonAction(document.getElementById("attention-resume"), () => {
+    const action = attentionResumeAction(String(state.machine?.state || ""));
+    if (action === "resume_job") runActiveJobControl(action);
+    else if (action === "resume") sendControl(action);
+  });
+  document.getElementById("attention-open-tool").onclick = () => {
+    const menu = document.getElementById("tool-panel")?.closest(".command-popout");
+    if (!menu) return;
+    document.getElementById("command-actions")?.classList.add("mobile-menu-open");
+    document.getElementById("mobile-actions-toggle")?.setAttribute("aria-expanded", "true");
+    menu.open = true;
+  };
 
   loadUISettings();
   loadAPICapabilities();

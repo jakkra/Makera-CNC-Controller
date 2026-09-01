@@ -1257,11 +1257,16 @@ func TestWebUIServed(t *testing.T) {
 			t.Errorf("app.js missing accessible tab behavior %s", want)
 		}
 	}
-	if !strings.Contains(string(jsBody), `clearNotice("control-sse")`) || !strings.Contains(string(jsBody), `clearNotice("files-sse")`) {
+	if !strings.Contains(string(jsBody), `clearConnectivityIssue("control-sse")`) || !strings.Contains(string(jsBody), `clearConnectivityIssue("files-sse")`) {
 		t.Errorf("app.js missing stream reconnect notice clearing")
 	}
-	if !strings.Contains(string(jsBody), `setNotice("Machine status unavailable: " + e.message, "error", "machine-status")`) || !strings.Contains(string(jsBody), `clearNotice("machine-status")`) {
+	if !strings.Contains(string(jsBody), `setConnectivityIssue("machine-status", "Machine status unavailable: " + e.message)`) || !strings.Contains(string(jsBody), `clearConnectivityIssue("machine-status")`) {
 		t.Errorf("app.js missing machine status notice lifecycle")
+	}
+	for _, want := range []string{`function attentionResumeAction`, `return "resume_job"`, `return "resume"`, `id="mobile-actions-toggle"`, `class="surface-jog-panel attention-surface"`, `state.readOnly || !resumeAction`, `Disarm other controller`, `classList.add("mobile-menu-open")`} {
+		if !strings.Contains(string(jsBody), want) && !strings.Contains(bodyText, want) {
+			t.Errorf("Surface controller shell missing marker %s", want)
+		}
 	}
 	if !strings.Contains(string(jsBody), "function setStatusMessage") || !strings.Contains(string(jsBody), "function clearVisibleNotices") || !strings.Contains(string(jsBody), "NOTICE_REPEAT_SUPPRESS_MS") || !strings.Contains(string(jsBody), `consumeJogAlertFeedback("tap-move"`) || !strings.Contains(string(jsBody), `setStatusMessage("jog-availability"`) {
 		t.Errorf("app.js missing shared transient status message routing")
