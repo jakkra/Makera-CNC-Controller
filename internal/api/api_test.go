@@ -2215,6 +2215,39 @@ func TestPostGcodeQueryNotGated(t *testing.T) {
 	}
 }
 
+func TestPostAutoVacuumWorksWhileRunningAndRequiresEnabled(t *testing.T) {
+	srv, m, tr := serverWithMachine(t)
+	status := "<Run|MPos:0,0,0|WPos:0,0,0|S:8000,10000,100,0>"
+	m.SetStatus(status)
+	if !tr.ObserveStatusPayload(status) {
+		t.Fatal("running status should parse")
+	}
+
+	resp := postJSON(t, srv.URL+"/api/outputs/auto-vacuum", map[string]bool{"enabled": true})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("auto vacuum status = %d body=%s", resp.StatusCode, body)
+	}
+	var result service.AutoVacuumResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Verified || !result.Enabled || result.Command != "M331.0" {
+		t.Fatalf("result = %+v", result)
+	}
+	if got := m.Gcodes(); len(got) != 1 || got[0] != "M331.0" {
+		t.Fatalf("gcodes = %v, want [M331.0]", got)
+	}
+
+	missing := postJSON(t, srv.URL+"/api/outputs/auto-vacuum", map[string]any{})
+	defer missing.Body.Close()
+	if missing.StatusCode != http.StatusBadRequest {
+		body, _ := io.ReadAll(missing.Body)
+		t.Fatalf("missing enabled status = %d body=%s", missing.StatusCode, body)
+	}
+}
+
 func TestProbeZEndpointSerializesSafeMoveProbeAndLift(t *testing.T) {
 	srv, m, tr := serverWithMachine(t)
 	status := "<Idle|MPos:0,0,0|WPos:0,0,0|T:0,0>"

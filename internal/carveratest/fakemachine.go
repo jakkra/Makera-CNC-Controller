@@ -1463,6 +1463,9 @@ func (m *FakeMachine) applySimulatedGcodeLocked(line string) {
 	if m.applyFeedOverrideLocked(words) {
 		return
 	}
+	if m.applyAutoVacuumLocked(words) {
+		return
+	}
 	hasG10 := false
 	hasG92 := false
 	hasG53 := false
@@ -1687,6 +1690,46 @@ func (m *FakeMachine) applyFeedOverrideLocked(words []fakeGcodeWord) bool {
 		}
 	}
 	m.upsertStatusFieldLocked("F", fmt.Sprintf("%s,%s,%.0f", current, target, percent))
+	return true
+}
+
+func (m *FakeMachine) applyAutoVacuumLocked(words []fakeGcodeWord) bool {
+	enabled := false
+	matched := false
+	for _, word := range words {
+		if word.letter != 'M' {
+			continue
+		}
+		code, subcode := splitFakeGCode(word.value)
+		switch {
+		case code == 331 && subcode == 0:
+			enabled, matched = true, true
+		case code == 332 && subcode == 0:
+			enabled, matched = false, true
+		}
+	}
+	if !matched {
+		return false
+	}
+	bracketed, state, fields, ok := parseFakeStatus(m.status)
+	if !ok {
+		return true
+	}
+	index := findFakeStatusField(fields, "S")
+	if index < 0 {
+		return true
+	}
+	parts := strings.Split(fields[index].value, ",")
+	if len(parts) < 4 {
+		return true
+	}
+	if enabled {
+		parts[3] = "1"
+	} else {
+		parts[3] = "0"
+	}
+	fields[index].value = strings.Join(parts, ",")
+	m.status = formatFakeStatus(bracketed, state, fields)
 	return true
 }
 

@@ -2610,6 +2610,41 @@ func TestSetFeedOverrideRejectsVendorOutOfRange(t *testing.T) {
 	}
 }
 
+func TestSetAutoVacuumWhileRunningAndVerifyStatus(t *testing.T) {
+	svc, m, tr := serviceWithMachine(t)
+	status := "<Run|MPos:0,0,-5|WPos:0,0,-5|S:8000,10000,100,0>"
+	m.SetStatus(status)
+	if !tr.ObserveStatusPayload(status) {
+		t.Fatal("running status should parse")
+	}
+
+	result, err := svc.SetAutoVacuum(true)
+	if err != nil {
+		t.Fatalf("SetAutoVacuum(true) during Run: %v", err)
+	}
+	if !result.Verified || !result.Enabled || result.Command != "M331.0" || result.State != machine.Run {
+		t.Fatalf("on result = %+v", result)
+	}
+	if got := m.Gcodes(); len(got) != 1 || got[0] != "M331.0" {
+		t.Fatalf("on gcodes = %v, want [M331.0]", got)
+	}
+	tracked, _ := tr.Current()
+	if tracked.Spindle == nil || tracked.Spindle.VacuumMode == nil || *tracked.Spindle.VacuumMode != 1 {
+		t.Fatalf("tracked spindle = %+v, want Auto Vacuum on", tracked.Spindle)
+	}
+
+	result, err = svc.SetAutoVacuum(false)
+	if err != nil {
+		t.Fatalf("SetAutoVacuum(false) during Run: %v", err)
+	}
+	if !result.Verified || result.Enabled || result.Command != "M332.0" || result.State != machine.Run {
+		t.Fatalf("off result = %+v", result)
+	}
+	if got := m.Gcodes(); len(got) != 2 || got[1] != "M332.0" {
+		t.Fatalf("off gcodes = %v, want [M331.0 M332.0]", got)
+	}
+}
+
 func TestRecoverAlarmSoftLimitUnlocksAndVerifies(t *testing.T) {
 	svc, m, tr := serviceWithMachine(t)
 	if !tr.ObserveStatusPayload("<Alarm|MPos:0,0,0|WPos:0,0,0|H:10>") {

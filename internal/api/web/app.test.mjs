@@ -115,6 +115,9 @@ test("Overview and Jog mount one shared machine readout with work and machine co
   assert.equal((htmlSource.match(/data-machine-readout-host/g) || []).length, 2);
   assert.match(htmlSource, /id="machine-readout-template"/);
   assert.match(htmlSource, /dashboard-machine \.machine-axis-grid \{ grid-template-columns: repeat\(2, minmax\(0,1fr\)\); \}/);
+  assert.match(htmlSource, /dashboard-machine \{ grid-area: machine; height: auto; align-self: start; grid-template-rows: auto auto; gap: 10px; \}/);
+  assert.match(htmlSource, /machine-axis-value i \{ font-size: 11px; font-weight: 750;/);
+  assert.match(htmlSource, /machine-axis-unit \{ right: 8px; bottom: 7px; font-size: 10px; font-weight: 700; \}/);
   assert.doesNotMatch(htmlSource, /[åäö]/i);
   assert.doesNotMatch(source, /[åäö]/i);
   assert.doesNotMatch(htmlSource, /\b(Jogga|Filer|STOPP|Stegvis|Riktning)\b/);
@@ -147,6 +150,12 @@ test("Surface footer only exposes safe job actions for the reported machine stat
   assert.equal(stateFor("Pause"), '{"setup":false,"hold":false,"resume":true,"details":true}');
   assert.equal(stateFor("Wait"), '{"setup":false,"hold":false,"resume":false,"details":true}');
   assert.equal(stateFor("Tool"), '{"setup":false,"hold":false,"resume":false,"details":true}');
+});
+
+test("Surface footer includes one stateful Auto Vacuum control", () => {
+  assert.match(htmlSource, /id="surface-footer-vacuum"/);
+  assert.match(source, /request\("\/api\/outputs\/auto-vacuum"/);
+  assert.match(source, /Auto Vacuum · \$\{vacuumEnabled \? "On" : "Off"\}/);
 });
 
 test("disabled jog capability is stable and never opens a WebSocket", () => {

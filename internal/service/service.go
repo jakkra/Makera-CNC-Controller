@@ -2045,6 +2045,63 @@ type FeedOverrideResult struct {
 	Message  string        `json:"message"`
 }
 
+// AutoVacuumResult reports the vendor Auto Vacuum mode after it has been
+// written and observed in a fresh machine-status response. The setting is
+// intentionally separate from arbitrary MDI: the firmware exposes M331.0 and
+// M332.0 specifically for this mode and permits the setting while a job runs.
+type AutoVacuumResult struct {
+	Enabled  bool          `json:"enabled"`
+	Command  string        `json:"command"`
+	State    machine.State `json:"state"`
+	Verified bool          `json:"verified"`
+	Message  string        `json:"message"`
+}
+
+// SetAutoVacuum changes the firmware's Auto Vacuum mode with its documented
+// M331.0/M332.0 commands. Unlike generic MDI, this is a bounded output-mode
+// action that is useful while a program is running; the serialized machine
+// transaction keeps it out of the way of relay file transfers and verifies the
+// reported S-field before returning success.
+func (s *Service) SetAutoVacuum(enabled bool) (AutoVacuumResult, error) {
+	command := "M332.0"
+	if enabled {
+		command = "M331.0"
+	}
+	res := AutoVacuumResult{Enabled: enabled, Command: command}
+	err := s.arb.WithMachine(false, func(c *client.Conn) error {
+		s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, command)
+		if _, err := c.SendGcodeLine(command, client.GcodeOpts{ExpectReply: false, Cap: gcodeReplyCap}); err != nil {
+			return err
+		}
+		st, err := s.queryRecoveryStatus(c)
+		if err != nil {
+			return fmt.Errorf("%w: could not verify Auto Vacuum: %v", ErrMachineStatusStale, err)
+		}
+		res.State = st.State
+		if st.Spindle == nil || st.Spindle.VacuumMode == nil {
+			return fmt.Errorf("%w: machine did not report Auto Vacuum state", ErrJobControlUnavailable)
+		}
+		actual := *st.Spindle.VacuumMode != 0
+		if actual != enabled {
+			return fmt.Errorf("%w: machine reported Auto Vacuum %s after request", ErrJobControlUnavailable, map[bool]string{true: "on", false: "off"}[actual])
+		}
+		return nil
+	})
+	if err != nil {
+		s.gcodeLog.Append(gcodelog.DirRecv, gcodelog.SourceAPI, "error: "+err.Error())
+		return res, err
+	}
+
+	res.Verified = true
+	mode := "off"
+	if enabled {
+		mode = "on"
+	}
+	res.Message = "Auto Vacuum turned " + mode + "."
+	s.gcodeLog.Append(gcodelog.DirRecv, gcodelog.SourceAPI, res.Message)
+	return res, nil
+}
+
 // SetFeedOverride applies the same 50-200 percent feed scale exposed by the
 // vendor controller and verifies it through the next status response. This is
 // intentionally not implemented through SendGcode: generic M220 SET commands

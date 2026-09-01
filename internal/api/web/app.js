@@ -95,6 +95,7 @@ const state = {
 	fileRenderTimer: null,
   currentDir: "",
   controlPendingAction: "",
+  autoVacuumPending: false,
   lastControlResult: null,
   activeGcode: { path: "", runnable: false, message: "" },
   externalJobObservedAt: 0,
@@ -2140,6 +2141,17 @@ function renderSurfaceQuickActions(machineState = String(state.machine?.state ||
     setTextIfChanged(resume, machineState === "Pause" ? "▶ Resume job" : "▶ Resume");
   }
   if (details) details.hidden = !actions.details;
+  const vacuum = document.getElementById("surface-footer-vacuum");
+  const vacuumValue = dashboardOptionalNumber(state.machine?.spindle?.vacuum_mode);
+  const vacuumKnown = vacuumValue !== null;
+  const vacuumEnabled = vacuumValue !== null && vacuumValue !== 0;
+  if (vacuum) {
+    vacuum.disabled = state.autoVacuumPending || state.readOnly || !vacuumKnown;
+    vacuum.setAttribute("aria-pressed", String(vacuumEnabled));
+    vacuum.setAttribute("aria-busy", String(state.autoVacuumPending));
+    vacuum.title = !vacuumKnown ? "Auto Vacuum state is not reported by this machine" : (vacuumEnabled ? "Turn Auto Vacuum off" : "Turn Auto Vacuum on");
+    setTextIfChanged(vacuum, state.autoVacuumPending ? "Auto Vacuum…" : (vacuumKnown ? `Auto Vacuum · ${vacuumEnabled ? "On" : "Off"}` : "Auto Vacuum · —"));
+  }
   root?.classList.toggle("is-job-state", !actions.setup);
   const labels = {
     Idle: "Machine ready",
@@ -2150,6 +2162,29 @@ function renderSurfaceQuickActions(machineState = String(state.machine?.state ||
     Tool: "Tool change required",
   };
   setTextIfChanged(document.getElementById("surface-footer-state"), labels[machineState] || `Machine: ${machineState}`);
+}
+
+async function setAutoVacuum(enabled) {
+  const current = dashboardOptionalNumber(state.machine?.spindle?.vacuum_mode);
+  if (state.autoVacuumPending || current === null || state.readOnly) return;
+  state.autoVacuumPending = true;
+  renderSurfaceQuickActions();
+  try {
+    await request("/api/outputs/auto-vacuum", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: !!enabled }),
+    });
+    clearNotice("auto-vacuum");
+    await pollMachine();
+    setTimeout(pollMachine, 900);
+  } catch (e) {
+    appendGcodeLine({ seq: "local-" + Date.now(), dir: "recv", source: "api", text: "error: " + e.message });
+    setNotice("Auto Vacuum could not be updated: " + e.message, "error", "auto-vacuum");
+  } finally {
+    state.autoVacuumPending = false;
+    renderSurfaceQuickActions();
+  }
 }
 
 function surfaceJogOptionsSummary(surface = state.surface) {
@@ -13870,6 +13905,10 @@ function init() {
     else if (state.machine?.state === "Hold") sendControl("resume");
   });
   bindButtonAction(document.getElementById("surface-footer-job"), () => showTab("active-job"));
+  bindButtonAction(document.getElementById("surface-footer-vacuum"), () => {
+    const current = dashboardOptionalNumber(state.machine?.spindle?.vacuum_mode);
+    if (current !== null) setAutoVacuum(current === 0);
+  });
   document.getElementById("surface-auto-switch").onchange = (e) => {
     state.surface.auto_switch = !!e.target.checked;
     saveSurfaceViewPreferences();
