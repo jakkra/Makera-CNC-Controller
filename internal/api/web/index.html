@@ -143,15 +143,31 @@
   .surface-jog-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-sm); }
   .surface-jog-actions button { min-height: 52px; justify-content: center; }
   .surface-jog-actions button:last-child:nth-child(odd) { grid-column: 1 / -1; }
-  .surface-position-panel { align-content: start; grid-template-rows: auto auto auto auto; }
-  .surface-position-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; border-bottom: 1px solid var(--border); }
-  .surface-position-tabs button { min-height: 42px; border-color: transparent; background: transparent; }
-  .surface-position-tabs button[aria-pressed="true"] { color: var(--accent); border-bottom-color: var(--accent); }
-  .surface-position-readout { display: grid; gap: 0; }
-  .surface-position-row { min-height: 74px; display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; border-bottom: 1px solid var(--border); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  .surface-position-axis { color: var(--muted); font-size: 24px; font-weight: 700; }
-  .surface-position-value { color: var(--text); font-size: clamp(30px, 3.3vw, 48px); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
-  .surface-position-unit { color: var(--muted); font-size: 14px; }
+  .surface-position-panel { align-content: start; grid-template-rows: auto auto auto; }
+  .machine-readout-host { min-width: 0; }
+  .machine-readout { min-width: 0; display: grid; gap: 12px; }
+  .machine-axis-grid { min-width: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .machine-axis { --axis-color: var(--muted); position: relative; min-width: 0; display: grid; grid-template-rows: auto auto; gap: 3px; align-content: center; padding: 10px 8px; border-right: 1px solid var(--border); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .machine-axis:last-child { border-right: 0; }
+  .machine-axis-x { --axis-color: #ff6666; }
+  .machine-axis-y { --axis-color: #54d88a; }
+  .machine-axis-z { --axis-color: #5f91ff; }
+  .machine-axis-a { --axis-color: #f4a64a; }
+  .machine-axis-label { position: absolute; left: 8px; top: 8px; color: var(--axis-color); font-size: 21px; font-weight: 750; }
+  .machine-axis-value { min-width: 0; display: grid; grid-template-columns: 10px minmax(0,1fr); gap: 3px; align-items: baseline; padding-left: 20px; }
+  .machine-axis-value i { color: #6d7a83; font-size: 8px; font-style: normal; font-weight: 750; }
+  .machine-axis strong, .machine-axis small { min-width: 0; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
+  .machine-axis strong { color: var(--text); font-size: clamp(15px, 1.55vw, 21px); line-height: 1.15; }
+  .machine-axis small { color: var(--muted); font-size: clamp(10px, 1vw, 13px); }
+  .machine-axis-unit { position: absolute; right: 5px; bottom: 1px; color: #65727a; font-size: 7px; }
+  .machine-axis.is-unavailable { opacity: .42; }
+  .machine-metric-grid { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .machine-metric { min-width: 0; display: grid; gap: 2px; padding: 9px 10px; border-right: 1px solid var(--border); }
+  .machine-metric:last-child { border-right: 0; }
+  .machine-metric > span { color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+  .machine-metric strong, .machine-metric small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .machine-metric strong { color: var(--text); font-size: 14px; }
+  .machine-metric small { color: var(--muted); font-size: 10px; }
   .surface-position-summary { display: grid; gap: 8px; color: var(--muted); }
   .surface-position-summary strong { color: var(--text); }
   .surface-position-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-sm); }
@@ -953,28 +969,9 @@
   .dashboard-secondary > summary::after { content: "Show"; float: right; color: var(--accent); font-size: 12px; }
   .dashboard-secondary[open] > summary::after { content: "Hide"; }
   .dashboard-eyebrow { display: block; color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
-  .dashboard-machine { grid-template-rows: auto auto auto auto auto; }
+  .dashboard-machine { grid-template-rows: auto minmax(0,1fr); }
   .dashboard-machine-heading h2, .dashboard-job-heading h2 { margin: 2px 0 0; }
-  .dashboard-position-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; background: rgba(8,13,16,.65); border: 1px solid var(--border); border-radius: 8px; }
-  .dashboard-position-switch button { min-height: 38px; padding: 5px 8px; border: 0; background: transparent; color: var(--muted); }
-  .dashboard-position-switch button[aria-pressed="true"] { color: var(--accent); background: rgba(87,166,214,.13); box-shadow: inset 0 0 0 1px rgba(87,166,214,.3); }
-  .dashboard-coordinate-readout { display: grid; }
-  .dashboard-coordinate-row { min-height: 58px; display: grid; grid-template-columns: 28px minmax(0,1fr) 28px; gap: 8px; align-items: baseline; border-bottom: 1px solid rgba(65,77,82,.7); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  .dashboard-coordinate-row > span { color: var(--muted); font-size: 20px; font-weight: 700; }
-  .dashboard-coordinate-row > strong { min-width: 0; color: var(--text); font-size: clamp(28px,4.4vw,42px); line-height: 1.25; text-align: right; font-variant-numeric: tabular-nums; overflow: hidden; }
-  .dashboard-coordinate-row > small { color: var(--muted); font-size: 11px; }
-  .dashboard-coordinate-a.is-unavailable { display: none; }
-  .dashboard-machine-primary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-  .dashboard-machine-value { min-width: 0; display: grid; gap: 2px; padding: 9px 10px; border-right: 1px solid var(--border); }
-  .dashboard-machine-value:last-child { border-right: 0; }
-  .dashboard-machine-value span, .dashboard-machine-health span { color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
-  .dashboard-machine-value strong { min-width: 0; color: var(--text); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dashboard-machine-value b { min-width: 0; color: var(--muted); font-size: 10px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dashboard-machine-health { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .dashboard-machine-health > div { min-width: 0; display: grid; gap: 2px; }
-  .dashboard-machine-health strong, .dashboard-machine-health b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dashboard-machine-health strong { color: var(--text); font-size: 12px; }
-  .dashboard-machine-health b { color: var(--muted); font-size: 10px; font-weight: 500; }
+  .dashboard-machine > .machine-readout-host { align-self: start; }
   .dashboard-job-heading { align-items: center; }
   .dashboard-job-heading > div { min-width: 0; }
   .dashboard-job-heading h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1036,13 +1033,12 @@
     .dashboard-camera-inset, .dashboard-toolpath-fallback { width: 38%; right: 10px; }
     .dashboard-camera-inset { top: 10px; }
     .dashboard-toolpath-fallback { bottom: 10px; }
-    .dashboard-coordinate-row > strong { font-size: clamp(27px,10vw,40px); }
+    .machine-axis strong { font-size: clamp(14px, 3.5vw, 20px); }
     .dashboard-telemetry, .dashboard-gcode { min-height: auto; }
     .surface-jog { min-height: 0; grid-template-columns: 1fr; }
     .surface-jog-panel { min-height: 0; }
     .surface-direction-pad { width: min(100%, 440px); }
-    .surface-position-row { min-height: 60px; }
-    .surface-position-value { font-size: clamp(30px, 13vw, 48px); }
+    .surface-position-panel .machine-readout { gap: 8px; }
     #attention-view { min-height: 0; place-items: stretch; }
   }
   @media (max-width: 600px) {
@@ -1061,16 +1057,15 @@
     .surface-jog { height: auto; align-self: start; grid-auto-rows: max-content; align-items: start; gap: 10px; }
     .surface-jog-panel { height: auto; min-height: 0; padding: 10px; gap: 10px; overflow: hidden; }
     .surface-position-panel { order: -1; justify-content: normal; grid-template-rows: auto auto auto; padding-block: 8px; }
-    .surface-position-tabs { padding: 0 0 5px; }
-    .surface-position-tabs button { min-height: 34px; font-size: 12px; }
-    .surface-position-readout { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; }
-    .surface-position-row { min-width: 0; min-height: 54px; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "axis unit" "value value"; gap: 0 3px; align-content: center; padding: 3px 5px; border-right: 1px solid var(--border); border-bottom: 0; }
-    .surface-position-row:last-child { border-right: 0; }
-    .surface-position-axis { grid-area: axis; font-size: 13px; }
-    .surface-position-value { grid-area: value; min-width: 0; overflow: hidden; font-size: clamp(12px, 3.45vw, 17px); line-height: 1.2; text-align: left; white-space: nowrap; text-overflow: clip; }
-    .surface-position-unit { grid-area: unit; align-self: center; justify-self: end; font-size: 9px; }
+    .machine-readout { gap: 8px; }
+    .machine-axis { gap: 2px; padding: 8px 5px; }
+    .machine-axis-label { left: 5px; top: 6px; font-size: 15px; }
+    .machine-axis-value { grid-template-columns: 8px minmax(0,1fr); gap: 2px; padding-left: 15px; }
+    .machine-axis strong { font-size: clamp(12px, 3.4vw, 15px); }
+    .machine-axis small { font-size: clamp(9px, 2.5vw, 11px); }
+    .machine-metric { padding: 7px 8px; }
     .surface-position-summary, #surface-open-active-job { display: none; }
-    .surface-machine-facts, .surface-jog-heading p { display: none; }
+    .surface-jog-heading p { display: none; }
     .surface-position-actions { grid-template-columns: 1fr; }
     #surface-jog-settings-open { min-height: 36px; font-size: 12px; }
     .surface-jog-heading { justify-content: stretch; }
@@ -1171,17 +1166,7 @@
     .surface-a-guard span { display: grid; place-items: center; border-right: 1px solid #3a4a54; }
     .surface-a-guard button { border: 0; border-radius: 0; background: transparent; color: #65717a; font-weight: 750; }
     .surface-position-panel { align-content: start; justify-content: stretch; padding-inline: 22px; }
-    .surface-position-tabs { padding: 0; border-bottom-color: #3a4a54; }
-    .surface-position-tabs button { min-height: 48px; font-size: 14px; }
-    .surface-position-readout { border-bottom: 1px solid #31404a; }
-    .surface-position-row { min-height: 68px; grid-template-columns: 34px minmax(0,1fr) 30px; gap: 8px; }
-    .surface-position-axis { font-size: 24px; }
-    .surface-position-value { font-size: clamp(34px,3.5vw,52px); }
     .surface-position-summary { gap: 4px; padding: 12px 0; border-bottom: 1px solid #31404a; }
-    .surface-machine-facts { display: grid; border-bottom: 1px solid #31404a; }
-    .surface-machine-fact { min-height: 45px; display: grid; grid-template-columns: 92px minmax(0,1fr); gap: 10px; align-items: center; color: var(--muted); border-bottom: 1px solid rgba(49,64,74,.55); }
-    .surface-machine-fact:last-child { border-bottom: 0; }
-    .surface-machine-fact strong { color: #dce7ec; text-align: right; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .surface-position-actions { margin-top: auto; }
     .surface-position-actions button { min-height: 46px; }
     .surface-wheel { width: min(43vh,390px); border-width: 22px; box-shadow: 0 0 0 1px #55646c, inset 0 0 36px rgba(0,0,0,.7); }
@@ -1201,21 +1186,31 @@
     body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) 360px; grid-template-rows: minmax(0,1fr); grid-auto-rows: unset; grid-template-areas: "job machine"; gap: 0; overflow: hidden; border: 1px solid #31404a; background: rgba(9,16,21,.72); }
     body[data-active-tab="dashboard"] .dashboard-job, body[data-active-tab="dashboard"] .dashboard-machine { min-height: 0; height: 100%; padding: 18px 20px; border: 0; border-radius: 0; background: transparent; }
     body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid .dashboard-job { grid-area: job; grid-column: job; grid-row: job; grid-template-rows: auto auto minmax(0,1fr); border-right: 1px solid #31404a; }
-    body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid .dashboard-machine { grid-area: machine; grid-template-rows: auto auto minmax(0,1fr) auto auto; gap: 12px; }
+    body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid .dashboard-machine { grid-area: machine; grid-template-rows: auto minmax(0,1fr); gap: 12px; }
     body[data-active-tab="dashboard"] .dashboard-telemetry, body[data-active-tab="dashboard"] .dashboard-gcode { display: none; }
     body[data-active-tab="dashboard"] .dashboard-camera-stage { min-height: 0; height: 100%; border-radius: 4px; }
-    body[data-active-tab="dashboard"] .dashboard-coordinate-row { min-height: 66px; }
-    body[data-active-tab="dashboard"] .dashboard-coordinate-row > strong { font-size: 42px; }
-    body[data-active-tab="dashboard"] .dashboard-machine-primary { grid-template-columns: 1fr; }
-    body[data-active-tab="dashboard"] .dashboard-machine-value { min-height: 55px; grid-template-columns: 82px minmax(0,1fr); grid-template-areas: "label value" "label detail"; align-content: center; border-right: 0; border-bottom: 1px solid var(--border); }
-    body[data-active-tab="dashboard"] .dashboard-machine-value:last-child { border-bottom: 0; }
-    body[data-active-tab="dashboard"] .dashboard-machine-value span { grid-area: label; align-self: center; }
-    body[data-active-tab="dashboard"] .dashboard-machine-value strong { grid-area: value; text-align: right; font-size: 17px; }
-    body[data-active-tab="dashboard"] .dashboard-machine-value b { grid-area: detail; text-align: right; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis strong { font-size: 11px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis small { font-size: 9px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value { grid-template-columns: 7px minmax(0,1fr); gap: 1px; padding-left: 14px; }
   }
 </style>
 </head>
 <body>
+<template id="machine-readout-template">
+  <section class="machine-readout" aria-label="Live machine readout">
+    <div class="machine-axis-grid">
+      <div class="machine-axis machine-axis-x" data-machine-axis="x"><span class="machine-axis-label">X</span><span class="machine-axis-value"><i>W</i><strong data-machine-space="work">—</strong></span><span class="machine-axis-value"><i>M</i><small data-machine-space="machine">—</small></span><span class="machine-axis-unit">mm</span></div>
+      <div class="machine-axis machine-axis-y" data-machine-axis="y"><span class="machine-axis-label">Y</span><span class="machine-axis-value"><i>W</i><strong data-machine-space="work">—</strong></span><span class="machine-axis-value"><i>M</i><small data-machine-space="machine">—</small></span><span class="machine-axis-unit">mm</span></div>
+      <div class="machine-axis machine-axis-z" data-machine-axis="z"><span class="machine-axis-label">Z</span><span class="machine-axis-value"><i>W</i><strong data-machine-space="work">—</strong></span><span class="machine-axis-value"><i>M</i><small data-machine-space="machine">—</small></span><span class="machine-axis-unit">mm</span></div>
+      <div class="machine-axis machine-axis-a" data-machine-axis="a"><span class="machine-axis-label">A</span><span class="machine-axis-value"><i>W</i><strong data-machine-space="work">—</strong></span><span class="machine-axis-value"><i>M</i><small data-machine-space="machine">—</small></span><span class="machine-axis-unit">°</span></div>
+    </div>
+    <div class="machine-metric-grid">
+      <div class="machine-metric" data-machine-metric="feed"><span>Feed</span><strong data-machine-primary>—</strong><small data-machine-secondary>—</small></div>
+      <div class="machine-metric" data-machine-metric="spindle"><span>Spindle</span><strong data-machine-primary>—</strong><small data-machine-secondary>—</small></div>
+      <div class="machine-metric" data-machine-metric="tool"><span>Tool</span><strong data-machine-primary>—</strong><small data-machine-secondary>—</small></div>
+    </div>
+  </section>
+</template>
 <header>
   <div id="command-toolbar" aria-label="Command toolbar">
     <div id="app-brand" aria-label="CNC controller">
@@ -1406,13 +1401,13 @@
   </div>
 </header>
 <nav id="surface-kiosk-nav" aria-label="Surface controller">
-  <button type="button" class="surface-nav-button" data-surface-view="dashboard"><span class="surface-nav-icon" aria-hidden="true">◴</span><span>Översikt</span></button>
+  <button type="button" class="surface-nav-button" data-surface-view="dashboard"><span class="surface-nav-icon" aria-hidden="true">◴</span><span>Overview</span></button>
   <button type="button" class="surface-nav-button" data-surface-view="jog"><span class="surface-nav-icon" aria-hidden="true">⌖</span><span>Jogga</span></button>
   <button type="button" class="surface-nav-button" data-surface-view="control"><span class="surface-nav-icon" aria-hidden="true">⌁</span><span>Probing</span></button>
-  <button type="button" class="surface-nav-button" data-surface-view="active-job"><span class="surface-nav-icon" aria-hidden="true">▤</span><span>Aktivt jobb</span></button>
+  <button type="button" class="surface-nav-button" data-surface-view="active-job"><span class="surface-nav-icon" aria-hidden="true">▤</span><span>Active job</span></button>
   <button type="button" class="surface-nav-button" data-surface-view="files"><span class="surface-nav-icon" aria-hidden="true">▱</span><span>Filer</span></button>
-  <button type="button" class="surface-nav-button" data-surface-action="camera" title="Öppna kameraövervakningen"><span class="surface-nav-icon" aria-hidden="true">▣</span><span>Kamera</span></button>
-  <button type="button" class="surface-nav-button" data-surface-action="actions"><span class="surface-nav-icon" aria-hidden="true">⌕</span><span>Underhåll</span></button>
+  <button type="button" class="surface-nav-button" data-surface-action="camera" title="Open camera monitoring"><span class="surface-nav-icon" aria-hidden="true">▣</span><span>Camera</span></button>
+  <button type="button" class="surface-nav-button" data-surface-action="actions"><span class="surface-nav-icon" aria-hidden="true">⌕</span><span>Maintenance</span></button>
 </nav>
 <main>
   <section class="page-section">
@@ -1430,56 +1425,37 @@
   <section id="dashboard-view" class="view" role="tabpanel" aria-labelledby="tab-dashboard" hidden>
     <section class="dashboard-grid layout-job-focus dashboard-job-focus-split dashboard-panel-count-4" aria-label="Machine and active job summary">
       <section class="dashboard-panel dashboard-machine" data-dashboard-panel="machine">
-        <div class="dashboard-heading dashboard-machine-heading"><div><span class="dashboard-eyebrow">Maskin</span><h2>Position</h2></div><span id="dashboard-state" class="badge state-Unknown">Okänd</span></div>
-        <div class="dashboard-position-switch" role="group" aria-label="Koordinatsystem">
-          <button type="button" id="dashboard-position-work" aria-pressed="true">Arbetsposition</button>
-          <button type="button" id="dashboard-position-machine" aria-pressed="false">Maskinposition</button>
-        </div>
-        <div class="dashboard-coordinate-readout">
-          <div class="dashboard-coordinate-row"><span>X</span><strong id="dashboard-position-x">-</strong><small>mm</small></div>
-          <div class="dashboard-coordinate-row"><span>Y</span><strong id="dashboard-position-y">-</strong><small>mm</small></div>
-          <div class="dashboard-coordinate-row"><span>Z</span><strong id="dashboard-position-z">-</strong><small>mm</small></div>
-          <div class="dashboard-coordinate-row dashboard-coordinate-a"><span>A</span><strong id="dashboard-position-a">-</strong><small>°</small></div>
-          <span id="dashboard-wpos" hidden>-</span><span id="dashboard-mpos" hidden>-</span>
-        </div>
-        <div class="dashboard-machine-primary">
-          <div class="dashboard-machine-value"><span>Verktyg</span><strong id="dashboard-tool">-</strong><b id="dashboard-tool-detail">-</b></div>
-          <div class="dashboard-machine-value"><span>Spindel</span><strong id="dashboard-spindle">-</strong><b id="dashboard-spindle-detail">-</b></div>
-          <div class="dashboard-machine-value"><span>Matning</span><strong id="dashboard-feed">-</strong><b id="dashboard-feed-detail">-</b></div>
-        </div>
-        <div class="dashboard-machine-health">
-          <div><span>Anslutning</span><strong id="dashboard-connection">-</strong><b id="dashboard-mode">-</b></div>
-          <div><span>Temperatur</span><strong id="dashboard-spindle-temp">-</strong><b id="dashboard-power-temp">-</b></div>
-        </div>
+        <div class="dashboard-heading dashboard-machine-heading"><div><span class="dashboard-eyebrow">Machine</span><h2>Position</h2></div><span id="dashboard-state" class="badge state-Unknown">Unknown</span></div>
+        <div class="machine-readout-host" data-machine-readout-host></div>
       </section>
       <section class="dashboard-panel dashboard-job" data-dashboard-panel="job">
-        <div class="dashboard-heading dashboard-job-heading"><div><span class="dashboard-eyebrow">Aktuellt jobb</span><h2 id="dashboard-job-title">Inget aktivt jobb</h2></div><button type="button" id="dashboard-open-job">Öppna jobbdetaljer</button></div>
+        <div class="dashboard-heading dashboard-job-heading"><div><span class="dashboard-eyebrow">Current job</span><h2 id="dashboard-job-title">No active job</h2></div><button type="button" id="dashboard-open-job">Open job details</button></div>
         <div class="dashboard-progress">
-          <div class="dashboard-progress-main"><span id="dashboard-progress-label">Förlopp</span><progress id="dashboard-progress-bar" max="100" value="0"></progress></div>
-          <div class="dashboard-time"><span>Körtid</span><strong id="dashboard-elapsed">-</strong></div>
-          <div class="dashboard-time"><span>Återstår</span><strong id="dashboard-remaining">-</strong></div>
+          <div class="dashboard-progress-main"><span id="dashboard-progress-label">Progress</span><progress id="dashboard-progress-bar" max="100" value="0"></progress></div>
+          <div class="dashboard-time"><span>Elapsed</span><strong id="dashboard-elapsed">-</strong></div>
+          <div class="dashboard-time"><span>Remaining</span><strong id="dashboard-remaining">-</strong></div>
         </div>
-        <div class="dashboard-camera-stage" aria-label="Kameraövervakning">
+        <div class="dashboard-camera-stage" aria-label="Camera monitoring">
           <div id="dashboard-external-camera" class="dashboard-camera dashboard-camera-main is-unconfigured">
-            <img id="dashboard-external-camera-image" alt="Extern kamera" hidden>
-            <div class="dashboard-camera-empty"><span class="dashboard-camera-icon" aria-hidden="true">▣</span><strong id="dashboard-external-camera-state">Extern kamera ej konfigurerad</strong><small id="dashboard-external-camera-detail">Anslut en USB-kamera på kontrollern för huvudvyn.</small></div>
-            <div class="dashboard-camera-label"><span>Extern kamera</span><b id="dashboard-external-camera-badge">Ej konfigurerad</b></div>
+            <img id="dashboard-external-camera-image" alt="External camera" hidden>
+            <div class="dashboard-camera-empty"><span class="dashboard-camera-icon" aria-hidden="true">▣</span><strong id="dashboard-external-camera-state">External camera not configured</strong><small id="dashboard-external-camera-detail">Connect a USB camera to the controller for the main view.</small></div>
+            <div class="dashboard-camera-label"><span>External camera</span><b id="dashboard-external-camera-badge">Not configured</b></div>
           </div>
           <div id="dashboard-builtin-camera" class="dashboard-camera dashboard-camera-inset is-unconfigured">
-            <img id="dashboard-builtin-camera-image" alt="Z1-kamera" hidden>
-            <div class="dashboard-camera-empty"><span class="dashboard-camera-icon" aria-hidden="true">◉</span><strong id="dashboard-builtin-camera-state">Z1-kamera ej konfigurerad</strong><small id="dashboard-builtin-camera-detail">Ingen kamerakälla är tillgänglig.</small></div>
-            <div class="dashboard-camera-label"><span>Z1-kamera</span><b id="dashboard-builtin-camera-badge">Ej konfigurerad</b></div>
+            <img id="dashboard-builtin-camera-image" alt="Z1 camera" hidden>
+            <div class="dashboard-camera-empty"><span class="dashboard-camera-icon" aria-hidden="true">◉</span><strong id="dashboard-builtin-camera-state">Z1 camera not configured</strong><small id="dashboard-builtin-camera-detail">No camera source is available.</small></div>
+            <div class="dashboard-camera-label"><span>Z1 camera</span><b id="dashboard-builtin-camera-badge">Not configured</b></div>
           </div>
           <div id="dashboard-toolpath-fallback" class="dashboard-preview-frame dashboard-toolpath-fallback">
-            <canvas id="dashboard-preview" role="img" aria-label="Förhandsvisning av aktivt jobb"></canvas>
-            <div id="dashboard-preview-empty">Ingen kamerabild eller plottad verktygsbana</div>
-            <span class="dashboard-preview-label">Verktygsbana</span>
+            <canvas id="dashboard-preview" role="img" aria-label="Active job preview"></canvas>
+            <div id="dashboard-preview-empty">No camera image or plotted toolpath</div>
+            <span class="dashboard-preview-label">Toolpath</span>
           </div>
         </div>
       </section>
       <section class="dashboard-panel dashboard-telemetry" data-dashboard-panel="telemetry">
         <details class="dashboard-secondary">
-        <summary>Diagnostik och extra telemetri</summary>
+          <summary>Diagnostics and additional telemetry</summary>
         <div class="dashboard-telemetry-grid">
           <div class="dashboard-telemetry-item" data-dashboard-telemetry="rotary"><span>Rotary position</span><strong id="dashboard-rotary">-</strong></div>
           <div class="dashboard-telemetry-item" data-dashboard-telemetry="probe"><span>Wireless probe</span><strong id="dashboard-probe-voltage">-</strong></div>
@@ -1497,7 +1473,7 @@
       </section>
       <section class="dashboard-panel dashboard-gcode" data-dashboard-panel="gcode">
         <details class="dashboard-secondary">
-          <summary>G-code-ström <span id="dashboard-gcode-position">-</span></summary>
+          <summary>G-code stream <span id="dashboard-gcode-position">-</span></summary>
           <div id="dashboard-gcode-lines" class="dashboard-gcode-lines" aria-label="Gcode around the current job line"></div>
         </details>
       </section>
@@ -1607,7 +1583,7 @@
   <section id="jog-view" class="view" role="tabpanel" aria-labelledby="tab-jog" hidden>
     <section class="surface-jog" aria-label="Surface jog pendant">
       <section class="surface-jog-panel surface-motion-panel">
-        <div class="surface-jog-heading"><div><h2>JOGGA</h2><p>Manuell förflyttning av maskinen</p></div><button type="button" id="surface-jog-arm">Arm Movement</button></div>
+        <div class="surface-jog-heading"><div><h2>JOG</h2><p>Manual machine movement</p></div><button type="button" id="surface-jog-arm">Arm Movement</button></div>
         <details id="surface-mobile-options" class="surface-mobile-options" open>
           <summary><span>Precision &amp; val</span><span id="surface-jog-options-summary">Stegvis · 1 mm · Riktning</span></summary>
           <div class="surface-options-content">
@@ -1619,15 +1595,15 @@
               <button type="button" id="surface-jog-directional" aria-pressed="true">Riktning</button>
               <button type="button" id="surface-jog-mpg" aria-pressed="false">Virtuell MPG</button>
             </div>
-            <div class="surface-kiosk-precision" role="group" aria-label="Stegsträcka">
+            <div class="surface-kiosk-precision" role="group" aria-label="Step distance">
               <button type="button" data-surface-step="0.01" aria-pressed="false">0.01 mm</button>
               <button type="button" data-surface-step="0.1" aria-pressed="false">0.1 mm</button>
               <button type="button" data-surface-step="1" aria-pressed="true">1 mm</button>
               <button type="button" data-surface-step="10" aria-pressed="false">10 mm</button>
             </div>
-            <div class="surface-kiosk-motion" role="group" aria-label="Rörelseläge">
+            <div class="surface-kiosk-motion" role="group" aria-label="Motion mode">
               <button type="button" data-surface-motion="step" aria-pressed="true">Stegvis</button>
-              <button type="button" data-surface-motion="hold" aria-pressed="false">Håll</button>
+              <button type="button" data-surface-motion="hold" aria-pressed="false">Hold</button>
             </div>
           </div>
         </details>
@@ -1655,29 +1631,14 @@
           <div class="surface-axis-column">
             <div class="surface-jog-actions"><button type="button" data-surface-z-sign="1">Z+</button><button type="button" data-surface-z-sign="-1">Z−</button></div>
             <button type="button" id="surface-map-open">XY-karta</button>
-            <div class="surface-a-guard" aria-label="A-axel ej tillgänglig"><span aria-hidden="true">🔒</span><button type="button" disabled>A−</button><button type="button" disabled>A+</button></div>
+            <div class="surface-a-guard" aria-label="A axis unavailable"><span aria-hidden="true">🔒</span><button type="button" disabled>A−</button><button type="button" disabled>A+</button></div>
           </div>
         </div>
       </section>
       <aside class="surface-jog-panel surface-position-panel" aria-label="Live machine position">
-        <div class="surface-position-tabs" role="group" aria-label="Coordinate system">
-          <button type="button" id="surface-position-work" aria-pressed="true">Arbetsposition</button>
-          <button type="button" id="surface-position-machine" aria-pressed="false">Maskinposition</button>
-        </div>
-        <div class="surface-position-readout" aria-live="off">
-          <div class="surface-position-row"><span class="surface-position-axis">X</span><span class="surface-position-value" id="surface-position-x">—</span><span class="surface-position-unit">mm</span></div>
-          <div class="surface-position-row"><span class="surface-position-axis">Y</span><span class="surface-position-value" id="surface-position-y">—</span><span class="surface-position-unit">mm</span></div>
-          <div class="surface-position-row"><span class="surface-position-axis">Z</span><span class="surface-position-value" id="surface-position-z">—</span><span class="surface-position-unit">mm</span></div>
-          <div class="surface-position-row"><span class="surface-position-axis">A</span><span class="surface-position-value" id="surface-position-a">—</span><span class="surface-position-unit">°</span></div>
-        </div>
+        <div class="machine-readout-host" data-machine-readout-host></div>
         <div class="surface-position-summary"><strong id="surface-position-state">Machine state unknown</strong><span id="surface-position-detail">Waiting for machine status</span></div>
-        <div class="surface-machine-facts" aria-label="Maskinstatus">
-          <div class="surface-machine-fact"><span>Verktyg</span><strong id="surface-machine-tool">—</strong></div>
-          <div class="surface-machine-fact"><span>Spindel</span><strong id="surface-machine-spindle">—</strong></div>
-          <div class="surface-machine-fact"><span>Anslutning</span><strong id="surface-machine-connection">—</strong></div>
-          <div class="surface-machine-fact"><span>Säkerhet</span><strong id="surface-machine-safety">Ej rapporterad</strong></div>
-        </div>
-        <div class="surface-position-actions"><button type="button" id="surface-open-active-job">Aktivt jobb</button><button type="button" id="surface-jog-settings-open">Inställningar</button></div>
+        <div class="surface-position-actions"><button type="button" id="surface-open-active-job">Active job</button><button type="button" id="surface-jog-settings-open">Settings</button></div>
       </aside>
     </section>
   </section>
@@ -1976,15 +1937,15 @@
     </section>
   </section>
 </main>
-<div id="surface-quick-actions" aria-label="Snabbåtgärder">
-  <div class="surface-quick-state"><strong id="surface-footer-state">Väntar på maskinstatus</strong></div>
-  <button type="button" class="surface-quick-button" data-surface-setup data-surface-action="home">⌂&nbsp; Hemkör</button>
-  <button type="button" class="surface-quick-button" data-surface-setup data-surface-action="probe-z">⌁&nbsp; Proba Z</button>
-  <button type="button" class="surface-quick-button" data-surface-setup data-surface-action="work-zero">⌖&nbsp; Nollpunkt</button>
-  <button type="button" class="surface-quick-button" data-surface-setup data-surface-action="files">▱&nbsp; Öppna jobb</button>
-  <button type="button" id="surface-footer-hold" class="surface-quick-button" hidden>Ⅱ&nbsp; Pausa</button>
-  <button type="button" id="surface-footer-resume" class="surface-quick-button" hidden>▶&nbsp; Återuppta</button>
-  <button type="button" id="surface-footer-job" class="surface-quick-button" hidden>▤&nbsp; Jobbdetaljer</button>
+<div id="surface-quick-actions" aria-label="Quick actions">
+  <div class="surface-quick-state"><strong id="surface-footer-state">Waiting for machine status</strong></div>
+  <button type="button" class="surface-quick-button" data-surface-setup data-surface-action="home">⌂&nbsp; Home</button>
+  <button type="button" class="surface-quick-button" data-surface-setup data-surface-action="probe-z">⌁&nbsp; Probe Z</button>
+  <button type="button" class="surface-quick-button" data-surface-setup data-surface-action="work-zero">⌖&nbsp; Work zero</button>
+  <button type="button" class="surface-quick-button" data-surface-setup data-surface-action="files">▱&nbsp; Open jobs</button>
+  <button type="button" id="surface-footer-hold" class="surface-quick-button" hidden>Ⅱ&nbsp; Hold</button>
+  <button type="button" id="surface-footer-resume" class="surface-quick-button" hidden>▶&nbsp; Resume</button>
+  <button type="button" id="surface-footer-job" class="surface-quick-button" hidden>▤&nbsp; Job details</button>
 </div>
 <dialog id="dashboard-settings-modal" aria-labelledby="dashboard-settings-title">
   <div class="machine-settings-modal-head">
@@ -2173,6 +2134,6 @@
 <div id="status-bar" role="status" aria-live="polite" hidden>
   <div id="notice"></div>
 </div>
-<script type="module" src="/app.js?v=surface-overview-camera-1"></script>
+<script type="module" src="/app.js?v=surface-overview-camera-2"></script>
 </body>
 </html>

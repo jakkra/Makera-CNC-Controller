@@ -111,6 +111,31 @@ test("wide Surface overview keeps job and machine panels regardless of saved pro
   );
 });
 
+test("Overview and Jog mount one shared machine readout with work and machine coordinates", () => {
+  assert.equal((htmlSource.match(/data-machine-readout-host/g) || []).length, 2);
+  assert.match(htmlSource, /id="machine-readout-template"/);
+  assert.doesNotMatch(htmlSource, /[åäö]/i);
+  assert.doesNotMatch(source, /[åäö]/i);
+  const ctx = buildContext([
+    "fmtCoord", "fmtDashboardFeed", "fmtDashboardSpindle", "fmtActiveTool",
+    "toolDisplayName", "axisValue", "machineReadoutModel",
+  ]);
+  const model = JSON.parse(vm.runInContext(`JSON.stringify(machineReadoutModel({
+    wpos: {x: 190.29, y: 192.9, z: 78.5166, a: -11070},
+    mpos: {x: -1, y: -1, z: -1, a: 0},
+    feed: {current: 0, target: 1000, override: 100},
+    spindle: {current_rpm: 0, target_rpm: 10000, override: 100},
+    tool: {active: 1, offset: 14.307},
+  }))`, ctx));
+  assert.deepEqual(model.axes.map((axis) => [axis.axis, axis.work, axis.machine]), [
+    ["x", "190.290", "-1.000"], ["y", "192.900", "-1.000"],
+    ["z", "78.517", "-1.000"], ["a", "-11070.000", "0.000"],
+  ]);
+  assert.equal(model.metrics.feed.detail, "Target 1000 · 100%");
+  assert.equal(model.metrics.spindle.detail, "Target 10000 · 100%");
+  assert.equal(model.metrics.tool.detail, "TLO 14.307");
+});
+
 test("Surface footer only exposes safe job actions for the reported machine state", () => {
   const ctx = buildContext(["surfaceQuickActionState"]);
   const stateFor = (machineState) => vm.runInContext(`JSON.stringify(surfaceQuickActionState(${JSON.stringify(machineState)}))`, ctx);
@@ -813,8 +838,8 @@ test("movement arm labels an external owner before disarming it", () => {
 
 test("mobile jog options summarize the active precision and method", () => {
   const ctx = buildContext(["surfaceJogOptionsSummary"]);
-  assert.equal(vm.runInContext(`surfaceJogOptionsSummary({motion:"step",step_mm:1,method:"directional"})`, ctx), "Stegvis · 1 mm · Riktning");
-  assert.equal(vm.runInContext(`surfaceJogOptionsSummary({motion:"hold",step_mm:0.1,method:"mpg"})`, ctx), "Håll · 0.1 mm · MPG");
+  assert.equal(vm.runInContext(`surfaceJogOptionsSummary({motion:"step",step_mm:1,method:"directional"})`, ctx), "Step · 1 mm · Directional");
+  assert.equal(vm.runInContext(`surfaceJogOptionsSummary({motion:"hold",step_mm:0.1,method:"mpg"})`, ctx), "Hold · 0.1 mm · MPG");
 });
 
 test("mobile jog options start collapsed without changing the desktop default", () => {
