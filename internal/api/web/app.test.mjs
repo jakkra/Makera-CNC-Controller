@@ -114,6 +114,7 @@ test("wide Surface overview keeps job and machine panels regardless of saved pro
 test("Overview and Jog mount one shared machine readout with work and machine coordinates", () => {
   assert.equal((htmlSource.match(/data-machine-readout-host/g) || []).length, 2);
   assert.match(htmlSource, /id="machine-readout-template"/);
+  assert.match(htmlSource, /dashboard-machine \.machine-axis-grid \{ grid-template-columns: repeat\(2, minmax\(0,1fr\)\); \}/);
   assert.doesNotMatch(htmlSource, /[åäö]/i);
   assert.doesNotMatch(source, /[åäö]/i);
   assert.doesNotMatch(htmlSource, /\b(Jogga|Filer|STOPP|Stegvis|Riktning)\b/);

@@ -1183,15 +1183,24 @@
     body[data-active-tab="active-job"] #active-gcode-left { grid-column: 3; grid-row: 1; }
     body[data-active-tab="active-job"] .active-gcode-actions button { min-height: 46px; }
     body[data-active-tab="dashboard"] #dashboard-view { height: 100%; min-height: 0; overflow: hidden; }
-    body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) 360px; grid-template-rows: minmax(0,1fr); grid-auto-rows: unset; grid-template-areas: "job machine"; gap: 0; overflow: hidden; border: 1px solid #31404a; background: rgba(9,16,21,.72); }
+    body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) minmax(420px, 34vw); grid-template-rows: minmax(0,1fr); grid-auto-rows: unset; grid-template-areas: "job machine"; gap: 0; overflow: hidden; border: 1px solid #31404a; background: rgba(9,16,21,.72); }
     body[data-active-tab="dashboard"] .dashboard-job, body[data-active-tab="dashboard"] .dashboard-machine { min-height: 0; height: 100%; padding: 18px 20px; border: 0; border-radius: 0; background: transparent; }
     body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid .dashboard-job { grid-area: job; grid-column: job; grid-row: job; grid-template-rows: auto auto minmax(0,1fr); border-right: 1px solid #31404a; }
     body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid .dashboard-machine { grid-area: machine; grid-template-rows: auto minmax(0,1fr); gap: 12px; }
     body[data-active-tab="dashboard"] .dashboard-telemetry, body[data-active-tab="dashboard"] .dashboard-gcode { display: none; }
     body[data-active-tab="dashboard"] .dashboard-camera-stage { min-height: 0; height: 100%; border-radius: 4px; }
-    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis strong { font-size: 11px; }
-    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis small { font-size: 9px; }
-    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value { grid-template-columns: 7px minmax(0,1fr); gap: 1px; padding-left: 14px; }
+    /* Dashboard positions are a live monitoring task, not a compact toolbar.
+       Two roomy axis cards per row keep Work/Machine values readable from the
+       Surface while the Jog view keeps its denser shared component. */
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis { min-height: 72px; grid-template-columns: 34px minmax(0,1fr); grid-template-rows: 1fr 1fr; gap: 2px 8px; padding: 10px 12px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis:nth-child(2) { border-right: 0; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis:nth-child(n+3) { border-top: 1px solid var(--border); }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-label { position: static; grid-column: 1; grid-row: 1 / -1; align-self: center; font-size: 27px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value { grid-column: 2; grid-template-columns: 10px minmax(0,1fr); gap: 4px; padding: 0 22px 0 0; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis strong { font-size: clamp(17px, 1.65vw, 24px); }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis small { font-size: clamp(11px, 1.05vw, 14px); }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-unit { right: 8px; bottom: 7px; font-size: 8px; }
   }
 </style>
 </head>
