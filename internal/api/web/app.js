@@ -2026,6 +2026,7 @@ function renderSurfaceJog() {
     ? "Machine connection unavailable"
     : `${fmtActiveTool(state.machine?.tool)} · ${fmtSpindle(state.machine?.spindle)}`;
   setTextIfChanged(document.getElementById("surface-position-detail"), detail);
+  setTextIfChanged(document.getElementById("surface-jog-options-summary"), surfaceJogOptionsSummary(surface));
   for (const button of document.querySelectorAll(".surface-mpg-axis")) button.setAttribute("aria-pressed", String(button.dataset.surfaceMpgAxis === surface.mpg_axis));
   for (const button of document.querySelectorAll("[data-surface-axis], [data-surface-z-sign], [data-surface-hold-sign]")) {
     button.disabled = busy;
@@ -2040,8 +2041,27 @@ function renderSurfaceJog() {
   }
 }
 
+function surfaceJogOptionsSummary(surface = state.surface) {
+  const motion = surface.motion === "hold" ? "Hold" : "Step";
+  const step = [10, 1, 0.1, 0.01].includes(Number(surface.step_mm)) ? Number(surface.step_mm) : 1;
+  const method = surface.method === "mpg" ? "MPG" : "Directional";
+  return `${motion} · ${step} mm · ${method}`;
+}
+
+function initializeSurfaceMobileOptions(isMobile = window.matchMedia?.("(max-width: 600px)")?.matches === true) {
+  const options = document.getElementById("surface-mobile-options");
+  if (options) options.open = !isMobile;
+}
+
 function selectSurfaceJogMethod(method) {
   state.surface.method = method === "mpg" ? "mpg" : "directional";
+  if (window.matchMedia?.("(max-width: 600px)")?.matches) {
+    const options = document.getElementById("surface-mobile-options");
+    if (options) {
+      options.open = false;
+      options.querySelector("summary")?.focus();
+    }
+  }
   saveSurfaceViewPreferences();
   renderSurfaceJog();
 }
@@ -13462,6 +13482,8 @@ function init() {
   };
   bindDataControlButtons();
   initCommandPopouts();
+  initializeSurfaceMobileOptions();
+  window.matchMedia?.("(max-width: 600px)")?.addEventListener?.("change", (e) => initializeSurfaceMobileOptions(e.matches));
   bindButtonAction(document.getElementById("jog-arm"), toggleTapMoveArm);
   bindButtonAction(document.getElementById("surface-jog-arm"), toggleTapMoveArm);
   document.getElementById("surface-jog-directional").onclick = () => selectSurfaceJogMethod("directional");

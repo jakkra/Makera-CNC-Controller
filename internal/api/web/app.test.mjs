@@ -778,6 +778,44 @@ test("movement arm labels an external owner before disarming it", () => {
   assert.equal(vm.runInContext(`movementArmLabel({armed:false,availability:{available:true}})`, ctx), "Arm Movement");
 });
 
+test("mobile jog options summarize the active precision and method", () => {
+  const ctx = buildContext(["surfaceJogOptionsSummary"]);
+  assert.equal(vm.runInContext(`surfaceJogOptionsSummary({motion:"step",step_mm:1,method:"directional"})`, ctx), "Step · 1 mm · Directional");
+  assert.equal(vm.runInContext(`surfaceJogOptionsSummary({motion:"hold",step_mm:0.1,method:"mpg"})`, ctx), "Hold · 0.1 mm · MPG");
+});
+
+test("mobile jog options start collapsed without changing the desktop default", () => {
+  const options = { open: true };
+  const ctx = buildContext(["initializeSurfaceMobileOptions"], [], {
+    document: { getElementById: () => options },
+    window: { matchMedia: () => ({ matches: true }) },
+  });
+  vm.runInContext(`initializeSurfaceMobileOptions()`, ctx);
+  assert.equal(options.open, false);
+  vm.runInContext(`initializeSurfaceMobileOptions(false)`, ctx);
+  assert.equal(options.open, true);
+});
+
+test("mobile jog method selection returns focus to the collapsed options summary", () => {
+  let focused = false;
+  const options = {
+    open: true,
+    querySelector: () => ({ focus: () => { focused = true; } }),
+  };
+  const state = { surface: { method: "directional" } };
+  const ctx = buildContext(["selectSurfaceJogMethod"], [], {
+    state,
+    document: { getElementById: () => options },
+    window: { matchMedia: () => ({ matches: true }) },
+    saveSurfaceViewPreferences: () => {},
+    renderSurfaceJog: () => {},
+  });
+  vm.runInContext(`selectSurfaceJogMethod("mpg")`, ctx);
+  assert.equal(state.surface.method, "mpg");
+  assert.equal(options.open, false);
+  assert.equal(focused, true);
+});
+
 test("top-level tabs resolve from canonical and legacy URLs", () => {
   const ctx = buildContext(["viewTabFromURL"], ["VIEW_TABS"], { URLSearchParams });
   for (const name of ["dashboard", "active-job", "control", "files"]) {

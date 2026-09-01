@@ -119,6 +119,8 @@
   .surface-jog-options select { width: 100%; }
   .surface-jog-mode { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; background: rgba(14,18,19,.55); border: 1px solid var(--border); border-radius: var(--radius); }
   .surface-jog-mode button[aria-pressed="true"] { color: var(--text); background: var(--panel-2); border-color: rgba(87,166,214,.55); }
+  .surface-mobile-options { display: contents; }
+  .surface-mobile-options > summary { display: none; }
   .surface-direction-pad { width: min(100%, 440px); aspect-ratio: 1; justify-self: center; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 8px; }
   .surface-direction-pad button { min-height: 76px; font-size: clamp(20px, 3vw, 30px); font-weight: 750; justify-content: center; }
   .surface-direction-pad button[data-surface-axis="x"][data-surface-sign="-1"] { grid-area: 2 / 1; }
@@ -983,6 +985,52 @@
     .surface-position-value { font-size: clamp(30px, 13vw, 48px); }
     #attention-view { min-height: 0; place-items: stretch; }
   }
+  @media (max-width: 600px) {
+    header { padding: 6px 10px; }
+    #command-toolbar { grid-template-columns: max-content max-content minmax(44px, 1fr) max-content; grid-template-areas: "brand machine actions halt"; gap: 6px; align-items: center; }
+    #app-brand { min-width: 0; }
+    #app-brand strong { font-size: 12px; }
+    #app-brand span, #status-connection { display: none; }
+    #machine { min-width: 0; }
+    #machine .badge { min-height: 34px; padding-inline: 10px; }
+    #command-actions { width: auto; justify-self: end; }
+    #mobile-actions-toggle { width: 44px; min-width: 44px; padding: 0; font-size: 0; }
+    #mobile-actions-toggle::before { content: "•••"; font-size: 15px; letter-spacing: 1px; }
+    #ctl-halt { min-width: 78px; min-height: 40px; }
+    #jog-view { align-content: start; }
+    .surface-jog { height: auto; align-self: start; grid-auto-rows: max-content; align-items: start; gap: 10px; }
+    .surface-jog-panel { height: auto; min-height: 0; padding: 10px; gap: 10px; overflow: hidden; }
+    .surface-position-panel { order: -1; justify-content: normal; grid-template-rows: auto auto auto; padding-block: 8px; }
+    .surface-position-tabs { padding: 0 0 5px; }
+    .surface-position-tabs button { min-height: 34px; font-size: 12px; }
+    .surface-position-readout { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; }
+    .surface-position-row { min-width: 0; min-height: 54px; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "axis unit" "value value"; gap: 0 3px; align-content: center; padding: 3px 5px; border-right: 1px solid var(--border); border-bottom: 0; }
+    .surface-position-row:last-child { border-right: 0; }
+    .surface-position-axis { grid-area: axis; font-size: 13px; }
+    .surface-position-value { grid-area: value; min-width: 0; overflow: hidden; font-size: clamp(12px, 3.45vw, 17px); line-height: 1.2; text-align: left; white-space: nowrap; text-overflow: clip; }
+    .surface-position-unit { grid-area: unit; align-self: center; justify-self: end; font-size: 9px; }
+    .surface-position-summary, #surface-open-active-job { display: none; }
+    .surface-position-actions { grid-template-columns: 1fr; }
+    #surface-jog-settings-open { min-height: 36px; font-size: 12px; }
+    .surface-jog-heading { justify-content: stretch; }
+    .surface-jog-heading h2 { display: none; }
+    #surface-jog-arm { width: 100%; min-height: 44px; justify-content: center; }
+    .surface-mobile-options { display: block; padding: 0; background: transparent; border: 0; }
+    .surface-mobile-options > summary { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); list-style: none; }
+    .surface-mobile-options > summary::-webkit-details-marker { display: none; }
+    .surface-mobile-options > summary::after { content: "▾"; color: var(--muted); }
+    .surface-mobile-options:not([open]) > summary::after { content: "▸"; }
+    .surface-mobile-options[open] { display: grid; gap: 8px; }
+    #surface-jog-options-summary { color: var(--muted); font-size: 11px; font-weight: 500; }
+    .surface-jog-options label { font-size: 10px; }
+    .surface-direction-pad { width: min(82vw, 310px); }
+    .surface-direction-pad button { min-height: 66px; }
+    .surface-wheel { width: min(74vw, 280px); }
+    .surface-jog-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .surface-jog-actions button { min-height: 48px; }
+    .surface-jog-actions button:last-child:nth-child(odd) { grid-column: auto; }
+    #surface-map-open { display: none; }
+  }
 </style>
 </head>
 <body>
@@ -1344,14 +1392,17 @@
     <section class="surface-jog" aria-label="Surface jog pendant">
       <section class="surface-jog-panel">
         <div class="surface-jog-heading"><h2>Position machine</h2><button type="button" id="surface-jog-arm">Arm Movement</button></div>
-        <div class="surface-jog-options">
-          <label>Motion<select id="surface-jog-motion"><option value="step">Step</option><option value="hold">Hold to move</option></select></label>
-          <label>Increment<select id="surface-jog-step"><option value="10">10 mm</option><option value="1" selected>1 mm</option><option value="0.1">0.1 mm</option><option value="0.01">0.01 mm</option></select></label>
-        </div>
-        <div class="surface-jog-mode" role="group" aria-label="Jog method">
-          <button type="button" id="surface-jog-directional" aria-pressed="true">Directional</button>
-          <button type="button" id="surface-jog-mpg" aria-pressed="false">Virtual MPG</button>
-        </div>
+        <details id="surface-mobile-options" class="surface-mobile-options" open>
+          <summary><span>Precision &amp; options</span><span id="surface-jog-options-summary">Step · 1 mm · Directional</span></summary>
+          <div class="surface-jog-options">
+            <label>Motion<select id="surface-jog-motion"><option value="step">Step</option><option value="hold">Hold to move</option></select></label>
+            <label>Increment<select id="surface-jog-step"><option value="10">10 mm</option><option value="1" selected>1 mm</option><option value="0.1">0.1 mm</option><option value="0.01">0.01 mm</option></select></label>
+          </div>
+          <div class="surface-jog-mode" role="group" aria-label="Jog method">
+            <button type="button" id="surface-jog-directional" aria-pressed="true">Directional</button>
+            <button type="button" id="surface-jog-mpg" aria-pressed="false">Virtual MPG</button>
+          </div>
+        </details>
         <div id="surface-directional-panel">
           <div class="surface-direction-pad" aria-label="XY jog directions">
             <button type="button" data-surface-axis="y" data-surface-sign="1" aria-label="Jog Y positive">Y+</button>
