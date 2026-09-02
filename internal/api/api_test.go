@@ -1045,10 +1045,11 @@ func TestWebUIServed(t *testing.T) {
 	}
 	for _, want := range []string{
 		`class="files-toolbar"`,
-		`grid-template-columns: minmax(260px, 1fr) max-content minmax(220px, 320px)`,
-		`<button type="button" id="drop">Upload files or drop them here</button>`,
-		`#files-view { --files-control-h: 38px; align-content: start; }`,
-		`#drop, #filter { width: 100%; min-width: 0; height: var(--files-control-h); min-height: var(--files-control-h); }`,
+		`class="page-section files-page-header"`,
+		`<h1>Programs</h1>`,
+		`<button type="button" id="drop">↑&nbsp; Upload files</button>`,
+		`#files-view { --files-control-h: 42px; width: min(1480px, 100%);`,
+		`#file-browser { min-height: 260px; display: grid; grid-template-columns: minmax(190px, 220px) minmax(0, 1fr);`,
 		`#file-summary .summary-pill:first-child { display: none; }`,
 		`#folder-sidebar { position: sticky; top: 0; }`,
 	} {
@@ -1191,7 +1192,7 @@ func TestWebUIServed(t *testing.T) {
 		`.command-panel-close { position: sticky; top: 0; z-index: 2; display: inline-flex; width: 100%; min-height: 44px;`,
 		`.active-gcode-progress { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }`,
 		`#active-gcode-left.is-console-active { height: clamp(480px, 68dvh, 620px); min-height: 480px; }`,
-		`#files .actions { display: grid; grid-area: actions; grid-template-columns: repeat(2, minmax(0, 1fr));`,
+		`#files .actions { display: grid; grid-area: actions; grid-template-columns: repeat(3, minmax(0, 1fr));`,
 		`dialog { width: calc(100vw - 16px); max-width: none; max-height: calc(100dvh - 16px); margin: 8px; }`,
 	} {
 		if !strings.Contains(bodyText, want) {

@@ -7234,6 +7234,9 @@ function fileRowSignature(f, q) {
 function buildFileRow(tr, f, q) {
 	tr.dataset.filePath = f.path;
 	tr.dataset.fileAction = state.fileActions.get(f.path) || "";
+  tr.classList.toggle("is-folder", !!f.is_dir);
+  tr.classList.toggle("is-file", !f.is_dir);
+  tr.classList.toggle("is-virtual", !!f.virtual);
   const label = SYNC_LABEL[f.sync] || f.sync || "-";
   const type = f.is_dir ? (f.virtual ? "folder" : "dir") : "file";
   tr.innerHTML = `
@@ -7292,11 +7295,7 @@ function appendFileActions(actions, f) {
     actions.append(btn);
   }
   if (canDiscardFile(f)) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.textContent = "Discard";
-    btn.onclick = () => discardFile(f.path);
-    actions.append(btn);
+    appendFileOverflowAction(actions, "Discard", () => discardFile(f.path));
   }
   if (f.sync === "error") return;
 
@@ -7318,7 +7317,36 @@ function appendFileActions(actions, f) {
   del.type = "button";
   del.textContent = "Delete";
   del.onclick = () => doDelete(f.path);
-  actions.append(rename, del);
+  appendFileOverflowAction(actions, rename);
+  appendFileOverflowAction(actions, del, null, true);
+}
+
+function fileOverflowMenu(actions) {
+  let menu = actions.querySelector(".file-row-menu");
+  if (menu) return menu;
+  menu = document.createElement("details");
+  menu.className = "file-row-menu";
+  const summary = document.createElement("summary");
+  summary.setAttribute("aria-label", "More file actions");
+  summary.title = "More actions";
+  summary.textContent = "•••";
+  const panel = document.createElement("div");
+  panel.className = "file-row-menu-panel";
+  menu.append(summary, panel);
+  actions.append(menu);
+  return menu;
+}
+
+function appendFileOverflowAction(actions, labelOrButton, onclick, danger = false) {
+  const menu = fileOverflowMenu(actions);
+  const button = labelOrButton instanceof HTMLElement ? labelOrButton : document.createElement("button");
+  button.type = "button";
+  if (typeof labelOrButton === "string") button.textContent = labelOrButton;
+  if (onclick) button.onclick = onclick;
+  if (danger) button.classList.add("danger");
+  button.addEventListener("click", () => menu.removeAttribute("open"));
+  menu.querySelector(".file-row-menu-panel").append(button);
+  actions.append(menu);
 }
 
 function jobsForPath(path) {
