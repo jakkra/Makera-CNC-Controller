@@ -1022,7 +1022,6 @@
   .dashboard-job-heading { align-items: center; }
   .dashboard-job-heading > div { min-width: 0; }
   .dashboard-job-heading h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #dashboard-open-job { min-height: 38px; flex: 0 0 auto; }
   .dashboard-camera-stage { position: relative; min-height: 300px; overflow: hidden; border: 1px solid #34444e; border-radius: 10px; background: #080e12; }
   .dashboard-camera { position: absolute; overflow: hidden; background: radial-gradient(circle at 50% 40%,#17242b,#080d10 72%); }
   .dashboard-camera[role="button"] { cursor: pointer; }
@@ -1082,7 +1081,6 @@
     .dashboard-grid.layout-job-focus.dashboard-job-focus-split .dashboard-job { grid-column: auto; grid-row: auto; }
     .dashboard-job { min-height: 330px; }
     .dashboard-job-heading { align-items: flex-start; }
-    #dashboard-open-job { min-height: 34px; padding-inline: 9px; font-size: 11px; }
     .dashboard-camera-stage { min-height: 280px; }
     .dashboard-camera-inset, .dashboard-toolpath-fallback { width: 38%; right: 10px; }
     .dashboard-camera-stage.builtin-primary .dashboard-camera-main { width: 38%; right: 10px; top: 10px; }
@@ -1349,7 +1347,7 @@
     body[data-active-tab="active-job"] #active-gcode-left { grid-column: 3; grid-row: 1; }
     body[data-active-tab="active-job"] .active-gcode-actions button { min-height: 46px; }
     body[data-active-tab="dashboard"] #dashboard-view { height: 100%; min-height: 0; overflow: hidden; }
-    body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0,.95fr) minmax(500px, 44vw); grid-template-rows: minmax(0,1fr); grid-auto-rows: unset; grid-template-areas: "job machine"; gap: 0; overflow: hidden; border: 1px solid #31404a; background: rgba(9,16,21,.72); }
+    body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) minmax(400px, 32vw); grid-template-rows: minmax(0,1fr); grid-auto-rows: unset; grid-template-areas: "job machine"; gap: 0; overflow: hidden; border: 1px solid #31404a; background: rgba(9,16,21,.72); }
     body[data-active-tab="dashboard"] .dashboard-job, body[data-active-tab="dashboard"] .dashboard-machine { min-height: 0; height: 100%; padding: 18px 20px; border: 0; border-radius: 0; background: transparent; }
     body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid .dashboard-job { grid-area: job; grid-column: job; grid-row: job; grid-template-rows: auto auto minmax(0,1fr); border-right: 1px solid #31404a; }
     body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid .dashboard-machine { grid-area: machine; height: auto; align-self: start; grid-template-rows: auto auto; gap: 10px; }
@@ -1614,7 +1612,7 @@
         <div class="machine-readout-host" data-machine-readout-host></div>
       </section>
       <section class="dashboard-panel dashboard-job" data-dashboard-panel="job">
-        <div class="dashboard-heading dashboard-job-heading"><div><span class="dashboard-eyebrow">Current job</span><h2 id="dashboard-job-title">No active job</h2></div><button type="button" id="dashboard-open-job">Open job details</button></div>
+        <div class="dashboard-heading dashboard-job-heading"><div><span class="dashboard-eyebrow">Current job</span><h2 id="dashboard-job-title">No active job</h2></div></div>
         <div class="dashboard-progress">
           <div class="dashboard-progress-main"><span id="dashboard-progress-label">Progress</span><progress id="dashboard-progress-bar" max="100" value="0"></progress></div>
           <div class="dashboard-time"><span>Elapsed</span><strong id="dashboard-elapsed">-</strong></div>
@@ -2326,6 +2324,6 @@
 <div id="status-bar" role="status" aria-live="polite" hidden>
   <div id="notice"></div>
 </div>
-<script type="module" src="/app.js?v=surface-overview-camera-2"></script>
+<script type="module" src="/app.js?v=surface-overview-camera-3"></script>
 </body>
 </html>

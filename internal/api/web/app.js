@@ -14051,7 +14051,6 @@ function init() {
   for (const button of document.querySelectorAll("[data-surface-action]")) {
     button.onclick = () => runSurfaceShellAction(button.dataset.surfaceAction);
   }
-  document.getElementById("dashboard-open-job")?.addEventListener("click", () => showTab("active-job"));
   bindButtonAction(document.getElementById("surface-footer-hold"), () => sendControl("hold"));
   bindButtonAction(document.getElementById("surface-footer-resume"), () => {
     if (state.machine?.state === "Pause") runActiveJobControl("resume_job");
