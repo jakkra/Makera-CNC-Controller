@@ -62,6 +62,7 @@ type Event struct {
 	Tool       *machine.ToolStatus `json:"tool,omitempty"`
 	HaltReason *machine.HaltReason `json:"halt_reason,omitempty"`
 	Marker     *Marker             `json:"marker,omitempty"`
+	Progress   []float64           `json:"progress,omitempty"`
 	Raw        string              `json:"raw,omitempty"`
 }
 
@@ -158,6 +159,7 @@ func (m *Monitor) ObserveStatus(st machine.Status, ctx Context) {
 		Tool:       copyTool(st.Tool),
 		HaltReason: copyHaltReason(st.HaltReason),
 		Marker:     copyMarker(ctx.Marker),
+		Progress:   append([]float64(nil), st.Progress...),
 		Raw:        st.Raw,
 	}
 	m.nextID++
@@ -304,6 +306,7 @@ func copyEvent(in Event) Event {
 	out.Tool = copyTool(in.Tool)
 	out.HaltReason = copyHaltReason(in.HaltReason)
 	out.Marker = copyMarker(in.Marker)
+	out.Progress = append([]float64(nil), in.Progress...)
 	return out
 }
 

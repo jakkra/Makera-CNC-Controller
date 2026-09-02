@@ -50,14 +50,14 @@ func TestDispatcherSendsOpenedButNotUpdatedOrResolvedByDefault(t *testing.T) {
 	}
 }
 
-func TestDispatcherSuppressesIntermediateToolUnload(t *testing.T) {
+func TestDispatcherSuppressesOnlyStartupToolChange(t *testing.T) {
 	sender := &recordingSender{}
 	d, err := New(Config{Sender: sender, MachineName: "Shop Z1", SendResolved: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	unload := 0
-	event := attention.Event{ID: 11, Kind: attention.KindToolChange, State: machine.Tool, JobName: "part.cnc", Tool: &machine.ToolStatus{Active: 7, Target: &unload}}
+	event := attention.Event{ID: 11, Kind: attention.KindToolChange, State: machine.Tool, JobName: "part.cnc", Tool: &machine.ToolStatus{Active: 7, Target: &unload}, Progress: []float64{0, 0, 1}}
 	if err := d.Handle(context.Background(), attention.Change{Kind: attention.ChangeOpened, Event: event}); err != nil {
 		t.Fatal(err)
 	}
@@ -66,6 +66,19 @@ func TestDispatcherSuppressesIntermediateToolUnload(t *testing.T) {
 	}
 	if len(sender.messages) != 0 || len(d.Snapshot().Deliveries) != 0 {
 		t.Fatalf("intermediate T0 event produced notifications: messages=%+v snapshot=%+v", sender.messages, d.Snapshot())
+	}
+}
+
+func TestDispatcherKeepsLaterToolUnload(t *testing.T) {
+	sender := &recordingSender{}
+	d, _ := New(Config{Sender: sender, MachineName: "Shop Z1"})
+	unload := 0
+	event := attention.Event{ID: 13, Kind: attention.KindToolChange, State: machine.Tool, JobName: "part.cnc", Tool: &machine.ToolStatus{Active: 1, Target: &unload}, Progress: []float64{3316, 42, 323}}
+	if err := d.Handle(context.Background(), attention.Change{Kind: attention.ChangeOpened, Event: event}); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.messages) != 1 || sender.messages[0].Priority != "default" || sender.messages[0].Body != "Change tool from T1 to T0. Job: part.cnc." {
+		t.Fatalf("later tool-unload notification = %+v", sender.messages)
 	}
 }
 

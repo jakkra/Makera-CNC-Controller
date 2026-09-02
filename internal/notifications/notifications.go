@@ -132,7 +132,7 @@ func (d *Dispatcher) Handle(ctx context.Context, change attention.Change) error 
 	if change.Kind == attention.ChangeUpdated {
 		return nil
 	}
-	if suppressToolUnload(change.Event) {
+	if suppressInitialToolChange(change.Event) {
 		return nil
 	}
 	if change.Kind == attention.ChangeResolved && !d.sendResolved {
@@ -152,11 +152,15 @@ func (d *Dispatcher) Handle(ctx context.Context, change attention.Change) error 
 	return err
 }
 
-// suppressToolUnload removes the firmware's intermediate "change to T0"
-// episode. A real requested tool follows as a separate event, so notifying on
-// both stages creates two phone alerts for one operator task.
-func suppressToolUnload(event attention.Event) bool {
-	return event.Kind == attention.KindToolChange && event.Tool != nil && event.Tool.Target != nil && *event.Tool.Target == 0
+// suppressInitialToolChange removes only the tool-change episode emitted in
+// the first seconds of starting a job. Later changes may also pass through T0,
+// so the target tool alone is not a safe way to identify this startup event.
+func suppressInitialToolChange(event attention.Event) bool {
+	if event.Kind != attention.KindToolChange || len(event.Progress) < 3 {
+		return false
+	}
+	const startupWindowSeconds = 10
+	return event.Progress[0] == 0 && event.Progress[1] == 0 && event.Progress[2] >= 0 && event.Progress[2] <= startupWindowSeconds
 }
 
 // markSeen records a change identity and reports whether it was already seen.

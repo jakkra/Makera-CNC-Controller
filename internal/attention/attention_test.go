@@ -39,16 +39,21 @@ func TestMonitorClassifiesToolAndCopiesDetails(t *testing.T) {
 	m := New(10)
 	target := 4
 	tool := &machine.ToolStatus{Active: 2, Offset: 1.25, Target: &target}
-	m.ObserveStatus(machine.Status{State: machine.Tool, Tool: tool}, Context{})
+	progress := []float64{0, 0, 1}
+	m.ObserveStatus(machine.Status{State: machine.Tool, Tool: tool, Progress: progress}, Context{})
 
 	tool.Active = 99
 	*tool.Target = 100
+	progress[2] = 99
 	snapshot := m.Snapshot()
 	if snapshot.Active == nil || snapshot.Active.Kind != KindToolChange {
 		t.Fatalf("active = %+v", snapshot.Active)
 	}
 	if snapshot.Active.Tool == nil || snapshot.Active.Tool.Active != 2 || snapshot.Active.Tool.Target == nil || *snapshot.Active.Tool.Target != 4 {
 		t.Fatalf("copied tool = %+v", snapshot.Active.Tool)
+	}
+	if len(snapshot.Active.Progress) != 3 || snapshot.Active.Progress[2] != 1 {
+		t.Fatalf("copied progress = %+v", snapshot.Active.Progress)
 	}
 }
 

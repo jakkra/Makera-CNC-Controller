@@ -299,8 +299,9 @@ URL, sequence ID, and optional bearer authentication. It deliberately sends no
 HTTP action button that could start, resume, or move the machine. Keep the click
 URL behind Tailscale/authentication. Alarm messages use maximum priority. Other
 operator-attention messages use default priority for a shorter vibration and no
-high-priority pop-over. Intermediate tool-unload events targeting T0 are
-filtered; the following requested-tool event is still delivered.
+high-priority pop-over. A tool-change event at line zero, zero percent, within
+the first ten seconds of a job is treated as startup setup and filtered. Later
+tool changes remain enabled, including changes that pass through T0.
 
 `GET /api/attention` returns the active attention event plus bounded history.
 `GET /api/notifications` returns provider state and delivery history, including
