@@ -1363,12 +1363,12 @@
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-label { position: static; grid-column: 1; grid-row: 1 / -1; align-self: center; font-size: 27px; }
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-label::after { content: " / mm"; color: #8ca5b4; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-a .machine-axis-label::after { content: " / °"; }
-    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value { grid-column: 2; grid-template-columns: 54px minmax(0,1fr); gap: 7px; padding: 0; }
-    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value i { color: #9bb3c1; font-size: 11px; font-weight: 750; letter-spacing: .02em; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value { grid-column: 2; grid-template-columns: 24px minmax(0,1fr); gap: 4px; padding: 0; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value i { color: #9bb3c1; font-size: 14px; font-weight: 750; letter-spacing: .02em; }
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value[data-machine-row="work"] i { font-size: 0; }
-    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value[data-machine-row="work"] i::after { content: "Work"; font-size: 11px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value[data-machine-row="work"] i::after { content: "W"; font-size: 14px; }
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value[data-machine-row="machine"] i { font-size: 0; }
-    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value[data-machine-row="machine"] i::after { content: "Machine"; font-size: 11px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value[data-machine-row="machine"] i::after { content: "M"; font-size: 14px; }
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis strong, body[data-active-tab="dashboard"] .dashboard-machine .machine-axis small { text-align: left; }
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis strong { font-size: clamp(17px, 1.65vw, 24px); }
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis small { font-size: clamp(11px, 1.05vw, 14px); }
@@ -2324,6 +2324,6 @@
 <div id="status-bar" role="status" aria-live="polite" hidden>
   <div id="notice"></div>
 </div>
-<script type="module" src="/app.js?v=surface-overview-camera-3"></script>
+<script type="module" src="/app.js?v=surface-overview-camera-4"></script>
 </body>
 </html>
