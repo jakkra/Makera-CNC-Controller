@@ -297,7 +297,10 @@ Notification delivery is disabled unless a complete ntfy topic URL is supplied:
 The sender uses ntfy's documented POST headers for title, priority, tags, click
 URL, sequence ID, and optional bearer authentication. It deliberately sends no
 HTTP action button that could start, resume, or move the machine. Keep the click
-URL behind Tailscale/authentication.
+URL behind Tailscale/authentication. Alarm messages use maximum priority. Other
+operator-attention messages use default priority for a shorter vibration and no
+high-priority pop-over. Intermediate tool-unload events targeting T0 are
+filtered; the following requested-tool event is still delivered.
 
 `GET /api/attention` returns the active attention event plus bounded history.
 `GET /api/notifications` returns provider state and delivery history, including

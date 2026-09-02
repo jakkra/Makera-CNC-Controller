@@ -41,9 +41,44 @@ func TestDispatcherSendsOpenedButNotUpdatedOrResolvedByDefault(t *testing.T) {
 	if msg.Title != "Shop Z1 needs a tool change" || msg.Body != "Change tool from T2 to T4. Job: part.cnc." || msg.ClickURL == "" || msg.SequenceID != "z1-attention-7" {
 		t.Fatalf("message = %+v", msg)
 	}
+	if msg.Priority != "default" {
+		t.Fatalf("priority = %q, want default", msg.Priority)
+	}
 	snapshot := d.Snapshot()
 	if !snapshot.Enabled || snapshot.Provider != "recording" || len(snapshot.Deliveries) != 1 || snapshot.Deliveries[0].State != DeliverySent {
 		t.Fatalf("snapshot = %+v", snapshot)
+	}
+}
+
+func TestDispatcherSuppressesIntermediateToolUnload(t *testing.T) {
+	sender := &recordingSender{}
+	d, err := New(Config{Sender: sender, MachineName: "Shop Z1", SendResolved: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unload := 0
+	event := attention.Event{ID: 11, Kind: attention.KindToolChange, State: machine.Tool, JobName: "part.cnc", Tool: &machine.ToolStatus{Active: 7, Target: &unload}}
+	if err := d.Handle(context.Background(), attention.Change{Kind: attention.ChangeOpened, Event: event}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Handle(context.Background(), attention.Change{Kind: attention.ChangeResolved, Event: event}); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.messages) != 0 || len(d.Snapshot().Deliveries) != 0 {
+		t.Fatalf("intermediate T0 event produced notifications: messages=%+v snapshot=%+v", sender.messages, d.Snapshot())
+	}
+}
+
+func TestDispatcherStillSendsRequestedToolAfterUnload(t *testing.T) {
+	sender := &recordingSender{}
+	d, _ := New(Config{Sender: sender, MachineName: "Shop Z1"})
+	target := 1
+	event := attention.Event{ID: 12, Kind: attention.KindToolChange, State: machine.Tool, JobName: "part.cnc", Tool: &machine.ToolStatus{Active: 0, Target: &target}}
+	if err := d.Handle(context.Background(), attention.Change{Kind: attention.ChangeOpened, Event: event}); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.messages) != 1 || sender.messages[0].Priority != "default" || sender.messages[0].Body != "Change tool from T0 to T1. Job: part.cnc." {
+		t.Fatalf("requested tool notification = %+v", sender.messages)
 	}
 }
 

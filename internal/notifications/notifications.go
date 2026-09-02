@@ -132,6 +132,9 @@ func (d *Dispatcher) Handle(ctx context.Context, change attention.Change) error 
 	if change.Kind == attention.ChangeUpdated {
 		return nil
 	}
+	if suppressToolUnload(change.Event) {
+		return nil
+	}
 	if change.Kind == attention.ChangeResolved && !d.sendResolved {
 		return nil
 	}
@@ -147,6 +150,13 @@ func (d *Dispatcher) Handle(ctx context.Context, change attention.Change) error 
 	err := d.sender.Send(ctx, msg)
 	d.finishDelivery(deliveryID, err)
 	return err
+}
+
+// suppressToolUnload removes the firmware's intermediate "change to T0"
+// episode. A real requested tool follows as a separate event, so notifying on
+// both stages creates two phone alerts for one operator task.
+func suppressToolUnload(event attention.Event) bool {
+	return event.Kind == attention.KindToolChange && event.Tool != nil && event.Tool.Target != nil && *event.Tool.Target == 0
 }
 
 // markSeen records a change identity and reports whether it was already seen.
@@ -199,7 +209,7 @@ func FormatMessage(machineName, dashboardURL string, change attention.Change) Me
 	resolved := change.Kind == attention.ChangeResolved
 	title := machineName + " needs attention"
 	body := "The CNC is waiting for operator input."
-	priority := "high"
+	priority := "default"
 	tags := []string{"warning"}
 
 	if resolved {
