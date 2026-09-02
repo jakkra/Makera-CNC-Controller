@@ -214,6 +214,8 @@ const gcodeView = {
   dragX: 0,
   dragY: 0,
   dragMode: "orbit",
+  touchPointers: new Map(),
+  pinchDistance: 0,
   panKeyDown: false,
   panKeys: new Set(),
   hovering: false,
@@ -277,6 +279,8 @@ const GCODE_KIND_COLORS = {
 const GCODE_FOV = 45;
 const GCODE_RENDER_PIXEL_BUDGET = 12_000_000;
 const GCODE_ORBIT_DRAG_RAD_PER_PX = 0.008;
+const GCODE_ORBIT_MIN_RADIUS = 1;
+const GCODE_ORBIT_MAX_RADIUS = 100000;
 const GCODE_CUBE_DRAG_THRESHOLD_PX = 4;
 // Same axis palette as the Control tab work-area origin marker.
 const GCODE_AXIS_COLORS = { x: "#f05b5b", y: "#6fa3ff", z: "#44c27b" };
@@ -9173,7 +9177,17 @@ function bindGcodeOrbitControls(canvas) {
     canvas.classList.toggle("pan-mode", on || gcodeView.dragMode === "pan");
   };
   canvas.addEventListener("pointerdown", (e) => {
-    gcodeView.dragging = true;
+    let pinching = false;
+    if (e.pointerType === "touch") {
+      gcodeView.touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (gcodeView.touchPointers.size === 2) {
+        const [first, second] = gcodeView.touchPointers.values();
+        gcodeView.pinchDistance = gcodePinchDistance(first, second);
+        pinching = true;
+        e.preventDefault();
+      }
+    }
+    gcodeView.dragging = !pinching;
     gcodeView.dragX = e.clientX;
     gcodeView.dragY = e.clientY;
     gcodeView.dragMode = (e.shiftKey || gcodeView.panKeyDown || e.button === 1) ? "pan" : "orbit";
@@ -9183,6 +9197,20 @@ function bindGcodeOrbitControls(canvas) {
     canvas.setPointerCapture?.(e.pointerId);
   });
   canvas.addEventListener("pointermove", (e) => {
+    if (e.pointerType === "touch" && gcodeView.touchPointers.has(e.pointerId)) {
+      gcodeView.touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (gcodeView.touchPointers.size === 2) {
+        const [first, second] = gcodeView.touchPointers.values();
+        const distance = gcodePinchDistance(first, second);
+        if (gcodeView.pinchDistance > 0 && distance > 0) {
+          gcodeView.orbit.radius = gcodeOrbitRadiusAfterPinch(gcodeView.orbit.radius, gcodeView.pinchDistance, distance);
+          updateGcodeCamera();
+        }
+        gcodeView.pinchDistance = distance;
+        e.preventDefault();
+        return;
+      }
+    }
     if (!gcodeView.dragging) return;
     const dx = e.clientX - gcodeView.dragX;
     const dy = e.clientY - gcodeView.dragY;
@@ -9198,7 +9226,18 @@ function bindGcodeOrbitControls(canvas) {
     }
   });
   const stopDrag = (e) => {
-    gcodeView.dragging = false;
+    let keepDragging = false;
+    if (e.pointerType === "touch") {
+      gcodeView.touchPointers.delete(e.pointerId);
+      gcodeView.pinchDistance = 0;
+      if (gcodeView.touchPointers.size === 1) {
+        const [{ x, y }] = gcodeView.touchPointers.values();
+        keepDragging = true;
+        gcodeView.dragX = x;
+        gcodeView.dragY = y;
+      }
+    }
+    gcodeView.dragging = keepDragging;
     gcodeView.dragMode = "orbit";
     canvas.classList.toggle("pan-mode", gcodeView.panKeyDown);
     canvas.releasePointerCapture?.(e.pointerId);
@@ -9212,8 +9251,7 @@ function bindGcodeOrbitControls(canvas) {
   });
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
-    const scale = Math.exp(e.deltaY * 0.001);
-    gcodeView.orbit.radius = Math.max(1, Math.min(100000, gcodeView.orbit.radius * scale));
+    gcodeView.orbit.radius = gcodeOrbitRadiusAfterWheel(gcodeView.orbit.radius, e.deltaY);
     updateGcodeCamera();
   }, { passive: false });
   window.addEventListener("keydown", (e) => {
@@ -9232,8 +9270,24 @@ function bindGcodeOrbitControls(canvas) {
   });
   window.addEventListener("blur", () => {
     gcodeView.panKeys.clear();
+    gcodeView.touchPointers.clear();
+    gcodeView.pinchDistance = 0;
+    gcodeView.dragging = false;
     setPanKey();
   });
+}
+
+function gcodePinchDistance(first, second) {
+  return Math.hypot(Number(second?.x) - Number(first?.x), Number(second?.y) - Number(first?.y));
+}
+
+function gcodeOrbitRadiusAfterPinch(radius, previousDistance, distance) {
+  if (!(previousDistance > 0) || !(distance > 0)) return radius;
+  return Math.max(GCODE_ORBIT_MIN_RADIUS, Math.min(GCODE_ORBIT_MAX_RADIUS, radius * previousDistance / distance));
+}
+
+function gcodeOrbitRadiusAfterWheel(radius, deltaY) {
+  return Math.max(GCODE_ORBIT_MIN_RADIUS, Math.min(GCODE_ORBIT_MAX_RADIUS, radius * Math.exp(deltaY * 0.001)));
 }
 
 function rotateGcodeOrbitByDrag(orbit, dx, dy) {

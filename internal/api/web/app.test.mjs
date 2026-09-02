@@ -661,6 +661,18 @@ test("Active Job keeps its camera fit while only live G-code progress changes", 
   );
 });
 
+test("active job pinch zoom moves the camera closer when fingers spread and respects bounds", () => {
+  const ctx = buildContext(
+    ["gcodePinchDistance", "gcodeOrbitRadiusAfterPinch"],
+    ["GCODE_ORBIT_MIN_RADIUS", "GCODE_ORBIT_MAX_RADIUS"],
+  );
+  assert.equal(vm.runInContext("gcodePinchDistance({x: 0, y: 0}, {x: 3, y: 4})", ctx), 5);
+  assert.equal(vm.runInContext("gcodeOrbitRadiusAfterPinch(100, 100, 200)", ctx), 50);
+  assert.equal(vm.runInContext("gcodeOrbitRadiusAfterPinch(100, 200, 100)", ctx), 200);
+  assert.equal(vm.runInContext("gcodeOrbitRadiusAfterPinch(2, 100, 10000)", ctx), 1);
+  assert.equal(vm.runInContext("gcodeOrbitRadiusAfterPinch(99999, 10000, 1)", ctx), 100000);
+});
+
 test("gcode source lines preserve instruction numbering across newline styles", () => {
   const ctx = buildContext(["splitGcodeSourceLines"]);
   const lines = JSON.parse(vm.runInContext(
