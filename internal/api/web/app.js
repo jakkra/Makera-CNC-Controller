@@ -8133,6 +8133,18 @@ function bindDashboardCameraSwitches() {
   }
 }
 
+function bindDashboardToolpathShortcut() {
+  const preview = document.getElementById("dashboard-toolpath-fallback");
+  if (!preview) return;
+  const open = () => showTab("active-job");
+  preview.addEventListener("click", open);
+  preview.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    open();
+  });
+}
+
 function renderDashboard() {
   const machine = state.machine || {};
   const active = state.activeGcode || {};
@@ -13992,6 +14004,7 @@ function init() {
     else if (state.machine?.state === "Hold") sendControl("resume");
   });
   bindDashboardCameraSwitches();
+  bindDashboardToolpathShortcut();
   bindButtonAction(document.getElementById("surface-footer-job"), () => showTab("active-job"));
   bindButtonAction(document.getElementById("surface-footer-vacuum"), () => {
     const current = dashboardOptionalNumber(state.machine?.spindle?.vacuum_mode);

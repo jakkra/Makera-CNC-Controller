@@ -1032,7 +1032,6 @@
   .dashboard-camera img { width: 100%; height: 100%; display: block; object-fit: cover; }
   .dashboard-camera-main { inset: 0; }
   .dashboard-camera-inset { z-index: 3; top: 16px; right: 16px; width: min(34%,310px); aspect-ratio: 4/3; border: 1px solid #586872; border-radius: 7px; box-shadow: 0 14px 34px rgba(0,0,0,.5); }
-  .dashboard-camera-inset::after { content: "Tap to enlarge"; position: absolute; z-index: 5; top: 8px; right: 8px; padding: 4px 6px; color: #dce7eb; background: rgba(5,9,11,.74); border: 1px solid rgba(117,151,164,.62); border-radius: 4px; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; pointer-events: none; }
   .dashboard-camera-empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 7px; padding: 20px; color: var(--muted); text-align: center; }
   .dashboard-camera-empty strong { color: #c8d3d9; font-size: 15px; }
   .dashboard-camera-empty small { max-width: 38ch; font-size: 11px; line-height: 1.45; }
@@ -1043,13 +1042,14 @@
   .dashboard-camera.is-live .dashboard-camera-label b { color: #55dc81; }
   .dashboard-camera.is-error .dashboard-camera-label b { color: #ff8181; }
   .dashboard-toolpath-fallback { position: absolute; z-index: 2; right: 16px; bottom: 16px; width: min(34%,310px); height: auto; aspect-ratio: 16/10; min-height: 0; border-color: #586872; border-radius: 7px; background: #10181d; box-shadow: 0 14px 34px rgba(0,0,0,.5); }
+  .dashboard-toolpath-fallback[role="button"] { cursor: pointer; }
+  .dashboard-toolpath-fallback[role="button"]:hover { border-color: #8fd1e8; }
+  .dashboard-toolpath-fallback[role="button"]:focus-visible { z-index: 6; outline: 2px solid #79d2ed; outline-offset: -2px; }
   .dashboard-toolpath-fallback:not(.has-toolpath) { display: none; }
   .dashboard-preview-label { position: absolute; left: 8px; bottom: 7px; padding: 3px 6px; color: #c6d4db; background: rgba(5,9,11,.76); border-radius: 3px; font-size: 9px; text-transform: uppercase; }
   .dashboard-camera-inset + .dashboard-toolpath-fallback { bottom: 16px; }
   .dashboard-camera-stage.builtin-primary .dashboard-camera-main { z-index: 3; inset: auto; top: 16px; right: 16px; width: min(34%,310px); aspect-ratio: 4/3; border: 1px solid #586872; border-radius: 7px; box-shadow: 0 14px 34px rgba(0,0,0,.5); }
-  .dashboard-camera-stage.builtin-primary .dashboard-camera-main::after { content: "Tap to enlarge"; position: absolute; z-index: 5; top: 8px; right: 8px; padding: 4px 6px; color: #dce7eb; background: rgba(5,9,11,.74); border: 1px solid rgba(117,151,164,.62); border-radius: 4px; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; pointer-events: none; }
   .dashboard-camera-stage.builtin-primary .dashboard-camera-inset { z-index: 1; inset: 0; width: auto; aspect-ratio: auto; border: 0; border-radius: 0; box-shadow: none; }
-  .dashboard-camera-stage.builtin-primary .dashboard-camera-inset::after { display: none; }
   .dashboard-camera-stage.builtin-primary .dashboard-toolpath-fallback { display: none; }
   #active-gcode-panel { border-radius: 12px; }
   .active-gcode-head { gap: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
@@ -1631,7 +1631,7 @@
             <div class="dashboard-camera-empty"><span class="dashboard-camera-icon" aria-hidden="true">◉</span><strong id="dashboard-builtin-camera-state">Z1 camera not configured</strong><small id="dashboard-builtin-camera-detail">No camera source is available.</small></div>
             <div class="dashboard-camera-label"><span>Z1 camera</span><b id="dashboard-builtin-camera-badge">Not configured</b></div>
           </div>
-          <div id="dashboard-toolpath-fallback" class="dashboard-preview-frame dashboard-toolpath-fallback">
+          <div id="dashboard-toolpath-fallback" class="dashboard-preview-frame dashboard-toolpath-fallback" role="button" tabindex="0" aria-label="Open full toolpath in Active Job">
             <canvas id="dashboard-preview" role="img" aria-label="Active job preview"></canvas>
             <div id="dashboard-preview-empty">No camera image or plotted toolpath</div>
             <span class="dashboard-preview-label">Toolpath</span>
