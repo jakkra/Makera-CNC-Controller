@@ -982,6 +982,7 @@
   #app-brand { flex: 0 0 auto; display: grid; gap: 0; min-width: 92px; color: var(--text); line-height: 1.05; }
   #app-brand strong { font-size: 14px; letter-spacing: .08em; text-transform: uppercase; }
   #app-brand span { color: var(--muted); font-size: 10px; letter-spacing: .04em; }
+  #development-refresh { display: none; }
   #machine { order: 1; }
   #machine-status-toolbar { order: 2; margin-left: 0; }
   #command-actions { order: 3; margin-left: auto; }
@@ -1257,6 +1258,8 @@
     #command-toolbar { height: 100%; min-height: 0; display: grid; grid-template-columns: 190px minmax(160px, 1fr) 188px; gap: 20px; align-items: center; }
     #app-brand { min-width: 0; }
     #app-brand { grid-column: 1; grid-row: 1; }
+    #development-refresh { grid-column: 1; grid-row: 1; justify-self: end; width: 32px; min-width: 32px; min-height: 32px; display: grid; place-items: center; padding: 0; color: var(--muted); background: transparent; border-color: transparent; font-size: 18px; }
+    #development-refresh:hover, #development-refresh:focus-visible { color: var(--text); border-color: var(--border); background: rgba(87,166,214,.12); }
     #app-brand strong { font-size: 20px; letter-spacing: .06em; }
     #app-brand span { font-size: 10px; text-transform: uppercase; }
     #machine { order: initial; grid-column: 2; grid-row: 1; justify-self: center; font-size: 14px; }
@@ -1400,6 +1403,7 @@
     <div id="app-brand" aria-label="CNC controller">
       <strong>Sensei</strong><span>CNC controller</span>
     </div>
+    <button type="button" id="development-refresh" aria-label="Refresh page" title="Refresh page">↻</button>
     <div id="command-actions">
       <button type="button" id="mobile-actions-toggle" aria-expanded="false" aria-controls="command-menu">Actions</button>
       <div id="command-menu">

@@ -13690,6 +13690,7 @@ function init() {
   const drop = document.getElementById("drop");
   const input = document.getElementById("file");
   document.getElementById("header-toggle").onclick = () => setHeaderCollapsed(!document.body.classList.contains("header-collapsed"));
+  document.getElementById("development-refresh").onclick = () => window.location.reload();
   initDashboardControlsMenu();
   initWorkAreaActionsMenu();
   for (const [index, name] of NAV_VIEW_TABS.entries()) {
