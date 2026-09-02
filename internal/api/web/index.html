@@ -1034,6 +1034,33 @@
     .dashboard-camera-inset { top: 10px; }
     .dashboard-toolpath-fallback { bottom: 10px; }
     .machine-axis strong { font-size: clamp(14px, 3.5vw, 20px); }
+    /* Phone dashboard: remote monitoring comes first.  It deliberately reads
+       as one camera-led instrument, not a compressed copy of the desktop. */
+    body:not(.dashboard-embed) main { padding-bottom: 78px; }
+    body:not(.dashboard-embed) #view-navigation { position: fixed; z-index: 75; right: 0; bottom: 0; left: 0; display: block; padding: 7px 10px calc(7px + env(safe-area-inset-bottom)); background: rgba(8,14,19,.98); border-top: 1px solid #31404a; box-shadow: 0 -12px 28px rgba(0,0,0,.28); }
+    body:not(.dashboard-embed) .tabs { gap: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+    body:not(.dashboard-embed) .tab { min-height: 54px; display: grid; grid-template-rows: 24px auto; place-items: center; gap: 1px; padding: 3px 2px; border-radius: 0; color: #7f919d; font-size: 10px; font-weight: 650; }
+    body:not(.dashboard-embed) .tab::before { color: currentColor; font-size: 19px; line-height: 1; }
+    body:not(.dashboard-embed) #tab-dashboard::before { content: "⌂"; }
+    body:not(.dashboard-embed) #tab-active-job::before { content: "▤"; }
+    body:not(.dashboard-embed) #tab-jog::before { content: "⌖"; }
+    body:not(.dashboard-embed) #tab-control::before { content: "⌁"; }
+    body:not(.dashboard-embed) #tab-files::before { content: "▱"; }
+    body:not(.dashboard-embed) .tab.active { color: #68d9ee; background: transparent; box-shadow: inset 0 -2px 0 #68d9ee; }
+    body[data-active-tab="dashboard"] main { padding-top: 14px; }
+    body[data-active-tab="dashboard"] .dashboard-grid { gap: 18px; }
+    body[data-active-tab="dashboard"] .dashboard-job, body[data-active-tab="dashboard"] .dashboard-machine { min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+    body[data-active-tab="dashboard"] .dashboard-job-heading { min-height: 0; padding: 0 2px 9px; }
+    body[data-active-tab="dashboard"] .dashboard-job-heading h2 { font-size: 18px; }
+    body[data-active-tab="dashboard"] .dashboard-job.is-empty .dashboard-heading, body[data-active-tab="dashboard"] .dashboard-job.is-empty .dashboard-progress { display: none; }
+    body[data-active-tab="dashboard"] .dashboard-progress { min-height: 0; padding: 0 2px 9px; }
+    body[data-active-tab="dashboard"] .dashboard-camera-stage { min-height: 0; aspect-ratio: 4 / 3; border-color: #38515e; border-radius: 12px; box-shadow: 0 18px 38px rgba(0,0,0,.25); }
+    body[data-active-tab="dashboard"] .dashboard-camera-label { left: 10px; bottom: 10px; border-radius: 999px; }
+    body[data-active-tab="dashboard"] .dashboard-machine-heading { padding: 0 2px 8px; }
+    body[data-active-tab="dashboard"] .dashboard-machine-heading h2 { font-size: 18px; }
+    body[data-active-tab="dashboard"] #dashboard-state { display: inline-flex; min-width: 0; padding-inline: 10px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-grid, body[data-active-tab="dashboard"] .dashboard-machine .machine-metric-grid { border-color: #344852; border-radius: 10px; }
+    body[data-active-tab="dashboard"] .dashboard-telemetry, body[data-active-tab="dashboard"] .dashboard-gcode { display: none; }
     /* Keep the same Work/Machine readout language as the Surface dashboard.
        A phone has less horizontal space, so the labels become short stacked
        rows rather than falling back to the old four-column mini readout. */
@@ -1063,7 +1090,9 @@
     #command-toolbar { grid-template-columns: max-content max-content minmax(44px, 1fr) max-content; grid-template-areas: "brand machine actions halt"; gap: 6px; align-items: center; }
     #app-brand { min-width: 0; }
     #app-brand strong { font-size: 12px; }
-    #app-brand span, #status-connection { display: none; }
+    #app-brand span { display: none; }
+    #status-connection { width: 12px; height: 12px; display: inline-grid; border: 0; background: currentColor; }
+    #status-connection::before { color: #07100b; font-size: 7px; }
     #machine { min-width: 0; }
     #machine .badge { min-height: 34px; padding-inline: 10px; }
     #command-actions { width: auto; justify-self: end; }
