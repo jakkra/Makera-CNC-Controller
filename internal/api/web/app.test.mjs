@@ -122,6 +122,7 @@ test("Overview and Jog mount one shared machine readout with work and machine co
   assert.match(htmlSource, /machine-axis-value i \{ margin-left: -8px; color: #9bb3c1; font-size: 14px;/);
   assert.match(htmlSource, /machine-axis-value\[data-machine-row="work"\] i::after \{ content: "W"; font-size: 14px; \}/);
   assert.match(htmlSource, /machine-axis-value\[data-machine-row="machine"\] i::after \{ content: "M"; font-size: 14px; \}/);
+  assert.match(htmlSource, /#dashboard-external-camera-image \{ transform: rotate\(180deg\); \}/);
   assert.match(htmlSource, /machine-axis-label::after \{ content: " \/ mm";/);
   assert.doesNotMatch(htmlSource, /[åäö]/i);
   assert.doesNotMatch(source, /[åäö]/i);
