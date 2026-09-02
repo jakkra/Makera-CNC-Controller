@@ -1139,20 +1139,25 @@
     body:not(.dashboard-embed) #folder-actions button { width: 100%; height: 38px; min-height: 38px; padding-inline: 7px; }
     body:not(.dashboard-embed) #folder-up { font-size: 0; }
     body:not(.dashboard-embed) #folder-up::before { content: "↑"; font-size: 16px; }
-    body:not(.dashboard-embed) #files { gap: 7px; padding: 8px; }
-    body:not(.dashboard-embed) #files tr { gap: 7px 10px; padding: 11px; border-color: #344852; border-radius: 9px; background: #111a1f; }
-    body:not(.dashboard-embed) #files .path-cell { min-height: 38px; display: flex; align-items: center; padding-left: 34px; }
+    body:not(.dashboard-embed) #files { gap: 5px; padding: 6px; }
+    body:not(.dashboard-embed) #files tr { gap: 5px 8px; padding: 9px; border-color: #344852; border-radius: 8px; background: #111a1f; }
+    body:not(.dashboard-embed) #files .path-cell { min-height: 34px; display: flex; align-items: center; padding-left: 32px; }
     body:not(.dashboard-embed) #files .path-cell::before { left: 5px; }
-    body:not(.dashboard-embed) #files .file-name { min-height: 38px; font-size: 14px; }
+    body:not(.dashboard-embed) #files .file-name { min-height: 34px; font-size: 14px; }
     body:not(.dashboard-embed) #files .status-cell { align-self: center; }
-    body:not(.dashboard-embed) #files .actions { grid-template-columns: repeat(3,minmax(0,1fr)); padding-top: 3px; border-top: 1px solid rgba(52,72,82,.65); }
-    body:not(.dashboard-embed) #files .actions button, body:not(.dashboard-embed) #files .actions a { min-height: 40px; }
+    body:not(.dashboard-embed) #files .actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 5px; border-top: 1px solid rgba(52,72,82,.65); }
+    body:not(.dashboard-embed) #files .actions > :first-child { display: none; }
+    body:not(.dashboard-embed) #files .actions > button { flex: 0 1 120px; }
+    body:not(.dashboard-embed) #files .file-row-menu { flex: 0 0 44px; width: 44px; }
+    body:not(.dashboard-embed) #files .actions button, body:not(.dashboard-embed) #files .actions a,
+    body:not(.dashboard-embed) #files .file-row-menu > summary { min-height: 38px; }
     body:not(.dashboard-embed) #files-empty { min-height: 180px; }
-    body:not(.dashboard-embed)[data-active-tab="files"] #files-view { height: auto; grid-template-rows: auto; align-content: start; overflow: visible; }
+    body:not(.dashboard-embed)[data-active-tab="files"] #files-view { height: 100%; min-height: 0; grid-template-rows: auto minmax(240px,1fr) auto; align-content: stretch; overflow: hidden; }
     body:not(.dashboard-embed)[data-active-tab="files"] .files-browser-section,
     body:not(.dashboard-embed)[data-active-tab="files"] #file-browser,
-    body:not(.dashboard-embed)[data-active-tab="files"] #file-main { height: auto; min-height: 0; }
-    body:not(.dashboard-embed)[data-active-tab="files"] #file-main { grid-template-rows: auto auto; }
+    body:not(.dashboard-embed)[data-active-tab="files"] #file-main { height: 100%; min-height: 0; }
+    body:not(.dashboard-embed)[data-active-tab="files"] #file-main { grid-template-rows: auto minmax(0,1fr); }
+    body:not(.dashboard-embed)[data-active-tab="files"] .table-scroll { min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
     body:not(.dashboard-embed) .files-secondary-grid { grid-template-columns: 1fr; gap: 8px; }
     body:not(.dashboard-embed) .files-secondary-panel > summary { min-height: 50px; }
     /* Keep the same Work/Machine readout language as the Surface dashboard.

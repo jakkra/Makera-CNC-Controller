@@ -1192,7 +1192,7 @@ func TestWebUIServed(t *testing.T) {
 		`.command-panel-close { position: sticky; top: 0; z-index: 2; display: inline-flex; width: 100%; min-height: 44px;`,
 		`.active-gcode-progress { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }`,
 		`#active-gcode-left.is-console-active { height: clamp(480px, 68dvh, 620px); min-height: 480px; }`,
-		`#files .actions { display: grid; grid-area: actions; grid-template-columns: repeat(3, minmax(0, 1fr));`,
+		`#files .actions { display: flex; justify-content: flex-end; gap: 8px;`,
 		`dialog { width: calc(100vw - 16px); max-width: none; max-height: calc(100dvh - 16px); margin: 8px; }`,
 	} {
 		if !strings.Contains(bodyText, want) {
