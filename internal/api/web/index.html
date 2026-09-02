@@ -1194,16 +1194,23 @@
     /* Dashboard positions are a live monitoring task, not a compact toolbar.
        Two roomy axis cards per row keep Work/Machine values readable from the
        Surface while the Jog view keeps its denser shared component. */
-    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
-    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis { min-height: 4rem; grid-template-columns: 34px minmax(0,1fr); grid-template-rows: 1fr 1fr; gap: 2px 8px; padding: 8px 12px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-grid { grid-template-columns: repeat(2, minmax(0,1fr)); grid-auto-rows: 74px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis { min-height: 0; grid-template-columns: 54px minmax(0,1fr); grid-template-rows: 1fr 1fr; gap: 2px 8px; padding: 7px 12px; }
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis:nth-child(2) { border-right: 0; }
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis:nth-child(n+3) { border-top: 1px solid var(--border); }
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-label { position: static; grid-column: 1; grid-row: 1 / -1; align-self: center; font-size: 27px; }
-    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value { grid-column: 2; grid-template-columns: 14px minmax(0,1fr); gap: 5px; padding: 0 24px 0 0; }
-    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value i { font-size: 11px; font-weight: 750; letter-spacing: .08em; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-label::after { content: " / mm"; color: #8ca5b4; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-a .machine-axis-label::after { content: " / °"; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value { grid-column: 2; grid-template-columns: 62px minmax(0,1fr); gap: 7px; padding: 0; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value i { color: #9bb3c1; font-size: 11px; font-weight: 750; letter-spacing: .02em; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value[data-machine-row="work"] i { font-size: 0; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value[data-machine-row="work"] i::after { content: "Work"; font-size: 11px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value[data-machine-row="machine"] i { font-size: 0; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value[data-machine-row="machine"] i::after { content: "Machine"; font-size: 11px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis strong, body[data-active-tab="dashboard"] .dashboard-machine .machine-axis small { text-align: left; }
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis strong { font-size: clamp(17px, 1.65vw, 24px); }
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis small { font-size: clamp(11px, 1.05vw, 14px); }
-    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-unit { right: 8px; bottom: 7px; font-size: 10px; font-weight: 700; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-unit { display: none; }
   }
 </style>
 </head>
@@ -1211,10 +1218,10 @@
 <template id="machine-readout-template">
   <section class="machine-readout" aria-label="Live machine readout">
     <div class="machine-axis-grid">
-      <div class="machine-axis machine-axis-x" data-machine-axis="x"><span class="machine-axis-label">X</span><span class="machine-axis-value"><i>W</i><strong data-machine-space="work">—</strong></span><span class="machine-axis-value"><i>M</i><small data-machine-space="machine">—</small></span><span class="machine-axis-unit">mm</span></div>
-      <div class="machine-axis machine-axis-y" data-machine-axis="y"><span class="machine-axis-label">Y</span><span class="machine-axis-value"><i>W</i><strong data-machine-space="work">—</strong></span><span class="machine-axis-value"><i>M</i><small data-machine-space="machine">—</small></span><span class="machine-axis-unit">mm</span></div>
-      <div class="machine-axis machine-axis-z" data-machine-axis="z"><span class="machine-axis-label">Z</span><span class="machine-axis-value"><i>W</i><strong data-machine-space="work">—</strong></span><span class="machine-axis-value"><i>M</i><small data-machine-space="machine">—</small></span><span class="machine-axis-unit">mm</span></div>
-      <div class="machine-axis machine-axis-a" data-machine-axis="a"><span class="machine-axis-label">A</span><span class="machine-axis-value"><i>W</i><strong data-machine-space="work">—</strong></span><span class="machine-axis-value"><i>M</i><small data-machine-space="machine">—</small></span><span class="machine-axis-unit">°</span></div>
+      <div class="machine-axis machine-axis-x" data-machine-axis="x"><span class="machine-axis-label">X</span><span class="machine-axis-value" data-machine-row="work"><i>W</i><strong data-machine-space="work">—</strong></span><span class="machine-axis-value" data-machine-row="machine"><i>M</i><small data-machine-space="machine">—</small></span><span class="machine-axis-unit">mm</span></div>
+      <div class="machine-axis machine-axis-y" data-machine-axis="y"><span class="machine-axis-label">Y</span><span class="machine-axis-value" data-machine-row="work"><i>W</i><strong data-machine-space="work">—</strong></span><span class="machine-axis-value" data-machine-row="machine"><i>M</i><small data-machine-space="machine">—</small></span><span class="machine-axis-unit">mm</span></div>
+      <div class="machine-axis machine-axis-z" data-machine-axis="z"><span class="machine-axis-label">Z</span><span class="machine-axis-value" data-machine-row="work"><i>W</i><strong data-machine-space="work">—</strong></span><span class="machine-axis-value" data-machine-row="machine"><i>M</i><small data-machine-space="machine">—</small></span><span class="machine-axis-unit">mm</span></div>
+      <div class="machine-axis machine-axis-a" data-machine-axis="a"><span class="machine-axis-label">A</span><span class="machine-axis-value" data-machine-row="work"><i>W</i><strong data-machine-space="work">—</strong></span><span class="machine-axis-value" data-machine-row="machine"><i>M</i><small data-machine-space="machine">—</small></span><span class="machine-axis-unit">°</span></div>
     </div>
     <div class="machine-metric-grid">
       <div class="machine-metric" data-machine-metric="feed"><span>Feed</span><strong data-machine-primary>—</strong><small data-machine-secondary>—</small></div>

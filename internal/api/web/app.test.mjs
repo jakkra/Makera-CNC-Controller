@@ -114,10 +114,10 @@ test("wide Surface overview keeps job and machine panels regardless of saved pro
 test("Overview and Jog mount one shared machine readout with work and machine coordinates", () => {
   assert.equal((htmlSource.match(/data-machine-readout-host/g) || []).length, 2);
   assert.match(htmlSource, /id="machine-readout-template"/);
-  assert.match(htmlSource, /dashboard-machine \.machine-axis-grid \{ grid-template-columns: repeat\(2, minmax\(0,1fr\)\); \}/);
+  assert.match(htmlSource, /dashboard-machine \.machine-axis-grid \{ grid-template-columns: repeat\(2, minmax\(0,1fr\)\); grid-auto-rows: 74px; \}/);
   assert.match(htmlSource, /dashboard-machine \{ grid-area: machine; height: auto; align-self: start; grid-template-rows: auto auto; gap: 10px; \}/);
-  assert.match(htmlSource, /machine-axis-value i \{ font-size: 11px; font-weight: 750;/);
-  assert.match(htmlSource, /machine-axis-unit \{ right: 8px; bottom: 7px; font-size: 10px; font-weight: 700; \}/);
+  assert.match(htmlSource, /machine-axis-value\[data-machine-row="work"\] i::after \{ content: "Work"; font-size: 11px; \}/);
+  assert.match(htmlSource, /machine-axis-label::after \{ content: " \/ mm";/);
   assert.doesNotMatch(htmlSource, /[åäö]/i);
   assert.doesNotMatch(source, /[åäö]/i);
   assert.doesNotMatch(htmlSource, /\b(Jogga|Filer|STOPP|Stegvis|Riktning)\b/);

@@ -2009,6 +2009,7 @@ const (
 const (
 	jobControlVerifyTimeout = 30 * time.Second
 	jobControlPollInterval  = 150 * time.Millisecond
+	autoVacuumVerifyTimeout = 2 * time.Second
 )
 
 const (
@@ -2073,31 +2074,40 @@ func (s *Service) SetAutoVacuum(enabled bool) (AutoVacuumResult, error) {
 		if _, err := c.SendGcodeLine(command, client.GcodeOpts{ExpectReply: false, Cap: gcodeReplyCap}); err != nil {
 			return err
 		}
-		st, err := s.queryRecoveryStatus(c)
-		if err != nil {
-			return fmt.Errorf("%w: could not verify Auto Vacuum: %v", ErrMachineStatusStale, err)
+		deadline := time.Now().Add(autoVacuumVerifyTimeout)
+		for {
+			st, err := s.queryRecoveryStatus(c)
+			if err == nil {
+				res.State = st.State
+				if st.Spindle != nil && st.Spindle.VacuumMode != nil && (*st.Spindle.VacuumMode != 0) == enabled {
+					res.Verified = true
+					return nil
+				}
+			}
+			if !time.Now().Before(deadline) {
+				// Some Z1 firmware revisions update S: one status cycle after the
+				// command has been accepted. The command was still delivered on the
+				// serialized connection, so retain an unverified success instead of
+				// showing a false error to the operator.
+				return nil
+			}
+			time.Sleep(jobControlPollInterval)
 		}
-		res.State = st.State
-		if st.Spindle == nil || st.Spindle.VacuumMode == nil {
-			return fmt.Errorf("%w: machine did not report Auto Vacuum state", ErrJobControlUnavailable)
-		}
-		actual := *st.Spindle.VacuumMode != 0
-		if actual != enabled {
-			return fmt.Errorf("%w: machine reported Auto Vacuum %s after request", ErrJobControlUnavailable, map[bool]string{true: "on", false: "off"}[actual])
-		}
-		return nil
 	})
 	if err != nil {
 		s.gcodeLog.Append(gcodelog.DirRecv, gcodelog.SourceAPI, "error: "+err.Error())
 		return res, err
 	}
 
-	res.Verified = true
 	mode := "off"
 	if enabled {
 		mode = "on"
 	}
-	res.Message = "Auto Vacuum turned " + mode + "."
+	if res.Verified {
+		res.Message = "Auto Vacuum turned " + mode + "."
+	} else {
+		res.Message = "Auto Vacuum command sent; status is still updating."
+	}
 	s.gcodeLog.Append(gcodelog.DirRecv, gcodelog.SourceAPI, res.Message)
 	return res, nil
 }

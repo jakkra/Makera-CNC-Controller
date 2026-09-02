@@ -2170,14 +2170,15 @@ async function setAutoVacuum(enabled) {
   state.autoVacuumPending = true;
   renderSurfaceQuickActions();
   try {
-    await request("/api/outputs/auto-vacuum", {
+    const response = await request("/api/outputs/auto-vacuum", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: !!enabled }),
     });
+    const result = await response.json();
+    if (state.machine?.spindle) state.machine.spindle.vacuum_mode = result.enabled ? 1 : 0;
     clearNotice("auto-vacuum");
-    await pollMachine();
-    setTimeout(pollMachine, 900);
+    setTimeout(pollMachine, 1200);
   } catch (e) {
     appendGcodeLine({ seq: "local-" + Date.now(), dir: "recv", source: "api", text: "error: " + e.message });
     setNotice("Auto Vacuum could not be updated: " + e.message, "error", "auto-vacuum");
