@@ -118,7 +118,7 @@ test("Overview and Jog mount one shared machine readout with work and machine co
   assert.match(htmlSource, /dashboard-machine \{ grid-area: machine; height: auto; align-self: start; grid-template-rows: auto auto; gap: 10px; \}/);
   assert.match(htmlSource, /grid-template-columns: minmax\(0,1fr\) minmax\(400px, 32vw\);/, "the camera job pane gets the overview width");
   assert.doesNotMatch(htmlSource, /id="dashboard-open-job"/, "the footer owns the sole job-details shortcut");
-  assert.match(htmlSource, /machine-axis-value \{ grid-column: 2; grid-template-columns: 24px minmax\(0,1fr\); gap: 4px; margin-left: -8px; padding: 0; \}/);
+  assert.match(htmlSource, /machine-axis-value \{ grid-column: 2; grid-template-columns: 24px minmax\(0,1fr\); gap: 4px; margin-left: -16px; padding: 0; \}/);
   assert.match(htmlSource, /machine-axis-value i \{ color: #9bb3c1; font-size: 14px;/);
   assert.match(htmlSource, /machine-axis-value\[data-machine-row="work"\] i::after \{ content: "W"; font-size: 14px; \}/);
   assert.match(htmlSource, /machine-axis-value\[data-machine-row="machine"\] i::after \{ content: "M"; font-size: 14px; \}/);
