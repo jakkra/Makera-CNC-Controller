@@ -81,6 +81,7 @@ const state = {
   dashboardEmbed: false,
   dashboardSettingsLoaded: false,
   dashboardDraftProfileID: "",
+  dashboardCameraPrimary: loadDashboardCameraPrimary(),
   cameras: {
     loaded: false,
     sources: { builtin: { configured: false }, external: { configured: false } },
@@ -7931,11 +7932,54 @@ function setDashboardCameraState(kind, status, title, detail = "") {
     (status === "connecting" ? "Connecting" : (status === "error" ? "Offline" : "Not configured"));
 }
 
+function loadDashboardCameraPrimary() {
+  try {
+    return window.localStorage?.getItem("sensei.dashboard.primary-camera") === "builtin" ? "builtin" : "external";
+  } catch {
+    return "external";
+  }
+}
+
+function dashboardCameraPrimary() {
+  const preferred = state.dashboardCameraPrimary;
+  const external = dashboardCameraSource("external");
+  const builtin = dashboardCameraSource("builtin");
+  if (preferred === "builtin" && builtin.configured) return "builtin";
+  if (preferred === "external" && external.configured) return "external";
+  if (external.configured) return "external";
+  return "builtin";
+}
+
+function setDashboardCameraPrimary(kind) {
+  if (kind !== "external" && kind !== "builtin") return;
+  if (!dashboardCameraSource(kind).configured) return;
+  state.dashboardCameraPrimary = kind;
+  try {
+    window.localStorage?.setItem("sensei.dashboard.primary-camera", kind);
+  } catch {
+    // The layout still works when browser storage is unavailable.
+  }
+  renderDashboardCameraConfig();
+}
+
 function renderDashboardCameraConfig() {
   const external = dashboardCameraSource("external");
   const builtin = dashboardCameraSource("builtin");
   const stage = document.querySelector(".dashboard-camera-stage");
-  stage?.classList.toggle("builtin-primary", !external.configured && !!builtin.configured);
+  const primary = dashboardCameraPrimary();
+  stage?.classList.toggle("builtin-primary", primary === "builtin");
+  for (const kind of ["external", "builtin"]) {
+    const root = document.getElementById(`dashboard-${kind}-camera`);
+    if (!root) continue;
+    const isPrimary = kind === primary;
+    const configured = dashboardCameraSource(kind).configured;
+    root.dataset.cameraPrimary = String(isPrimary);
+    root.tabIndex = configured ? 0 : -1;
+    root.setAttribute("aria-pressed", String(isPrimary));
+    root.setAttribute("aria-label", isPrimary
+      ? `${kind === "external" ? "External" : "Z1"} camera is the main view`
+      : `Make ${kind === "external" ? "external" : "Z1"} camera the main view`);
+  }
   if (!state.cameras.loaded) {
     setDashboardCameraState("external", "connecting", "Loading camera configuration", "Cameras run only while Overview is visible.");
     setDashboardCameraState("builtin", "connecting", "Loading Z1 camera", "Waiting for the camera service.");
@@ -8072,6 +8116,20 @@ async function loadDashboardCameras() {
   } finally {
     state.cameras.loaded = true;
     syncDashboardCameras();
+  }
+}
+
+function bindDashboardCameraSwitches() {
+  for (const kind of ["external", "builtin"]) {
+    const root = document.getElementById(`dashboard-${kind}-camera`);
+    if (!root) continue;
+    const select = () => setDashboardCameraPrimary(kind);
+    root.addEventListener("click", select);
+    root.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      select();
+    });
   }
 }
 
@@ -13933,6 +13991,7 @@ function init() {
     if (state.machine?.state === "Pause") runActiveJobControl("resume_job");
     else if (state.machine?.state === "Hold") sendControl("resume");
   });
+  bindDashboardCameraSwitches();
   bindButtonAction(document.getElementById("surface-footer-job"), () => showTab("active-job"));
   bindButtonAction(document.getElementById("surface-footer-vacuum"), () => {
     const current = dashboardOptionalNumber(state.machine?.spindle?.vacuum_mode);

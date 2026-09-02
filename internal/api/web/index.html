@@ -1025,9 +1025,14 @@
   #dashboard-open-job { min-height: 38px; flex: 0 0 auto; }
   .dashboard-camera-stage { position: relative; min-height: 300px; overflow: hidden; border: 1px solid #34444e; border-radius: 10px; background: #080e12; }
   .dashboard-camera { position: absolute; overflow: hidden; background: radial-gradient(circle at 50% 40%,#17242b,#080d10 72%); }
+  .dashboard-camera[role="button"] { cursor: pointer; }
+  .dashboard-camera[data-camera-primary="false"] { border-color: #7695a3; }
+  .dashboard-camera[data-camera-primary="false"]:hover { border-color: #8fd1e8; }
+  .dashboard-camera:focus-visible { z-index: 6; outline: 2px solid #79d2ed; outline-offset: -2px; }
   .dashboard-camera img { width: 100%; height: 100%; display: block; object-fit: cover; }
   .dashboard-camera-main { inset: 0; }
   .dashboard-camera-inset { z-index: 3; top: 16px; right: 16px; width: min(34%,310px); aspect-ratio: 4/3; border: 1px solid #586872; border-radius: 7px; box-shadow: 0 14px 34px rgba(0,0,0,.5); }
+  .dashboard-camera-inset::after { content: "Tap to enlarge"; position: absolute; z-index: 5; top: 8px; right: 8px; padding: 4px 6px; color: #dce7eb; background: rgba(5,9,11,.74); border: 1px solid rgba(117,151,164,.62); border-radius: 4px; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; pointer-events: none; }
   .dashboard-camera-empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 7px; padding: 20px; color: var(--muted); text-align: center; }
   .dashboard-camera-empty strong { color: #c8d3d9; font-size: 15px; }
   .dashboard-camera-empty small { max-width: 38ch; font-size: 11px; line-height: 1.45; }
@@ -1041,8 +1046,10 @@
   .dashboard-toolpath-fallback:not(.has-toolpath) { display: none; }
   .dashboard-preview-label { position: absolute; left: 8px; bottom: 7px; padding: 3px 6px; color: #c6d4db; background: rgba(5,9,11,.76); border-radius: 3px; font-size: 9px; text-transform: uppercase; }
   .dashboard-camera-inset + .dashboard-toolpath-fallback { bottom: 16px; }
-  .dashboard-camera-stage.builtin-primary .dashboard-camera-main { display: none; }
-  .dashboard-camera-stage.builtin-primary .dashboard-camera-inset { inset: 0; width: auto; aspect-ratio: auto; border: 0; border-radius: 0; box-shadow: none; }
+  .dashboard-camera-stage.builtin-primary .dashboard-camera-main { z-index: 3; inset: auto; top: 16px; right: 16px; width: min(34%,310px); aspect-ratio: 4/3; border: 1px solid #586872; border-radius: 7px; box-shadow: 0 14px 34px rgba(0,0,0,.5); }
+  .dashboard-camera-stage.builtin-primary .dashboard-camera-main::after { content: "Tap to enlarge"; position: absolute; z-index: 5; top: 8px; right: 8px; padding: 4px 6px; color: #dce7eb; background: rgba(5,9,11,.74); border: 1px solid rgba(117,151,164,.62); border-radius: 4px; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; pointer-events: none; }
+  .dashboard-camera-stage.builtin-primary .dashboard-camera-inset { z-index: 1; inset: 0; width: auto; aspect-ratio: auto; border: 0; border-radius: 0; box-shadow: none; }
+  .dashboard-camera-stage.builtin-primary .dashboard-camera-inset::after { display: none; }
   .dashboard-camera-stage.builtin-primary .dashboard-toolpath-fallback { display: none; }
   #active-gcode-panel { border-radius: 12px; }
   .active-gcode-head { gap: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
@@ -1078,6 +1085,7 @@
     #dashboard-open-job { min-height: 34px; padding-inline: 9px; font-size: 11px; }
     .dashboard-camera-stage { min-height: 280px; }
     .dashboard-camera-inset, .dashboard-toolpath-fallback { width: 38%; right: 10px; }
+    .dashboard-camera-stage.builtin-primary .dashboard-camera-main { width: 38%; right: 10px; top: 10px; }
     .dashboard-camera-inset { top: 10px; }
     .dashboard-toolpath-fallback { bottom: 10px; }
     .machine-axis strong { font-size: clamp(14px, 3.5vw, 20px); }
@@ -1613,12 +1621,12 @@
           <div class="dashboard-time"><span>Remaining</span><strong id="dashboard-remaining">-</strong></div>
         </div>
         <div class="dashboard-camera-stage" aria-label="Camera monitoring">
-          <div id="dashboard-external-camera" class="dashboard-camera dashboard-camera-main is-unconfigured">
+          <div id="dashboard-external-camera" class="dashboard-camera dashboard-camera-main is-unconfigured" role="button" tabindex="-1" aria-pressed="true" aria-label="External camera is the main view">
             <img id="dashboard-external-camera-image" alt="External camera" hidden>
             <div class="dashboard-camera-empty"><span class="dashboard-camera-icon" aria-hidden="true">▣</span><strong id="dashboard-external-camera-state">External camera not configured</strong><small id="dashboard-external-camera-detail">Connect a USB camera to the controller for the main view.</small></div>
             <div class="dashboard-camera-label"><span>External camera</span><b id="dashboard-external-camera-badge">Not configured</b></div>
           </div>
-          <div id="dashboard-builtin-camera" class="dashboard-camera dashboard-camera-inset is-unconfigured">
+          <div id="dashboard-builtin-camera" class="dashboard-camera dashboard-camera-inset is-unconfigured" role="button" tabindex="-1" aria-pressed="false" aria-label="Make Z1 camera the main view">
             <img id="dashboard-builtin-camera-image" alt="Z1 camera" hidden>
             <div class="dashboard-camera-empty"><span class="dashboard-camera-icon" aria-hidden="true">◉</span><strong id="dashboard-builtin-camera-state">Z1 camera not configured</strong><small id="dashboard-builtin-camera-detail">No camera source is available.</small></div>
             <div class="dashboard-camera-label"><span>Z1 camera</span><b id="dashboard-builtin-camera-badge">Not configured</b></div>
