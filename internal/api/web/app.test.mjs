@@ -1060,6 +1060,7 @@ test("virtual MPG click uses a short audible pulse once the audio context is run
   assert.equal(vm.runInContext("playSurfaceMPGClick(audio)", ctx), true);
   assert.equal(vm.runInContext("playSurfaceMPGClick(audio)", ctx), true, "rapid detents each receive a separately scheduled pulse");
   assert.deepEqual(calls.filter(([name]) => name === "frequency"), [["frequency", 900, 3], ["frequency", 900, 3.03]]);
+  assert.deepEqual(calls.filter(([name]) => name === "gain"), [["gain", 0.15, 3], ["gain", 0.15, 3.03]]);
   assert.deepEqual(calls.find(([name]) => name === "start"), ["start", 3]);
   assert.deepEqual(calls.find(([name]) => name === "stop"), ["stop", 3.027]);
   assert.match(source, /surfaceMPGAudioResume/, "early detents wait for Firefox to finish waking its audio context");

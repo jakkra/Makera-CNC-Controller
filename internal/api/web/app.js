@@ -13739,7 +13739,10 @@ function playSurfaceMPGClick(audio) {
   const gain = audio.createGain();
   oscillator.type = "square";
   oscillator.frequency.setValueAtTime(900, start);
-  gain.gain.setValueAtTime(0.075, start);
+  // Keep each detent equally prominent; system volume remains the operator's
+  // overall loudness control.  This is deliberately twice the original level
+  // for the comparatively quiet Surface speakers.
+  gain.gain.setValueAtTime(0.15, start);
   gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.026);
   oscillator.connect(gain);
   gain.connect(audio.destination);
