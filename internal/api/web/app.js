@@ -260,6 +260,7 @@ const activeGcodeSource = {
   userScrollingUntil: 0,
   renderQueued: false,
   resizeObserver: null,
+  unavailableSignature: "",
 };
 
 const activeGcodeGeometry = {
@@ -8287,14 +8288,6 @@ function gcodeCameraFitKey(path, entry = {}, preview = {}, hasToolpath = false) 
   ]);
 }
 
-function clearMissingActiveGcode() {
-  state.activeGcode = {};
-  clearNotice("active-gcode");
-  clearNotice("active-gcode-geometry");
-  clearNotice("active-gcode-source");
-  renderActiveGcode();
-}
-
 async function ensureActiveGcodeGeometry(active) {
   const signature = activeGcodeSourceSignature(active);
   if (!signature) {
@@ -8317,8 +8310,10 @@ async function ensureActiveGcodeGeometry(active) {
       const response = await request(`/api/gcode/active/segments?start=${start}&limit=${GCODE_SEGMENT_PAGE_SIZE}`);
       if (response.status === 204) {
         if (requestID !== activeGcodeGeometry.requestID || activeGcodeGeometry.requestedSignature !== signature) return;
+        // A job reported by the machine can be remote-only while it runs. Its
+        // source is unavailable, but its live job model must remain visible.
+        activeGcodeGeometry.signature = signature;
         activeGcodeGeometry.requestedSignature = "";
-        clearMissingActiveGcode();
         return;
       }
       const windowData = await response.json();
@@ -8368,6 +8363,7 @@ async function ensureActiveGcodeSource(active) {
     renderActiveGcodeSource();
   }
   activeGcodeSource.signature = signature;
+  activeGcodeSource.unavailableSignature = "";
   activeGcodeSource.totalLines = Math.max(0, Number(active?.preview?.line_count) || 0);
   clearNotice("active-gcode-source");
   renderActiveGcodeSource();
@@ -8397,6 +8393,7 @@ function resetActiveGcodeSource() {
 
 async function fetchActiveGcodeSourcePage(index) {
   if (!activeGcodeSource.path || !activeGcodeSource.signature) return;
+  if (activeGcodeSource.unavailableSignature === activeGcodeSource.signature) return;
   const pageStartIndex = Math.max(0, Math.floor(Math.max(0, index) / GCODE_SOURCE_PAGE_SIZE) * GCODE_SOURCE_PAGE_SIZE);
   if (activeGcodeSource.pages.has(pageStartIndex)) {
     const page = activeGcodeSource.pages.get(pageStartIndex);
@@ -8414,7 +8411,9 @@ async function fetchActiveGcodeSourcePage(index) {
     if (response.status === 204) {
       if (requestID !== activeGcodeSource.requestID || signature !== activeGcodeSource.signature) return;
       clearConnectivityIssue("active-gcode-source");
-      clearMissingActiveGcode();
+      activeGcodeSource.unavailableSignature = signature;
+      activeGcodeSource.pages.set(pageStartIndex, []);
+      renderActiveGcodeSource();
       return;
     }
     const page = await response.json();

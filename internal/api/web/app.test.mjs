@@ -1769,7 +1769,7 @@ test("machine-reported active files reload the matching preview exactly once", (
   assert.equal(loads, 1);
 });
 
-test("missing active gcode clears stale toolpath geometry without an error", async () => {
+test("remote-only active gcode preserves live job state when geometry is unavailable", async () => {
   const notices = [];
   let renders = 0;
   let jsonCalls = 0;
@@ -1782,7 +1782,7 @@ test("missing active gcode clears stale toolpath geometry without an error", asy
     segments: [],
   };
   const ctx = buildContext(
-    ["activeGcodeSourceSignature", "clearMissingActiveGcode", "ensureActiveGcodeGeometry"],
+    ["activeGcodeSourceSignature", "ensureActiveGcodeGeometry"],
     ["GCODE_SEGMENT_PAGE_SIZE"],
     {
       state,
@@ -1800,14 +1800,14 @@ test("missing active gcode clears stale toolpath geometry without an error", asy
     updated_at: "old"
   })`, ctx);
 
-  assert.equal(Object.keys(state.activeGcode).length, 0);
+  assert.equal(state.activeGcode.path, "/sd/gcodes/stale.nc");
   assert.equal(jsonCalls, 0);
-  assert.equal(renders, 1);
-  assert.deepEqual(notices, ["active-gcode", "active-gcode-geometry", "active-gcode-source"]);
+  assert.equal(renders, 0);
+  assert.deepEqual(notices, []);
+  assert.notEqual(activeGcodeGeometry.signature, "");
 });
 
-test("missing active gcode clears stale source pages without an error", async () => {
-  const notices = [];
+test("remote-only active gcode preserves source state when source is unavailable", async () => {
   let renders = 0;
   const state = { activeGcode: { path: "/sd/gcodes/stale.nc" } };
   const activeGcodeSource = {
@@ -1816,30 +1816,30 @@ test("missing active gcode clears stale source pages without an error", async ()
     requestID: 4,
     pages: new Map(),
     loadingPages: new Set(),
+    unavailableSignature: "",
   };
   const scroll = {
     setAttribute: () => {},
     removeAttribute: () => {},
   };
   const ctx = buildContext(
-    ["clearMissingActiveGcode", "fetchActiveGcodeSourcePage"],
+    ["fetchActiveGcodeSourcePage"],
     ["GCODE_SOURCE_PAGE_SIZE"],
     {
       state,
       activeGcodeSource,
       request: async () => ({ status: 204 }),
       clearConnectivityIssue: () => {},
-      clearNotice: (key) => notices.push(key),
-      renderActiveGcode: () => { renders++; },
+      renderActiveGcodeSource: () => { renders++; },
       document: { getElementById: () => scroll },
     },
   );
 
   await vm.runInContext("fetchActiveGcodeSourcePage(0)", ctx);
 
-  assert.equal(Object.keys(state.activeGcode).length, 0);
+  assert.equal(state.activeGcode.path, "/sd/gcodes/stale.nc");
   assert.equal(renders, 1);
-  assert.deepEqual(notices, ["active-gcode", "active-gcode-geometry", "active-gcode-source"]);
+  assert.equal(activeGcodeSource.unavailableSignature, "stale-signature");
   assert.equal(activeGcodeSource.loadingPages.size, 0);
 });
 
