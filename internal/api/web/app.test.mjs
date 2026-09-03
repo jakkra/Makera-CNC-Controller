@@ -5554,13 +5554,21 @@ test("Surface footer ignores transient Run while an armed MPG gesture is held", 
     jog: { armed: true, surfaceWheel: { pointerId: 7 } },
     machine: { state: "Run" },
   };
-  const ctx = buildContext(["surfaceJogDisplayState"], [], { state });
+  const ctx = buildContext(["surfaceMPGGestureActive", "surfaceJogDisplayState", "deferSurfaceMPGMachineRender"], [], { state });
   assert.equal(vm.runInContext("surfaceJogDisplayState()", ctx), "Idle");
+  assert.equal(vm.runInContext("deferSurfaceMPGMachineRender()", ctx), true);
   state.jog.surfaceWheel.pointerId = null;
   assert.equal(vm.runInContext("surfaceJogDisplayState()", ctx), "Run");
+  assert.equal(vm.runInContext("deferSurfaceMPGMachineRender()", ctx), false);
   state.jog.surfaceWheel.pointerId = 7;
   state.machine.state = "Hold";
   assert.equal(vm.runInContext("surfaceJogDisplayState()", ctx), "Hold");
+  assert.equal(vm.runInContext("deferSurfaceMPGMachineRender()", ctx), false, "attention states never defer rendering");
+  const applyJog = extractFunction("applyJogEvent");
+  assert.match(applyJog, /deferSurfaceMPGMachineRender\(\)\) renderSurfaceMPGWheel\(\);/);
+  const binding = extractFunction("bindSurfaceMPGWheel");
+  assert.match(binding, /lostpointercapture", retainPointerCapture/);
+  assert.match(binding, /window\.addEventListener\("pointerup", release\)/);
 });
 
 test("Surface map remains a preview until the server supports a held target move", () => {

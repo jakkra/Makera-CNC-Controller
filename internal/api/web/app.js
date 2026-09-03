@@ -2136,13 +2136,23 @@ function renderSurfaceJog() {
   renderSurfaceMPGWheel(ready && !surfaceButtonBusy);
 }
 
+function surfaceMPGGestureActive() {
+  return state.activeTab === "jog" && state.jog?.armed === true &&
+    state.jog?.surfaceWheel?.pointerId !== null;
+}
+
 function surfaceJogDisplayState(machineState = String(state.machine?.state || "Unknown")) {
   // A local step briefly reports Run while the operator is still holding the
   // wheel. Keep the Surface footer stable for that gesture only; this affects
   // presentation, never the machine status used by jog safety or controls.
-  const turningMPG = state.activeTab === "jog" && state.jog?.armed === true &&
-    state.jog?.surfaceWheel?.pointerId !== null;
-  return machineState === "Run" && turningMPG ? "Idle" : machineState;
+  return machineState === "Run" && surfaceMPGGestureActive() ? "Idle" : machineState;
+}
+
+function deferSurfaceMPGMachineRender(machineState = String(state.machine?.state || "Unknown")) {
+  // Keep heavy, hidden views out of the pointer-move path. Status still updates
+  // state for safety; the full UI catches up on release. Attention states must
+  // always render immediately.
+  return surfaceMPGGestureActive() && (machineState === "Idle" || machineState === "Run");
 }
 
 function renderSurfaceMPGWheel(ready = surfaceJogBaseReady()) {
@@ -13124,7 +13134,10 @@ function applyJogEvent(ev) {
       clearDisarmedMovementState();
     }
   }
-  if (machineChanged) renderMachine();
+  if (machineChanged) {
+    if (deferSurfaceMPGMachineRender()) renderSurfaceMPGWheel();
+    else renderMachine();
+  }
   else if (surfaceMPGOnly) renderSurfaceMPGWheel();
   else {
     renderJog();
@@ -13848,6 +13861,22 @@ function bindSurfaceMPGWheel() {
     state.jog.surfaceWheel.gestureReleased = true;
     finishSurfaceMPGGesture();
     renderSurfaceMPGWheel();
+    renderMachine();
+  };
+  const retainPointerCapture = (e) => {
+    if (state.jog.surfaceWheel.pointerId !== e.pointerId) return;
+    // Chrome can transiently drop capture while relaying a fast touch gesture.
+    // Reclaim it while the pointer is still held; pointerup/cancel remains the
+    // terminal path and is also observed on window below.
+    if (e.buttons) {
+      try {
+        wheel.setPointerCapture?.(e.pointerId);
+        return;
+      } catch {
+        // The window-level release handlers below cover a capture failure.
+      }
+    }
+    release(e);
   };
   wheel.addEventListener("pointerdown", (e) => {
     if (e.button !== 0 || !surfaceJogReady()) return;
@@ -13898,7 +13927,9 @@ function bindSurfaceMPGWheel() {
   });
   wheel.addEventListener("pointerup", release);
   wheel.addEventListener("pointercancel", release);
-  wheel.addEventListener("lostpointercapture", release);
+  wheel.addEventListener("lostpointercapture", retainPointerCapture);
+  window.addEventListener("pointerup", release);
+  window.addEventListener("pointercancel", release);
   wheel.addEventListener("keydown", (e) => {
     if (!["ArrowUp", "ArrowRight", "ArrowDown", "ArrowLeft"].includes(e.key)) return;
     e.preventDefault();
