@@ -167,6 +167,7 @@ func (s *Server) Serve(ln net.Listener) error {
 func (s *Server) handle(client net.Conn) {
 	defer client.Close()
 	peer := client.RemoteAddr()
+	setTCPNoDelay(client)
 
 	if !s.active.CompareAndSwap(false, true) {
 		log.Printf("relay: refusing %s, a session is already active", peer)
@@ -190,6 +191,7 @@ func (s *Server) handle(client net.Conn) {
 	}
 	machine := opened.Conn
 	defer machine.Close()
+	setTCPNoDelay(machine)
 	log.Printf("relay: session up %s <-> machine %s", peer, opened.Label)
 
 	m := newMux(machine)
@@ -429,9 +431,24 @@ func logFrame(dir string, f protocol.Frame) {
 		protocol.CmdLoadError, protocol.CmdNormalInfo, protocol.CmdPlayStatus:
 		log.Printf("relay %s %s: %q", dir, protocol.CmdName(f.Cmd), preview(f.Data))
 	case protocol.CmdFileData:
-		log.Printf("relay %s FILE_DATA: %d bytes", dir, len(f.Data))
+		// FILE_DATA is a packet-at-a-time transfer. Logging every packet makes
+		// the relay's stderr a synchronous part of a large-file transfer and
+		// can turn an otherwise fast download into an app-level timeout. The
+		// surrounding FILE_START/FILE_VIEW/FILE_END frames retain the useful
+		// transfer diagnostics without the hot-path I/O.
+		return
 	default:
 		log.Printf("relay %s %s (%d bytes)", dir, protocol.CmdName(f.Cmd), len(f.Data))
+	}
+}
+
+func setTCPNoDelay(conn any) {
+	tcp, ok := conn.(*net.TCPConn)
+	if !ok {
+		return
+	}
+	if err := tcp.SetNoDelay(true); err != nil {
+		log.Printf("relay: enable TCP_NODELAY: %v", err)
 	}
 }
 

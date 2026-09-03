@@ -174,6 +174,15 @@ func openTCP(cfg Config) (*Opened, error) {
 	if err != nil {
 		return nil, err
 	}
+	// File transfers are a strict request/response sequence: the controller
+	// requests each packet only after it receives the previous one. Avoid
+	// Nagle/delayed-ACK stalls for those small request frames.
+	if tcp, ok := c.(*net.TCPConn); ok {
+		if err := tcp.SetNoDelay(true); err != nil {
+			c.Close()
+			return nil, fmt.Errorf("configure machine TCP connection: %w", err)
+		}
+	}
 	return &Opened{
 		Conn:       c,
 		Label:      addr,
