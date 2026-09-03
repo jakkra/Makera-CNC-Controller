@@ -1019,11 +1019,14 @@ test("virtual MPG click uses a short audible pulse once the audio context is run
   const audio = { state: "running", currentTime: 3, createOscillator: () => oscillator, createGain: () => gain, destination: {} };
   const ctx = buildContext(["playSurfaceMPGClick"]);
   ctx.audio = audio;
+  ctx.surfaceMPGNextClickTime = 0;
   assert.equal(vm.runInContext("playSurfaceMPGClick(audio)", ctx), true);
-  assert.deepEqual(calls.find(([name]) => name === "frequency"), ["frequency", 1100, 3]);
+  assert.equal(vm.runInContext("playSurfaceMPGClick(audio)", ctx), true, "rapid detents each receive a separately scheduled pulse");
+  assert.deepEqual(calls.filter(([name]) => name === "frequency"), [["frequency", 900, 3], ["frequency", 900, 3.03]]);
   assert.deepEqual(calls.find(([name]) => name === "start"), ["start", 3]);
-  assert.deepEqual(calls.find(([name]) => name === "stop"), ["stop", 3.019]);
+  assert.deepEqual(calls.find(([name]) => name === "stop"), ["stop", 3.027]);
   assert.match(source, /surfaceMPGAudioResume/, "early detents wait for Firefox to finish waking its audio context");
+  assert.match(source, /surfaceMPGNextClickTime/, "rapid detents stay audibly separate");
 });
 
 test("mobile jog options start collapsed without changing the desktop default", () => {

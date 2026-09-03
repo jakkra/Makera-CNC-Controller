@@ -186,6 +186,7 @@ let probeConfirmResolve = null;
 let outlineContextRevision = 1;
 let surfaceMPGAudioContext = null;
 let surfaceMPGAudioResume = null;
+let surfaceMPGNextClickTime = 0;
 let surfaceMPGFeedbackTimer = null;
 
 const gcodeView = {
@@ -13727,16 +13728,21 @@ function prepareSurfaceMPGFeedback() {
 function playSurfaceMPGClick(audio) {
   if (!audio || audio.state !== "running") return false;
   const now = audio.currentTime;
+  // Browser/WebAudio can receive several acknowledgement callbacks inside one
+  // render turn. Space the physical feedback pulses so they remain audible as
+  // distinct detents instead of summing into one nearly silent transient.
+  const start = Math.max(now, surfaceMPGNextClickTime);
+  surfaceMPGNextClickTime = start + 0.03;
   const oscillator = audio.createOscillator();
   const gain = audio.createGain();
   oscillator.type = "square";
-  oscillator.frequency.setValueAtTime(1100, now);
-  gain.gain.setValueAtTime(0.045, now);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.018);
+  oscillator.frequency.setValueAtTime(900, start);
+  gain.gain.setValueAtTime(0.075, start);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.026);
   oscillator.connect(gain);
   gain.connect(audio.destination);
-  oscillator.start(now);
-  oscillator.stop(now + 0.019);
+  oscillator.start(start);
+  oscillator.stop(start + 0.027);
   return true;
 }
 
