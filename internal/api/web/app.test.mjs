@@ -97,6 +97,13 @@ test("external camera refresh is limited to explicit snapshot sources", () => {
   assert.equal(vm.runInContext("dashboardExternalCameraIsSnapshot({})", ctx), false);
 });
 
+test("built-in camera keeps the previous frame until the replacement has loaded", () => {
+  assert.match(source, /state\.cameras\.builtinObjectURLs\.add\(nextURL\);/);
+  assert.match(source, /image\.onload = \(\) => \{/);
+  assert.match(source, /if \(state\.cameras\.builtinObjectURL !== nextURL\) return;/);
+  assert.doesNotMatch(source, /setTimeout\(\(\) => URL\.revokeObjectURL\?\.\(previousURL\), 1000\)/);
+});
+
 test("wide Surface overview keeps job and machine panels regardless of saved profile", () => {
   const ctx = buildContext(["dashboardPanelVisible"], [], {
     window: { matchMedia: () => ({ matches: false }) },

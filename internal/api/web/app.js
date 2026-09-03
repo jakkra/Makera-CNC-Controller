@@ -88,6 +88,7 @@ const state = {
     builtinWS: null,
     builtinReconnectTimer: null,
     builtinObjectURL: "",
+    builtinObjectURLs: new Set(),
     externalURL: "",
     externalRetryTimer: null,
   },
@@ -8011,10 +8012,11 @@ function stopDashboardBuiltinCamera() {
   if (ws) {
     try { ws.close(1000, "overview hidden"); } catch { /* already closed */ }
   }
-  if (state.cameras.builtinObjectURL) {
-    URL.revokeObjectURL?.(state.cameras.builtinObjectURL);
-    state.cameras.builtinObjectURL = "";
-  }
+  const image = document.getElementById("dashboard-builtin-camera-image");
+  if (image) image.onload = null;
+  for (const objectURL of state.cameras.builtinObjectURLs) URL.revokeObjectURL?.(objectURL);
+  state.cameras.builtinObjectURLs.clear();
+  state.cameras.builtinObjectURL = "";
 }
 
 function startDashboardBuiltinCamera() {
@@ -8035,12 +8037,23 @@ function startDashboardBuiltinCamera() {
     }
     const blob = event.data instanceof Blob ? event.data : new Blob([event.data], { type: "image/jpeg" });
     const nextURL = URL.createObjectURL(blob);
-    const previousURL = state.cameras.builtinObjectURL;
+    state.cameras.builtinObjectURLs.add(nextURL);
     state.cameras.builtinObjectURL = nextURL;
     const image = document.getElementById("dashboard-builtin-camera-image");
-    if (image) image.src = nextURL;
+    if (image) {
+      image.onload = () => {
+        // Keep the old frame alive until this frame has decoded. Revoking it on
+        // a timer causes a visible black flash when the Z1 stream slows down.
+        if (state.cameras.builtinObjectURL !== nextURL) return;
+        for (const objectURL of state.cameras.builtinObjectURLs) {
+          if (objectURL === nextURL) continue;
+          URL.revokeObjectURL?.(objectURL);
+          state.cameras.builtinObjectURLs.delete(objectURL);
+        }
+      };
+      image.src = nextURL;
+    }
     setDashboardCameraState("builtin", "live", "Z1 camera live", "Video from the machine's built-in camera.");
-    if (previousURL) setTimeout(() => URL.revokeObjectURL?.(previousURL), 1000);
   };
   ws.onerror = () => {
     if (state.cameras.builtinWS === ws) setDashboardCameraState("builtin", "error", "Z1 camera is not responding", "Sensei will retry automatically.");
