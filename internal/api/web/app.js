@@ -174,7 +174,7 @@ const state = {
     lastInputSentAt: 0,
     inputSuspended: false,
     surfaceInput: null,
-    surfaceWheel: { pointerId: null, lastY: 0, remainder: 0, value: 0 },
+    surfaceWheel: { pointerId: null, lastAngle: null, angle: 0, remainder: 0, value: 0 },
     outlineCaptureIntents: [],
   },
   outline: defaultOutlineState(),
@@ -183,6 +183,8 @@ const state = {
 
 let probeConfirmResolve = null;
 let outlineContextRevision = 1;
+let surfaceMPGAudioContext = null;
+let surfaceMPGFeedbackTimer = null;
 
 const gcodeView = {
   key: "",
@@ -284,6 +286,8 @@ const GCODE_ORBIT_DRAG_RAD_PER_PX = 0.008;
 const GCODE_ORBIT_MIN_RADIUS = 1;
 const GCODE_ORBIT_MAX_RADIUS = 100000;
 const GCODE_CUBE_DRAG_THRESHOLD_PX = 4;
+const SURFACE_MPG_DETENT_DEG = 15;
+const SURFACE_MPG_DEAD_ZONE = 0.24;
 // Same axis palette as the Control tab work-area origin marker.
 const GCODE_AXIS_COLORS = { x: "#f05b5b", y: "#6fa3ff", z: "#44c27b" };
 
@@ -2121,9 +2125,13 @@ function renderSurfaceJog() {
   if (wheel) {
     wheel.setAttribute("aria-valuenow", String(j.surfaceWheel.value));
     wheel.setAttribute("aria-valuetext", `${j.surfaceWheel.value} increments on ${surface.mpg_axis.toUpperCase()}`);
-    wheel.classList.toggle("is-disabled", !ready);
-    wheel.tabIndex = ready ? 0 : -1;
+    wheel.style.setProperty("--wheel-angle", `${Number(j.surfaceWheel.angle || 0)}deg`);
+    const turning = j.surfaceWheel.pointerId !== null;
+    wheel.classList.toggle("is-turning", turning);
+    wheel.classList.toggle("is-disabled", !ready && !turning);
+    wheel.tabIndex = ready || turning ? 0 : -1;
   }
+  setTextIfChanged(document.getElementById("surface-mpg-wheel-step"), `${surfaceStepDistance()} mm / click`);
 }
 
 function surfaceQuickActionState(machineState) {
@@ -2258,19 +2266,20 @@ function surfaceStepDistance() {
 function sendSurfaceStep(axis, sign) {
   if (!surfaceJogReady()) {
     setStatusMessage("surface-jog", "Arm Movement after a fresh Idle status before jogging.", "error", { force: true });
-    return;
+    return false;
   }
   const distance = surfaceStepDistance() * (sign < 0 ? -1 : 1);
   const seq = sendJog({ type: "step", axis, distance });
   if (!seq) {
     setStatusMessage("surface-jog", "Jog service is not connected.", "error", { force: true });
     connectJog();
-    return;
+    return false;
   }
   state.jog.surfaceStepPending = seq;
   state.jog.zStepLabel = `${axis.toUpperCase()}${distance >= 0 ? "+" : "−"} ${Math.abs(distance)} mm`;
   setStatusMessage("surface-jog", "Sending " + state.jog.zStepLabel + "...", "", { timeoutMs: 0, force: true });
   renderJog();
+  return true;
 }
 
 function beginSurfaceHoldJog(axis, sign) {
@@ -11358,6 +11367,7 @@ function clearDisconnectedJogInput() {
   state.jog.surfaceInput = null;
   if (state.jog.surfaceWheel) {
     state.jog.surfaceWheel.pointerId = null;
+    state.jog.surfaceWheel.lastAngle = null;
     state.jog.surfaceWheel.remainder = 0;
   }
   state.jog.pad = "";
@@ -13637,32 +13647,113 @@ function bindSurfaceHoldButton(button, axis, sign, useSelectedAxis = false) {
   button.addEventListener("click", (e) => e.preventDefault());
 }
 
+function surfaceMPGPointerSample(clientX, clientY, rect) {
+  const width = Math.max(1, Number(rect?.width || 0));
+  const height = Math.max(1, Number(rect?.height || 0));
+  const dx = Number(clientX) - (Number(rect?.left || 0) + width / 2);
+  const dy = Number(clientY) - (Number(rect?.top || 0) + height / 2);
+  return {
+    angle: Math.atan2(dy, dx) * 180 / Math.PI,
+    radius: Math.hypot(dx, dy) / (Math.min(width, height) / 2),
+  };
+}
+
+function surfaceMPGAngleDelta(previous, current) {
+  return ((Number(current) - Number(previous) + 540) % 360) - 180;
+}
+
+function prepareSurfaceMPGFeedback() {
+  const AudioContextCtor = globalThis.AudioContext || globalThis.webkitAudioContext;
+  if (!AudioContextCtor) return null;
+  try {
+    if (!surfaceMPGAudioContext) surfaceMPGAudioContext = new AudioContextCtor({ latencyHint: "interactive" });
+    if (surfaceMPGAudioContext.state === "suspended") surfaceMPGAudioContext.resume().catch(() => {});
+  } catch {
+    surfaceMPGAudioContext = null;
+  }
+  return surfaceMPGAudioContext;
+}
+
+function pulseSurfaceMPGDetent(wheel) {
+  try {
+    globalThis.navigator?.vibrate?.(8);
+  } catch {
+    // Vibration is optional and is not exposed by most desktop hardware.
+  }
+  const audio = prepareSurfaceMPGFeedback();
+  if (audio?.state === "running") {
+    const now = audio.currentTime;
+    const oscillator = audio.createOscillator();
+    const gain = audio.createGain();
+    oscillator.type = "square";
+    oscillator.frequency.setValueAtTime(760, now);
+    gain.gain.setValueAtTime(0.018, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.012);
+    oscillator.connect(gain);
+    gain.connect(audio.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.013);
+  }
+  if (!wheel) return;
+  wheel.classList.add("is-detent");
+  if (surfaceMPGFeedbackTimer) clearTimeout(surfaceMPGFeedbackTimer);
+  surfaceMPGFeedbackTimer = setTimeout(() => {
+    wheel.classList.remove("is-detent");
+    surfaceMPGFeedbackTimer = null;
+  }, 55);
+}
+
 function bindSurfaceMPGWheel() {
   const wheel = document.getElementById("surface-mpg-wheel");
   if (!wheel) return;
   const release = (e) => {
     if (state.jog.surfaceWheel.pointerId !== e.pointerId) return;
     state.jog.surfaceWheel.pointerId = null;
+    state.jog.surfaceWheel.lastAngle = null;
     state.jog.surfaceWheel.remainder = 0;
+    renderSurfaceJog();
   };
   wheel.addEventListener("pointerdown", (e) => {
     if (e.button !== 0 || !surfaceJogReady()) return;
+    const sample = surfaceMPGPointerSample(e.clientX, e.clientY, wheel.getBoundingClientRect());
+    if (sample.radius < SURFACE_MPG_DEAD_ZONE) return;
     state.jog.surfaceWheel.pointerId = e.pointerId;
-    state.jog.surfaceWheel.lastY = e.clientY;
+    state.jog.surfaceWheel.lastAngle = sample.angle;
     state.jog.surfaceWheel.remainder = 0;
+    prepareSurfaceMPGFeedback();
     wheel.setPointerCapture?.(e.pointerId);
     e.preventDefault();
+    renderSurfaceJog();
   });
   wheel.addEventListener("pointermove", (e) => {
     if (state.jog.surfaceWheel.pointerId !== e.pointerId) return;
-    const delta = state.jog.surfaceWheel.lastY - e.clientY;
-    state.jog.surfaceWheel.lastY = e.clientY;
+    const sample = surfaceMPGPointerSample(e.clientX, e.clientY, wheel.getBoundingClientRect());
+    if (sample.radius < SURFACE_MPG_DEAD_ZONE) {
+      state.jog.surfaceWheel.lastAngle = null;
+      return;
+    }
+    if (!Number.isFinite(state.jog.surfaceWheel.lastAngle)) {
+      state.jog.surfaceWheel.lastAngle = sample.angle;
+      return;
+    }
+    const delta = surfaceMPGAngleDelta(state.jog.surfaceWheel.lastAngle, sample.angle);
+    state.jog.surfaceWheel.lastAngle = sample.angle;
+    state.jog.surfaceWheel.angle = (Number(state.jog.surfaceWheel.angle || 0) + delta + 360) % 360;
+    if (state.jog.surfaceStepPending) {
+      state.jog.surfaceWheel.remainder = 0;
+      renderSurfaceJog();
+      return;
+    }
     state.jog.surfaceWheel.remainder += delta;
-    while (Math.abs(state.jog.surfaceWheel.remainder) >= 28 && !state.jog.surfaceStepPending) {
+    while (Math.abs(state.jog.surfaceWheel.remainder) >= SURFACE_MPG_DETENT_DEG && !state.jog.surfaceStepPending) {
       const sign = state.jog.surfaceWheel.remainder > 0 ? 1 : -1;
-      state.jog.surfaceWheel.remainder -= 28 * sign;
-      state.jog.surfaceWheel.value += sign;
-      sendSurfaceStep(state.surface.mpg_axis, sign);
+      state.jog.surfaceWheel.remainder -= SURFACE_MPG_DETENT_DEG * sign;
+      if (sendSurfaceStep(state.surface.mpg_axis, sign)) {
+        state.jog.surfaceWheel.value += sign;
+        pulseSurfaceMPGDetent(wheel);
+      } else {
+        state.jog.surfaceWheel.remainder = 0;
+      }
     }
     renderSurfaceJog();
   });
@@ -13674,8 +13765,12 @@ function bindSurfaceMPGWheel() {
     e.preventDefault();
     const sign = ["ArrowUp", "ArrowRight"].includes(e.key) ? 1 : -1;
     if (state.jog.surfaceStepPending) return;
-    state.jog.surfaceWheel.value += sign;
-    sendSurfaceStep(state.surface.mpg_axis, sign);
+    prepareSurfaceMPGFeedback();
+    if (sendSurfaceStep(state.surface.mpg_axis, sign)) {
+      state.jog.surfaceWheel.value += sign;
+      state.jog.surfaceWheel.angle = (Number(state.jog.surfaceWheel.angle || 0) + SURFACE_MPG_DETENT_DEG * sign + 360) % 360;
+      pulseSurfaceMPGDetent(wheel);
+    }
     renderSurfaceJog();
   });
 }

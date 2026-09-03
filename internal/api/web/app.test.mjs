@@ -909,6 +909,73 @@ test("mobile jog options summarize the active precision and method", () => {
   assert.equal(vm.runInContext(`surfaceJogOptionsSummary({motion:"hold",step_mm:0.1,method:"mpg"})`, ctx), "Hold · 0.1 mm · MPG");
 });
 
+test("virtual MPG follows circular motion across the angle seam", () => {
+  const ctx = buildContext(["surfaceMPGPointerSample", "surfaceMPGAngleDelta"]);
+  const rect = { left: 0, top: 0, width: 200, height: 200 };
+  const right = vm.runInContext("surfaceMPGPointerSample(190, 100, " + JSON.stringify(rect) + ")", ctx);
+  const bottom = vm.runInContext("surfaceMPGPointerSample(100, 190, " + JSON.stringify(rect) + ")", ctx);
+  assert.ok(Math.abs(right.angle) < 0.001);
+  assert.ok(Math.abs(bottom.angle - 90) < 0.001);
+  assert.ok(right.radius > 0.8);
+  assert.equal(vm.runInContext("surfaceMPGAngleDelta(170, -170)", ctx), 20, "clockwise motion remains positive across 180 degrees");
+  assert.equal(vm.runInContext("surfaceMPGAngleDelta(-170, 170)", ctx), -20, "counter-clockwise motion remains negative across -180 degrees");
+  assert.equal(vm.runInContext("surfaceMPGAngleDelta(10, 25)", ctx), 15);
+  const binding = extractFunction("bindSurfaceMPGWheel");
+  assert.match(binding, /surfaceMPGAngleDelta\(state\.jog\.surfaceWheel\.lastAngle, sample\.angle\)/);
+  assert.doesNotMatch(binding, /lastY|e\.clientY\s*-|\-\s*e\.clientY/, "the shipped gesture must not fall back to vertical drag direction");
+});
+
+test("virtual MPG presents a visible detent ring and relative step readout", () => {
+  assert.match(htmlSource, /repeating-conic-gradient\(from -1deg, #73838b 0 2deg, transparent 2deg 15deg\)/);
+  assert.match(htmlSource, /class="surface-wheel-indicator"/);
+  assert.match(htmlSource, /id="surface-mpg-wheel-step">1 mm \/ click/);
+  assert.match(htmlSource, /aria-label="Virtual MPG wheel; turn the outer ring"/);
+});
+
+test("virtual MPG binding keeps clockwise steps positive through a full circular gesture", () => {
+  const listeners = {};
+  const rect = { left: 0, top: 0, width: 200, height: 200 };
+  const wheel = {
+    addEventListener: (type, handler) => { listeners[type] = handler; },
+    getBoundingClientRect: () => rect,
+    setPointerCapture: () => {},
+  };
+  const state = {
+    surface: { mpg_axis: "x" },
+    jog: { surfaceStepPending: 0, surfaceWheel: { pointerId: null, lastAngle: null, angle: 0, remainder: 0, value: 0 } },
+  };
+  const signs = [];
+  let sequence = 1;
+  const ctx = buildContext(
+    ["surfaceMPGPointerSample", "surfaceMPGAngleDelta", "bindSurfaceMPGWheel"],
+    ["SURFACE_MPG_DETENT_DEG", "SURFACE_MPG_DEAD_ZONE"],
+    {
+      state,
+      document: { getElementById: () => wheel },
+      surfaceJogReady: () => true,
+      sendSurfaceStep: (_axis, sign) => {
+        signs.push(sign);
+        state.jog.surfaceStepPending = sequence++;
+        return true;
+      },
+      prepareSurfaceMPGFeedback: () => {},
+      pulseSurfaceMPGDetent: () => {},
+      renderSurfaceJog: () => {},
+    },
+  );
+  vm.runInContext("bindSurfaceMPGWheel()", ctx);
+  const point = (degrees) => {
+    const radians = degrees * Math.PI / 180;
+    return { clientX: 100 + 90 * Math.cos(radians), clientY: 100 + 90 * Math.sin(radians) };
+  };
+  listeners.pointerdown({ button: 0, pointerId: 4, ...point(170), preventDefault: () => {} });
+  listeners.pointermove({ pointerId: 4, ...point(-170) });
+  assert.deepEqual(signs, [1], "crossing from 170 to -170 degrees is still clockwise");
+  state.jog.surfaceStepPending = 0;
+  listeners.pointermove({ pointerId: 4, ...point(-150) });
+  assert.deepEqual(signs, [1, 1], "continuing clockwise does not reverse after half a turn");
+});
+
 test("mobile jog options start collapsed without changing the desktop default", () => {
   const options = { open: true };
   const ctx = buildContext(["initializeSurfaceMobileOptions"], [], {
@@ -1073,7 +1140,7 @@ test("jog disconnect clears every local continuous-motion intent", () => {
   const state = {
     jog: {
       surfaceInput: { axis: "x", sign: 1 },
-      surfaceWheel: { pointerId: 7, remainder: 19 },
+      surfaceWheel: { pointerId: 7, lastAngle: 42, remainder: 19 },
       pad: "Surface",
       deadman: true,
       axes: { x: 1, y: 0, z: 0 },
@@ -1090,6 +1157,7 @@ test("jog disconnect clears every local continuous-motion intent", () => {
   vm.runInContext("clearDisconnectedJogInput()", ctx);
   assert.equal(state.jog.surfaceInput, null);
   assert.equal(state.jog.surfaceWheel.pointerId, null);
+  assert.equal(state.jog.surfaceWheel.lastAngle, null);
   assert.equal(state.jog.surfaceWheel.remainder, 0);
   assert.equal(state.jog.pad, "");
   assert.equal(state.jog.deadman, false);
