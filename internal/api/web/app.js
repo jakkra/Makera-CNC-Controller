@@ -249,6 +249,7 @@ const dashboardGcodeView = {
   segments: [],
   has4Axis: false,
   renderQueued: false,
+  renderStateKey: "",
   resizeObserver: null,
   width: 0,
   height: 0,
@@ -8257,6 +8258,7 @@ function drawDashboardGcodePreview(preview, live = null) {
     preview.has_4axis ? "4" : "3",
     contextKey,
   ].join("|");
+  let sceneChanged = false;
   if (dashboardGcodeView.key !== key) {
     dashboardGcodeView.key = key;
     dashboardGcodeView.segments = segments;
@@ -8265,21 +8267,27 @@ function drawDashboardGcodePreview(preview, live = null) {
     clearThreeGroup(dashboardGcodeView.contextGroup);
     rebuildGcodeContextOverlayForGroup(dashboardGcodeView.contextGroup, context);
     fitDashboardGcodeCamera(sceneBounds);
+    sceneChanged = true;
   }
 
   const cursor = live
     ? Math.max(0, Math.min(segments.length, Number(live.cursor) || 0))
     : segments.length;
-  if (dashboardGcodeView.progressLine) {
-    dashboardGcodeView.progressLine.geometry.setDrawRange(0, cursor * 2);
-  }
   const markerPosition = live?.position || segments[Math.max(0, cursor - 1)]?.to;
-  if (markerPosition) {
-    dashboardGcodeView.marker.position.copy(gcodeWorldPoint(markerPosition, dashboardGcodeView.has4Axis));
-    dashboardGcodeView.marker.scale.setScalar(Math.max(0.8, dashboardGcodeView.orbit.radius * 0.008));
-    dashboardGcodeView.marker.visible = true;
-  } else {
-    dashboardGcodeView.marker.visible = false;
+  const renderStateKey = dashboardGcodeRenderStateKey(key, cursor, markerPosition);
+  if (sceneChanged || dashboardGcodeView.renderStateKey !== renderStateKey) {
+    dashboardGcodeView.renderStateKey = renderStateKey;
+    if (dashboardGcodeView.progressLine) {
+      dashboardGcodeView.progressLine.geometry.setDrawRange(0, cursor * 2);
+    }
+    if (markerPosition) {
+      dashboardGcodeView.marker.position.copy(gcodeWorldPoint(markerPosition, dashboardGcodeView.has4Axis));
+      dashboardGcodeView.marker.scale.setScalar(Math.max(0.8, dashboardGcodeView.orbit.radius * 0.008));
+      dashboardGcodeView.marker.visible = true;
+    } else {
+      dashboardGcodeView.marker.visible = false;
+    }
+    scheduleDashboardGcodeRender();
   }
   if (dashboardGcodeView.canvas) {
     dashboardGcodeView.canvas.setAttribute(
@@ -8290,7 +8298,16 @@ function drawDashboardGcodePreview(preview, live = null) {
     );
   }
   setDashboardGcodePreviewEmpty("");
-  scheduleDashboardGcodeRender();
+}
+
+function dashboardGcodeRenderStateKey(sceneKey, cursor, markerPosition) {
+  const point = Array.isArray(markerPosition)
+    ? markerPosition.slice(0, 4).map((value) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? number.toFixed(4) : "";
+    }).join(",")
+    : "";
+  return `${sceneKey}|${Math.trunc(Number(cursor) || 0)}|${point}`;
 }
 
 function activeGcodeSourceSignature(active) {
@@ -9123,6 +9140,7 @@ function ensureDashboardGcodeViewer() {
 
 function clearDashboardGcodeScene() {
   dashboardGcodeView.key = "";
+  dashboardGcodeView.renderStateKey = "";
   dashboardGcodeView.segments = [];
   if (!dashboardGcodeView.renderer) return;
   clearThreeGroup(dashboardGcodeView.pathGroup);

@@ -2015,6 +2015,25 @@ test("gcode canvas resolution follows display DPI until the pixel budget is reac
   assert.equal(vm.runInContext("gcodeRenderPixelRatio(3000, 2000, 12000000)", ctx), Math.sqrt(2));
 });
 
+test("dashboard toolpath only rerenders when its visible state changes", () => {
+  const ctx = buildContext(["dashboardGcodeRenderStateKey"]);
+  assert.equal(
+    vm.runInContext('dashboardGcodeRenderStateKey("job|full", 8, [1.23456, 2, 3, 0])', ctx),
+    vm.runInContext('dashboardGcodeRenderStateKey("job|full", 8, [1.23456, 2, 3, 0])', ctx),
+  );
+  assert.notEqual(
+    vm.runInContext('dashboardGcodeRenderStateKey("job|full", 8, [1.23456, 2, 3, 0])', ctx),
+    vm.runInContext('dashboardGcodeRenderStateKey("job|full", 9, [1.23456, 2, 3, 0])', ctx),
+  );
+  assert.notEqual(
+    vm.runInContext('dashboardGcodeRenderStateKey("job|full", 8, [1.23456, 2, 3, 0])', ctx),
+    vm.runInContext('dashboardGcodeRenderStateKey("job|full", 8, [1.23456, 2.1, 3, 0])', ctx),
+  );
+  const draw = extractFunction("drawDashboardGcodePreview");
+  assert.match(draw, /dashboardGcodeView\.renderStateKey !== renderStateKey/);
+  assert.match(draw, /scheduleDashboardGcodeRender\(\);/);
+});
+
 test("top front right maps to the default isometric orbit direction", () => {
   const ctx = buildContext(["gcodeOrbitAnglesForDirection"]);
   const angles = JSON.parse(vm.runInContext(
