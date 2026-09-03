@@ -1,0 +1,14 @@
+[Unit]
+Description=Sensei kiosk browser
+Wants=sensei-cnc-proxy.service
+After=graphical-session.target sensei-cnc-proxy.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/firefox --kiosk --profile %h/.local/share/sensei/kiosk-firefox-profile http://127.0.0.1:8420/dashboard
+Restart=always
+RestartSec=2s
+
+[Install]
+WantedBy=graphical-session.target

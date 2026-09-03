@@ -1,0 +1,15 @@
+[Unit]
+Description=Sensei external C920 camera stream
+ConditionPathExists=/dev/v4l/by-id/usb-046d_HD_Pro_Webcam_C920_46EAAC8F-video-index0
+After=network.target
+
+[Service]
+Type=simple
+User=jakkra
+SupplementaryGroups=video
+ExecStart=/usr/bin/ustreamer --device /dev/v4l/by-id/usb-046d_HD_Pro_Webcam_C920_46EAAC8F-video-index0 --resolution 640x480 --format MJPEG --encoder HW --desired-fps 15 --buffers 2 --workers 1 --slowdown --host 127.0.0.1 --port 8081
+Restart=always
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target
