@@ -13498,9 +13498,13 @@ function applySurfaceAutomaticView() {
   // A manual selection applies only to the current machine state. Let the next
   // state transition route the operator to the corresponding Surface view.
   state.surface.manual_view_state = "";
+  // A local jog step can briefly report Run. Do not route away from its armed
+  // Jog session: changing tabs would deliberately disarm that same session and
+  // make the next detent fail. Attention states still take priority below.
+  const localJogSession = state.activeTab === "jog" && state.jog?.armed === true;
   const target = ["Tool", "Pause", "Wait", "Hold", "Alarm"].includes(machineState)
     ? "attention"
-    : (machineState === "Run" ? "dashboard" : (machineState === "Idle" ? state.surface.start_view : ""));
+    : (machineState === "Run" && !localJogSession ? "dashboard" : (machineState === "Idle" ? state.surface.start_view : ""));
   if (target && target !== state.activeTab) showTab(target, "replace");
 }
 

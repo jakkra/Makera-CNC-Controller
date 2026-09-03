@@ -5509,6 +5509,26 @@ test("Surface automatic routing resumes after the machine state changes", () => 
   assert.equal(state.surface.manual_view_state, "");
 });
 
+test("Surface routing keeps an armed Jog session during its transient Run state", () => {
+  const calls = [];
+  const state = {
+    surface: { auto_switch: true, start_view: "jog", manual_view_state: "Idle" },
+    machine: { state: "Run" },
+    activeTab: "jog",
+    jog: { armed: true },
+  };
+  const ctx = buildContext(["applySurfaceAutomaticView"], [], {
+    state,
+    isSurfaceKiosk: () => true,
+    showTab: (...args) => calls.push(args),
+  });
+  vm.runInContext("applySurfaceAutomaticView()", ctx);
+  assert.equal(calls.length, 0, "a transient jog Run must not leave and disarm Jog");
+  state.jog.armed = false;
+  vm.runInContext("applySurfaceAutomaticView()", ctx);
+  assert.deepEqual(calls.pop(), ["dashboard", "replace"]);
+});
+
 test("Surface map remains a preview until the server supports a held target move", () => {
   const mapBinding = extractFunction("bindSurfaceXYMap");
   assert.doesNotMatch(mapBinding, /sendTapMove|sendJog\(/);
