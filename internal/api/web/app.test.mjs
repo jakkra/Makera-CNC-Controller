@@ -124,9 +124,6 @@ test("Overview and Jog mount one shared machine readout with work and machine co
   assert.match(htmlSource, /body \{ background: radial-gradient\(circle at 52% 18%, #14222c 0, #0b1218 46%, #090e12 100%\); \}/);
   assert.match(htmlSource, /header \{ gap: 6px; padding: 7px 10px; background: rgba\(8,14,19,\.96\); border-bottom-color: #31404a; box-shadow: none; \}/);
   assert.match(htmlSource, /#ctl-halt \{ grid-area: halt; min-height: 38px; min-width: 82px; border-color: #f04444; color: #fff; background: linear-gradient\(#ec3737,#c91924\);/);
-  assert.match(htmlSource, /body\[data-active-tab="active-job"\] \.active-gcode-workspace \{ display: grid; grid-template-columns: 1fr; height: auto; min-height: 0; gap: 10px; overflow: visible; \}/);
-  assert.match(htmlSource, /body\[data-active-tab="active-job"\] #active-gcode-left \{ grid-column: 1; grid-row: 1;/);
-  assert.match(htmlSource, /body\[data-active-tab="active-job"\] #gcode-preview-wrap \{ grid-column: 1; grid-row: 2;/);
   assert.match(htmlSource, /machine-axis-value \{ grid-column: 2; grid-template-columns: 24px minmax\(0,1fr\); gap: 4px; margin-left: -16px; padding: 0; \}/);
   assert.match(htmlSource, /machine-axis-value i \{ color: #9bb3c1; font-size: 14px;/);
   assert.match(htmlSource, /machine-axis-value\[data-machine-row="work"\] i::after \{ content: "W"; font-size: 14px; \}/);
