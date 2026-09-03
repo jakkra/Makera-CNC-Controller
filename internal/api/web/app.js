@@ -9030,10 +9030,7 @@ function ensureGcodeViewer() {
   bindGcodeProjectionToggle();
   if (globalThis.ResizeObserver) {
     gcodeView.resizeObserver = new ResizeObserver(() => scheduleGcodeRender());
-    // Observe the stable layout container, not the canvas itself. Updating the
-    // WebGL backing buffer changes canvas dimensions and can otherwise feed a
-    // resize observer loop when the viewer is stacked on a touch layout.
-    gcodeView.resizeObserver.observe(document.getElementById("gcode-preview-wrap") || canvas);
+    gcodeView.resizeObserver.observe(canvas);
   }
   window.addEventListener("resize", scheduleGcodeRender);
   return true;
