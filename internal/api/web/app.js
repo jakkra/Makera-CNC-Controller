@@ -8201,7 +8201,10 @@ function drawDashboardGcodePreview(preview, live = null) {
   const segments = Array.isArray(preview?.segments) ? preview.segments : [];
   const hasToolpath = segments.length > 0 && !!preview?.bounds;
   if (!hasToolpath) {
-    clearDashboardGcodeScene();
+    // Machine status arrives several times per second. Once the viewer is
+    // empty, clearing and rendering the same empty WebGL scene again makes the
+    // Overview visibly flash on slower touch hardware.
+    if (dashboardGcodeView.key || dashboardGcodeView.segments.length) clearDashboardGcodeScene();
     setDashboardGcodePreviewEmpty("No plotted moves");
     return;
   }
@@ -8936,7 +8939,7 @@ function drawGcodePreview(preview, live = null) {
   const hasToolpath = segments.length > 0 && !!preview?.bounds;
   const hasContextCandidate = !!state.outline?.active && !!state.outline?.points?.length;
   if (!hasToolpath && !hasContextCandidate) {
-    clearGcodeScene();
+    if (gcodeView.key || gcodeView.segments.length) clearGcodeScene();
     gcodeView.live = live;
     gcodeView.followLive = !!live;
     setGcodePreviewEmpty("No plotted moves");

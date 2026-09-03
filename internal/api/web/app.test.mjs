@@ -104,6 +104,11 @@ test("built-in camera keeps the previous frame until the replacement has loaded"
   assert.doesNotMatch(source, /setTimeout\(\(\) => URL\.revokeObjectURL\?\.\(previousURL\), 1000\)/);
 });
 
+test("empty G-code viewers do not repeatedly clear their WebGL scenes", () => {
+  assert.match(source, /if \(dashboardGcodeView\.key \|\| dashboardGcodeView\.segments\.length\) clearDashboardGcodeScene\(\);/);
+  assert.match(source, /if \(gcodeView\.key \|\| gcodeView\.segments\.length\) clearGcodeScene\(\);/);
+});
+
 test("wide Surface overview keeps job and machine panels regardless of saved profile", () => {
   const ctx = buildContext(["dashboardPanelVisible"], [], {
     window: { matchMedia: () => ({ matches: false }) },
