@@ -6,9 +6,11 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
-# Firefox is distributed as a strictly confined Snap on Ubuntu.  Profiles
-# outside its own ~/snap/firefox/common data area are inaccessible.
-ExecStart=/usr/bin/firefox --kiosk --profile %h/snap/firefox/common/sensei-kiosk-profile http://127.0.0.1:8420/dashboard
+# Firefox is distributed as a strictly confined Snap on Ubuntu. Profiles
+# outside its own ~/snap/firefox/common data area are inaccessible. Do not use
+# --kiosk: the operator needs regular Firefox controls and must be able to
+# leave fullscreen with F11.
+ExecStart=/usr/bin/firefox --new-window --profile %h/snap/firefox/common/sensei-kiosk-profile http://127.0.0.1:8420/dashboard
 Restart=always
 RestartSec=2s
 
