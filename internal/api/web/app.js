@@ -13424,6 +13424,12 @@ function syncViewTabURL(name, mode) {
 
 function showTab(name, urlMode = "push") {
   if (!VIEW_TABS.includes(name)) name = "active-job";
+  // A tab selected by the operator must survive repeated status snapshots
+  // emitted while a job is in one machine state. Automatic Surface routing
+  // resumes when that state actually changes (for example Run to Hold).
+  if (urlMode === "push" && isSurfaceKiosk()) {
+    state.surface.manual_view_state = String(state.machine?.state || "");
+  }
   disarmMovementOnControlExit(name);
   state.activeTab = name;
   if (name !== "dashboard") setDashboardControlsOpen(false);
@@ -13488,6 +13494,10 @@ function runSurfaceShellAction(action) {
 function applySurfaceAutomaticView() {
   if (!isSurfaceKiosk() || !state.surface.auto_switch || !state.machine?.state) return;
   const machineState = String(state.machine.state);
+  if (state.surface.manual_view_state === machineState) return;
+  // A manual selection applies only to the current machine state. Let the next
+  // state transition route the operator to the corresponding Surface view.
+  state.surface.manual_view_state = "";
   const target = ["Tool", "Pause", "Wait", "Hold", "Alarm"].includes(machineState)
     ? "attention"
     : (machineState === "Run" ? "dashboard" : (machineState === "Idle" ? state.surface.start_view : ""));

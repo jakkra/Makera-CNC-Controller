@@ -5466,7 +5466,7 @@ test("3D probe action does not submit a predicted soft-limit conflict", async ()
   assert.equal(state.jog.targetLabel, "X -250.0 Y -160.0");
 });
 
-test("Surface automatic routing is local-device-only and maps machine state to the agreed views", () => {
+test("Surface automatic routing maps machine state without overriding an operator-selected tab", () => {
   const calls = [];
   const state = { surface: { auto_switch: true, start_view: "jog" }, machine: { state: "Idle" }, activeTab: "dashboard" };
   const ctx = buildContext(["applySurfaceAutomaticView"], [], {
@@ -5487,6 +5487,26 @@ test("Surface automatic routing is local-device-only and maps machine state to t
   state.surface.auto_switch = false;
   vm.runInContext("applySurfaceAutomaticView()", ctx);
   assert.equal(calls.length, 0);
+});
+
+test("Surface automatic routing resumes after the machine state changes", () => {
+  const calls = [];
+  const state = {
+    surface: { auto_switch: true, start_view: "jog", manual_view_state: "Run" },
+    machine: { state: "Run" },
+    activeTab: "active-job",
+  };
+  const ctx = buildContext(["applySurfaceAutomaticView"], [], {
+    state,
+    isSurfaceKiosk: () => true,
+    showTab: (...args) => calls.push(args),
+  });
+  vm.runInContext("applySurfaceAutomaticView()", ctx);
+  assert.equal(calls.length, 0, "manual navigation remains visible during the same Run state");
+  state.machine.state = "Idle";
+  vm.runInContext("applySurfaceAutomaticView()", ctx);
+  assert.deepEqual(calls.pop(), ["jog", "replace"]);
+  assert.equal(state.surface.manual_view_state, "");
 });
 
 test("Surface map remains a preview until the server supports a held target move", () => {
