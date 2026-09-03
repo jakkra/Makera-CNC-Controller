@@ -934,6 +934,15 @@ test("virtual MPG presents a visible detent ring and relative step readout", () 
   assert.match(render, /surfaceStepSource !== "mpg"/, "only ordinary button steps may disable neighboring movement controls");
   assert.doesNotMatch(render, /const busy = !!j\.surfaceStepPending \|\|/, "an MPG acknowledgement must not dim every neighboring motion button");
   assert.doesNotMatch(source, /accepted; wait for the position readout to settle/, "high-frequency MPG acknowledgements must not create repeated verbose popups");
+  assert.match(htmlSource, /id="surface-mpg-feedback"><option value="confirmed">Confirmed step<\/option><option value="detent">Every wheel click<\/option>/);
+});
+
+test("Surface MPG feedback preference defaults to confirmed steps and permits every wheel detent", () => {
+  const ctx = buildContext(["defaultSurfaceViewPreferences", "loadSurfaceViewPreferences"], ["SURFACE_VIEW_PREFERENCES_KEY"], {
+    localStorage: { getItem: () => JSON.stringify({ mpg_feedback: "detent" }) },
+  });
+  assert.equal(vm.runInContext("defaultSurfaceViewPreferences().mpg_feedback", ctx), "confirmed");
+  assert.equal(vm.runInContext("loadSurfaceViewPreferences().mpg_feedback", ctx), "detent");
 });
 
 test("virtual MPG binding keeps clockwise steps positive through a full circular gesture", () => {
@@ -979,6 +988,34 @@ test("virtual MPG binding keeps clockwise steps positive through a full circular
   state.jog.surfaceStepPending = 0;
   listeners.pointermove({ pointerId: 4, ...point(-150) });
   assert.deepEqual(signs, [1, 1], "continuing clockwise does not reverse after half a turn");
+});
+
+test("every-wheel-click MPG feedback pulses even while a prior machine step is awaiting acknowledgement", () => {
+  const listeners = {};
+  const rect = { left: 0, top: 0, width: 200, height: 200 };
+  const wheel = { addEventListener: (type, handler) => { listeners[type] = handler; }, getBoundingClientRect: () => rect, setPointerCapture: () => {} };
+  const state = {
+    surface: { mpg_axis: "x", mpg_feedback: "detent" },
+    jog: { surfaceStepPending: 7, surfaceWheel: { pointerId: null, lastAngle: null, angle: 0, remainder: 0, value: 0 } },
+  };
+  let pulses = 0;
+  const ctx = buildContext(
+    ["surfaceMPGPointerSample", "surfaceMPGAngleDelta", "bindSurfaceMPGWheel"],
+    ["SURFACE_MPG_DETENT_DEG", "SURFACE_MPG_DEAD_ZONE"],
+    {
+      state,
+      document: { getElementById: () => wheel },
+      surfaceJogReady: () => true,
+      sendSurfaceStep: () => { throw new Error("pending detent must not send another machine step"); },
+      prepareSurfaceMPGFeedback: () => {},
+      pulseSurfaceMPGDetent: () => { pulses++; },
+      renderSurfaceMPGWheel: () => {},
+    },
+  );
+  vm.runInContext("bindSurfaceMPGWheel()", ctx);
+  listeners.pointerdown({ button: 0, pointerId: 9, clientX: 190, clientY: 100, preventDefault: () => {} });
+  listeners.pointermove({ pointerId: 9, clientX: 185, clientY: 125 });
+  assert.equal(pulses, 1, "a visual detent has local click feedback even while the machine command is pending");
 });
 
 test("virtual MPG gesture produces one terminal summary after its final acknowledgement", () => {

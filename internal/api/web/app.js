@@ -611,7 +611,7 @@ function defaultGamepadSettings() {
 }
 
 function defaultSurfaceViewPreferences() {
-  return { auto_switch: true, start_view: "jog", method: "directional", motion: "step", step_mm: 1, mpg_axis: "x", position_space: "work" };
+  return { auto_switch: true, start_view: "jog", method: "directional", motion: "step", step_mm: 1, mpg_axis: "x", mpg_feedback: "confirmed", position_space: "work" };
 }
 
 function loadSurfaceViewPreferences() {
@@ -627,6 +627,7 @@ function loadSurfaceViewPreferences() {
       motion: saved?.motion === "hold" ? "hold" : "step",
       step_mm: [10, 1, 0.1, 0.01].includes(Number(saved?.step_mm)) ? Number(saved.step_mm) : fallback.step_mm,
       mpg_axis: ["x", "y", "z"].includes(saved?.mpg_axis) ? saved.mpg_axis : fallback.mpg_axis,
+      mpg_feedback: saved?.mpg_feedback === "detent" ? "detent" : fallback.mpg_feedback,
       position_space: saved?.position_space === "machine" ? "machine" : fallback.position_space,
     };
   } catch {
@@ -2097,12 +2098,13 @@ function renderSurfaceJog() {
     arm.classList.toggle("armed", j.armed);
     arm.disabled = !!j.armPending || !!j.armQueuedAction || !movementArmAvailable();
   }
-  for (const id of ["surface-jog-motion", "surface-jog-step", "surface-auto-switch", "surface-start-view"]) {
+  for (const id of ["surface-jog-motion", "surface-jog-step", "surface-auto-switch", "surface-start-view", "surface-mpg-feedback"]) {
     const el = document.getElementById(id);
     if (!el || el === document.activeElement) continue;
     if (id === "surface-jog-motion") el.value = surface.motion;
     else if (id === "surface-jog-step") el.value = String(surface.step_mm);
     else if (id === "surface-auto-switch") el.checked = surface.auto_switch;
+    else if (id === "surface-mpg-feedback") el.value = surface.mpg_feedback;
     else el.value = surface.start_view;
   }
   document.getElementById("surface-directional-panel")?.toggleAttribute("hidden", surface.method !== "directional");
@@ -13830,21 +13832,17 @@ function bindSurfaceMPGWheel() {
     const delta = surfaceMPGAngleDelta(state.jog.surfaceWheel.lastAngle, sample.angle);
     state.jog.surfaceWheel.lastAngle = sample.angle;
     state.jog.surfaceWheel.angle = (Number(state.jog.surfaceWheel.angle || 0) + delta + 360) % 360;
-    if (state.jog.surfaceStepPending) {
-      state.jog.surfaceWheel.remainder = 0;
-      renderSurfaceMPGWheel();
-      return;
-    }
     state.jog.surfaceWheel.remainder += delta;
-    while (Math.abs(state.jog.surfaceWheel.remainder) >= SURFACE_MPG_DETENT_DEG && !state.jog.surfaceStepPending) {
+    while (Math.abs(state.jog.surfaceWheel.remainder) >= SURFACE_MPG_DETENT_DEG) {
       const sign = state.jog.surfaceWheel.remainder > 0 ? 1 : -1;
       state.jog.surfaceWheel.remainder -= SURFACE_MPG_DETENT_DEG * sign;
-      if (sendSurfaceStep(state.jog.surfaceWheel.gestureAxis, sign, "mpg")) {
+      if (state.surface.mpg_feedback === "detent") pulseSurfaceMPGDetent(wheel);
+      if (!state.jog.surfaceStepPending && sendSurfaceStep(state.jog.surfaceWheel.gestureAxis, sign, "mpg")) {
         state.jog.surfaceWheel.gestureSteps++;
         state.jog.surfaceWheel.value += sign;
-        pulseSurfaceMPGDetent(wheel);
+        if (state.surface.mpg_feedback !== "detent") pulseSurfaceMPGDetent(wheel);
       } else {
-        state.jog.surfaceWheel.remainder = 0;
+        if (!state.jog.surfaceStepPending) state.jog.surfaceWheel.remainder = 0;
       }
     }
     renderSurfaceMPGWheel();
@@ -14273,6 +14271,10 @@ function init() {
   };
   document.getElementById("surface-start-view").onchange = (e) => {
     state.surface.start_view = ["jog", "active-job", "dashboard"].includes(e.target.value) ? e.target.value : "jog";
+    saveSurfaceViewPreferences();
+  };
+  document.getElementById("surface-mpg-feedback").onchange = (e) => {
+    state.surface.mpg_feedback = e.target.value === "detent" ? "detent" : "confirmed";
     saveSurfaceViewPreferences();
   };
   for (const button of document.querySelectorAll("[data-surface-axis]")) {
