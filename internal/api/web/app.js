@@ -149,6 +149,7 @@ const state = {
     zStepPending: 0,
     zStepLabel: "",
     surfaceStepPending: 0,
+    surfaceStepSource: "",
     commandDisarm: null,
     zProbePending: false,
     probe3DPending: false,
@@ -174,7 +175,7 @@ const state = {
     lastInputSentAt: 0,
     inputSuspended: false,
     surfaceInput: null,
-    surfaceWheel: { pointerId: null, lastAngle: null, angle: 0, remainder: 0, value: 0 },
+    surfaceWheel: { pointerId: null, lastAngle: null, angle: 0, remainder: 0, value: 0, gestureSteps: 0, gestureAccepted: 0, gestureReleased: false, gestureAxis: "", blocked: false },
     outlineCaptureIntents: [],
   },
   outline: defaultOutlineState(),
@@ -2057,9 +2058,13 @@ function renderJog() {
   renderSurfaceJog();
 }
 
-function surfaceJogReady() {
+function surfaceJogBaseReady() {
   return !!state.jog.caps?.enabled && state.jog.link === "online" && state.jog.armed &&
-    !tapMoveTargetBusy() && !state.jog.zStepPending && !state.jog.surfaceStepPending && !hasPendingOriginOperation();
+    !tapMoveTargetBusy() && !state.jog.zStepPending && !hasPendingOriginOperation();
+}
+
+function surfaceJogReady() {
+  return surfaceJogBaseReady() && !state.jog.surfaceStepPending;
 }
 
 function movementArmAvailable() {
@@ -2080,8 +2085,9 @@ function movementArmLabel(j = state.jog) {
 function renderSurfaceJog() {
   const surface = state.surface;
   const j = state.jog;
-  const ready = surfaceJogReady();
-  const busy = !!j.surfaceStepPending || !!j.zStepPending || tapMoveTargetBusy() || hasPendingOriginOperation();
+  const ready = surfaceJogBaseReady();
+  const surfaceButtonBusy = !!j.surfaceStepPending && j.surfaceStepSource !== "mpg";
+  const busy = surfaceButtonBusy || !!j.zStepPending || tapMoveTargetBusy() || hasPendingOriginOperation();
   const arm = document.getElementById("surface-jog-arm");
   if (arm) {
     const armLabel = movementArmLabel(j);
@@ -2121,6 +2127,12 @@ function renderSurfaceJog() {
     button.disabled = busy;
     setSoftDisabled(button, !busy && !ready);
   }
+  renderSurfaceMPGWheel(ready && !surfaceButtonBusy);
+}
+
+function renderSurfaceMPGWheel(ready = surfaceJogBaseReady()) {
+  const surface = state.surface;
+  const j = state.jog;
   const wheel = document.getElementById("surface-mpg-wheel");
   if (wheel) {
     wheel.setAttribute("aria-valuenow", String(j.surfaceWheel.value));
@@ -2263,8 +2275,9 @@ function surfaceStepDistance() {
   return [10, 1, 0.1, 0.01].includes(Number(state.surface.step_mm)) ? Number(state.surface.step_mm) : 1;
 }
 
-function sendSurfaceStep(axis, sign) {
-  if (!surfaceJogReady()) {
+function sendSurfaceStep(axis, sign, source = "button") {
+  if (state.jog.surfaceStepPending) return false;
+  if (!surfaceJogBaseReady()) {
     setStatusMessage("surface-jog", "Arm Movement after a fresh Idle status before jogging.", "error", { force: true });
     return false;
   }
@@ -2276,9 +2289,17 @@ function sendSurfaceStep(axis, sign) {
     return false;
   }
   state.jog.surfaceStepPending = seq;
+  state.jog.surfaceStepSource = source;
   state.jog.zStepLabel = `${axis.toUpperCase()}${distance >= 0 ? "+" : "−"} ${Math.abs(distance)} mm`;
-  setStatusMessage("surface-jog", "Sending " + state.jog.zStepLabel + "...", "", { timeoutMs: 0, force: true });
-  renderJog();
+  if (source === "mpg") {
+    if (!state.jog.surfaceWheel.gestureSteps) {
+      setStatusMessage("surface-jog", `MPG ${axis.toUpperCase()} active...`, "", { timeoutMs: 0, force: true });
+    }
+    renderSurfaceMPGWheel();
+  } else {
+    setStatusMessage("surface-jog", "Sending " + state.jog.zStepLabel + "...", "", { timeoutMs: 0, force: true });
+    renderJog();
+  }
   return true;
 }
 
@@ -11369,11 +11390,17 @@ function clearDisconnectedJogInput() {
     state.jog.surfaceWheel.pointerId = null;
     state.jog.surfaceWheel.lastAngle = null;
     state.jog.surfaceWheel.remainder = 0;
+    state.jog.surfaceWheel.gestureSteps = 0;
+    state.jog.surfaceWheel.gestureAccepted = 0;
+    state.jog.surfaceWheel.gestureReleased = false;
+    state.jog.surfaceWheel.gestureAxis = "";
+    state.jog.surfaceWheel.blocked = false;
   }
   state.jog.pad = "";
   state.jog.deadman = false;
   state.jog.axes = { x: 0, y: 0, z: 0 };
   state.jog.buttons = [];
+  state.jog.surfaceStepSource = "";
   resetJogInputSender();
 }
 
@@ -12789,6 +12816,7 @@ function clearDisarmedMovementState() {
 
 function applyJogEvent(ev) {
   let machineChanged = false;
+  let surfaceMPGOnly = false;
   if (ev.type === "hello" && ev.capabilities) {
     state.jog.motionStreamRevision = (Number(state.jog.motionStreamRevision) || 0) + 1;
     state.jog.motionRevision = 0;
@@ -12928,8 +12956,16 @@ function applyJogEvent(ev) {
       state.jog.tapFeedbackKind = "";
     }
     if (ev.seq && ev.seq === state.jog.surfaceStepPending) {
+      const source = state.jog.surfaceStepSource;
       state.jog.surfaceStepPending = 0;
-      setStatusMessage("surface-jog", state.jog.zStepLabel + " accepted; wait for the position readout to settle.", "", { force: true });
+      state.jog.surfaceStepSource = "";
+      if (source === "mpg") {
+        state.jog.surfaceWheel.gestureAccepted++;
+        finishSurfaceMPGGesture();
+        surfaceMPGOnly = true;
+      } else {
+        setStatusMessage("surface-jog", state.jog.zStepLabel + " accepted.", "ok", { force: true });
+      }
     }
     if (ev.seq && ev.seq === state.jog.originPending) {
       if (state.jog.originPendingMode === "jog-reference") {
@@ -13005,7 +13041,10 @@ function applyJogEvent(ev) {
       state.jog.tapFeedbackKind = "error";
     }
     if (ev.seq && ev.seq === state.jog.surfaceStepPending) {
+      const source = state.jog.surfaceStepSource;
       state.jog.surfaceStepPending = 0;
+      state.jog.surfaceStepSource = "";
+      if (source === "mpg") state.jog.surfaceWheel.blocked = true;
       setStatusMessage("surface-jog", "Jog failed: " + (ev.message || jogErrorText(ev.code)), "error", { force: true });
     }
     if (ev.seq && ev.seq === state.jog.originPending) {
@@ -13027,7 +13066,10 @@ function applyJogEvent(ev) {
       state.jog.tapFeedbackKind = "error";
     }
     if (!ev.seq && terminalSessionError && state.jog.surfaceStepPending) {
+      const source = state.jog.surfaceStepSource;
       state.jog.surfaceStepPending = 0;
+      state.jog.surfaceStepSource = "";
+      if (source === "mpg") state.jog.surfaceWheel.blocked = true;
       setStatusMessage("surface-jog", "Jog failed: " + (ev.message || jogErrorText(ev.code)), "error", { force: true });
     }
     if (!ev.seq && terminalSessionError && state.jog.originPendingMode === "jog" && hasPendingOriginOperation()) {
@@ -13051,6 +13093,7 @@ function applyJogEvent(ev) {
     }
   }
   if (machineChanged) renderMachine();
+  else if (surfaceMPGOnly) renderSurfaceMPGWheel();
   else {
     renderJog();
     renderOutlineCapture();
@@ -13703,6 +13746,26 @@ function pulseSurfaceMPGDetent(wheel) {
   }, 55);
 }
 
+function finishSurfaceMPGGesture() {
+  const gesture = state.jog.surfaceWheel;
+  if (!gesture.gestureReleased || state.jog.surfaceStepPending) return false;
+  if (!gesture.blocked && gesture.gestureAccepted > 0) {
+    const noun = gesture.gestureAccepted === 1 ? "increment" : "increments";
+    setStatusMessage(
+      "surface-jog",
+      `MPG ${gesture.gestureAxis.toUpperCase()}: ${gesture.gestureAccepted} ${noun} accepted.`,
+      "ok",
+      { force: true },
+    );
+  }
+  gesture.gestureSteps = 0;
+  gesture.gestureAccepted = 0;
+  gesture.gestureReleased = false;
+  gesture.gestureAxis = "";
+  gesture.blocked = false;
+  return true;
+}
+
 function bindSurfaceMPGWheel() {
   const wheel = document.getElementById("surface-mpg-wheel");
   if (!wheel) return;
@@ -13711,7 +13774,9 @@ function bindSurfaceMPGWheel() {
     state.jog.surfaceWheel.pointerId = null;
     state.jog.surfaceWheel.lastAngle = null;
     state.jog.surfaceWheel.remainder = 0;
-    renderSurfaceJog();
+    state.jog.surfaceWheel.gestureReleased = true;
+    finishSurfaceMPGGesture();
+    renderSurfaceMPGWheel();
   };
   wheel.addEventListener("pointerdown", (e) => {
     if (e.button !== 0 || !surfaceJogReady()) return;
@@ -13720,13 +13785,19 @@ function bindSurfaceMPGWheel() {
     state.jog.surfaceWheel.pointerId = e.pointerId;
     state.jog.surfaceWheel.lastAngle = sample.angle;
     state.jog.surfaceWheel.remainder = 0;
+    state.jog.surfaceWheel.gestureSteps = 0;
+    state.jog.surfaceWheel.gestureAccepted = 0;
+    state.jog.surfaceWheel.gestureReleased = false;
+    state.jog.surfaceWheel.gestureAxis = state.surface.mpg_axis;
+    state.jog.surfaceWheel.blocked = false;
     prepareSurfaceMPGFeedback();
     wheel.setPointerCapture?.(e.pointerId);
     e.preventDefault();
-    renderSurfaceJog();
+    renderSurfaceMPGWheel();
   });
   wheel.addEventListener("pointermove", (e) => {
     if (state.jog.surfaceWheel.pointerId !== e.pointerId) return;
+    if (state.jog.surfaceWheel.blocked) return;
     const sample = surfaceMPGPointerSample(e.clientX, e.clientY, wheel.getBoundingClientRect());
     if (sample.radius < SURFACE_MPG_DEAD_ZONE) {
       state.jog.surfaceWheel.lastAngle = null;
@@ -13741,21 +13812,22 @@ function bindSurfaceMPGWheel() {
     state.jog.surfaceWheel.angle = (Number(state.jog.surfaceWheel.angle || 0) + delta + 360) % 360;
     if (state.jog.surfaceStepPending) {
       state.jog.surfaceWheel.remainder = 0;
-      renderSurfaceJog();
+      renderSurfaceMPGWheel();
       return;
     }
     state.jog.surfaceWheel.remainder += delta;
     while (Math.abs(state.jog.surfaceWheel.remainder) >= SURFACE_MPG_DETENT_DEG && !state.jog.surfaceStepPending) {
       const sign = state.jog.surfaceWheel.remainder > 0 ? 1 : -1;
       state.jog.surfaceWheel.remainder -= SURFACE_MPG_DETENT_DEG * sign;
-      if (sendSurfaceStep(state.surface.mpg_axis, sign)) {
+      if (sendSurfaceStep(state.jog.surfaceWheel.gestureAxis, sign, "mpg")) {
+        state.jog.surfaceWheel.gestureSteps++;
         state.jog.surfaceWheel.value += sign;
         pulseSurfaceMPGDetent(wheel);
       } else {
         state.jog.surfaceWheel.remainder = 0;
       }
     }
-    renderSurfaceJog();
+    renderSurfaceMPGWheel();
   });
   wheel.addEventListener("pointerup", release);
   wheel.addEventListener("pointercancel", release);
@@ -13771,7 +13843,7 @@ function bindSurfaceMPGWheel() {
       state.jog.surfaceWheel.angle = (Number(state.jog.surfaceWheel.angle || 0) + SURFACE_MPG_DETENT_DEG * sign + 360) % 360;
       pulseSurfaceMPGDetent(wheel);
     }
-    renderSurfaceJog();
+    renderSurfaceMPGWheel();
   });
 }
 

@@ -930,6 +930,10 @@ test("virtual MPG presents a visible detent ring and relative step readout", () 
   assert.match(htmlSource, /class="surface-wheel-indicator"/);
   assert.match(htmlSource, /id="surface-mpg-wheel-step">1 mm \/ click/);
   assert.match(htmlSource, /aria-label="Virtual MPG wheel; turn the outer ring"/);
+  const render = extractFunction("renderSurfaceJog");
+  assert.match(render, /surfaceStepSource !== "mpg"/, "only ordinary button steps may disable neighboring movement controls");
+  assert.doesNotMatch(render, /const busy = !!j\.surfaceStepPending \|\|/, "an MPG acknowledgement must not dim every neighboring motion button");
+  assert.doesNotMatch(source, /accepted; wait for the position readout to settle/, "high-frequency MPG acknowledgements must not create repeated verbose popups");
 });
 
 test("virtual MPG binding keeps clockwise steps positive through a full circular gesture", () => {
@@ -953,14 +957,15 @@ test("virtual MPG binding keeps clockwise steps positive through a full circular
       state,
       document: { getElementById: () => wheel },
       surfaceJogReady: () => true,
-      sendSurfaceStep: (_axis, sign) => {
+      sendSurfaceStep: (_axis, sign, source) => {
+        assert.equal(source, "mpg");
         signs.push(sign);
         state.jog.surfaceStepPending = sequence++;
         return true;
       },
       prepareSurfaceMPGFeedback: () => {},
       pulseSurfaceMPGDetent: () => {},
-      renderSurfaceJog: () => {},
+      renderSurfaceMPGWheel: () => {},
     },
   );
   vm.runInContext("bindSurfaceMPGWheel()", ctx);
@@ -974,6 +979,26 @@ test("virtual MPG binding keeps clockwise steps positive through a full circular
   state.jog.surfaceStepPending = 0;
   listeners.pointermove({ pointerId: 4, ...point(-150) });
   assert.deepEqual(signs, [1, 1], "continuing clockwise does not reverse after half a turn");
+});
+
+test("virtual MPG gesture produces one terminal summary after its final acknowledgement", () => {
+  const messages = [];
+  const state = {
+    jog: {
+      surfaceStepPending: 0,
+      surfaceWheel: { gestureReleased: true, gestureSteps: 3, gestureAccepted: 3, gestureAxis: "y", blocked: false },
+    },
+  };
+  const ctx = buildContext(["finishSurfaceMPGGesture"], [], {
+    state,
+    setStatusMessage: (...args) => messages.push(args),
+  });
+  assert.equal(vm.runInContext("finishSurfaceMPGGesture()", ctx), true);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0][1], "MPG Y: 3 increments accepted.");
+  assert.equal(messages[0][2], "ok");
+  assert.equal(state.jog.surfaceWheel.gestureSteps, 0);
+  assert.equal(state.jog.surfaceWheel.gestureReleased, false);
 });
 
 test("mobile jog options start collapsed without changing the desktop default", () => {
@@ -1140,7 +1165,7 @@ test("jog disconnect clears every local continuous-motion intent", () => {
   const state = {
     jog: {
       surfaceInput: { axis: "x", sign: 1 },
-      surfaceWheel: { pointerId: 7, lastAngle: 42, remainder: 19 },
+      surfaceWheel: { pointerId: 7, lastAngle: 42, remainder: 19, gestureSteps: 2, gestureAccepted: 1, gestureReleased: true, gestureAxis: "x", blocked: true },
       pad: "Surface",
       deadman: true,
       axes: { x: 1, y: 0, z: 0 },
@@ -1159,6 +1184,11 @@ test("jog disconnect clears every local continuous-motion intent", () => {
   assert.equal(state.jog.surfaceWheel.pointerId, null);
   assert.equal(state.jog.surfaceWheel.lastAngle, null);
   assert.equal(state.jog.surfaceWheel.remainder, 0);
+  assert.equal(state.jog.surfaceWheel.gestureSteps, 0);
+  assert.equal(state.jog.surfaceWheel.gestureAccepted, 0);
+  assert.equal(state.jog.surfaceWheel.gestureReleased, false);
+  assert.equal(state.jog.surfaceWheel.gestureAxis, "");
+  assert.equal(state.jog.surfaceWheel.blocked, false);
   assert.equal(state.jog.pad, "");
   assert.equal(state.jog.deadman, false);
   assert.deepEqual(JSON.parse(JSON.stringify(state.jog.axes)), { x: 0, y: 0, z: 0 });
