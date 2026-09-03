@@ -5548,6 +5548,21 @@ test("Surface routing keeps an armed Jog session during its transient Run state"
   assert.deepEqual(calls.pop(), ["dashboard", "replace"]);
 });
 
+test("Surface footer ignores transient Run while an armed MPG gesture is held", () => {
+  const state = {
+    activeTab: "jog",
+    jog: { armed: true, surfaceWheel: { pointerId: 7 } },
+    machine: { state: "Run" },
+  };
+  const ctx = buildContext(["surfaceJogDisplayState"], [], { state });
+  assert.equal(vm.runInContext("surfaceJogDisplayState()", ctx), "Idle");
+  state.jog.surfaceWheel.pointerId = null;
+  assert.equal(vm.runInContext("surfaceJogDisplayState()", ctx), "Run");
+  state.jog.surfaceWheel.pointerId = 7;
+  state.machine.state = "Hold";
+  assert.equal(vm.runInContext("surfaceJogDisplayState()", ctx), "Hold");
+});
+
 test("Surface map remains a preview until the server supports a held target move", () => {
   const mapBinding = extractFunction("bindSurfaceXYMap");
   assert.doesNotMatch(mapBinding, /sendTapMove|sendJog\(/);

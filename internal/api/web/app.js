@@ -2114,7 +2114,7 @@ function renderSurfaceJog() {
   document.getElementById("surface-jog-directional")?.setAttribute("aria-pressed", String(surface.method === "directional"));
   document.getElementById("surface-jog-mpg")?.setAttribute("aria-pressed", String(surface.method === "mpg"));
   renderMachineReadouts(state.machine || {});
-  const machineState = String(state.machine?.state || "Unknown");
+  const machineState = surfaceJogDisplayState();
   setTextIfChanged(document.getElementById("surface-position-state"), machineState === "Idle" ? "Ready to move" : "Machine: " + machineState);
   const detail = state.machine?.connected === false
     ? "Machine connection unavailable"
@@ -2134,6 +2134,15 @@ function renderSurfaceJog() {
     setSoftDisabled(button, !busy && !ready);
   }
   renderSurfaceMPGWheel(ready && !surfaceButtonBusy);
+}
+
+function surfaceJogDisplayState(machineState = String(state.machine?.state || "Unknown")) {
+  // A local step briefly reports Run while the operator is still holding the
+  // wheel. Keep the Surface footer stable for that gesture only; this affects
+  // presentation, never the machine status used by jog safety or controls.
+  const turningMPG = state.activeTab === "jog" && state.jog?.armed === true &&
+    state.jog?.surfaceWheel?.pointerId !== null;
+  return machineState === "Run" && turningMPG ? "Idle" : machineState;
 }
 
 function renderSurfaceMPGWheel(ready = surfaceJogBaseReady()) {
