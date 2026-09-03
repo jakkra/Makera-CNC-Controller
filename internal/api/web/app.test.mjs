@@ -121,6 +121,8 @@ test("Overview and Jog mount one shared machine readout with work and machine co
   assert.match(htmlSource, /id="development-refresh" aria-label="Refresh page" title="Refresh page">↻<\/button>/);
   assert.match(htmlSource, /@media \(max-width: 760px\), \(pointer: coarse\) and \(max-width: 1179px\)/);
   assert.match(htmlSource, /@media \(hover: hover\) and \(pointer: fine\), \(min-width: 1180px\)/);
+  assert.match(htmlSource, /header \{ gap: 6px; padding: 7px 10px; background: rgba\(8,14,19,\.96\); border-bottom-color: #31404a; box-shadow: none; \}/);
+  assert.match(htmlSource, /#ctl-halt \{ grid-area: halt; min-height: 38px; min-width: 82px; border-color: #f04444; color: #fff; background: linear-gradient\(#ec3737,#c91924\);/);
   assert.match(htmlSource, /machine-axis-value \{ grid-column: 2; grid-template-columns: 24px minmax\(0,1fr\); gap: 4px; margin-left: -16px; padding: 0; \}/);
   assert.match(htmlSource, /machine-axis-value i \{ color: #9bb3c1; font-size: 14px;/);
   assert.match(htmlSource, /machine-axis-value\[data-machine-row="work"\] i::after \{ content: "W"; font-size: 14px; \}/);

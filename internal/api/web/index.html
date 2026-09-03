@@ -1062,18 +1062,21 @@
   .attention-actions { display: flex; flex-wrap: wrap; gap: 10px; }
   .attention-actions button { min-height: 46px; padding-inline: 18px; }
   @media (max-width: 760px), (pointer: coarse) and (max-width: 1179px) {
-    header { gap: 6px; padding: 7px 10px; }
+    header { gap: 6px; padding: 7px 10px; background: rgba(8,14,19,.96); border-bottom-color: #31404a; box-shadow: none; }
     #command-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) max-content; grid-template-areas: "brand halt" "machine actions"; min-height: 0; gap: 7px 10px; }
     #app-brand { grid-area: brand; }
+    #app-brand strong { color: #edf6fb; }
+    #app-brand span { color: #8da1ac; }
     #machine { grid-area: machine; }
+    #machine .badge { background: transparent; text-transform: uppercase; }
     #machine-status-toolbar { display: none; }
     #command-actions { grid-area: actions; margin-left: 0; }
     #command-actions { position: relative; justify-self: end; overflow: visible; }
-    #mobile-actions-toggle { display: inline-flex; min-height: 36px; min-width: 96px; justify-content: center; }
+    #mobile-actions-toggle { min-height: 36px; min-width: 96px; display: inline-flex; justify-content: center; color: #dbe4ea; background: #111a20; border-color: #34434c; border-radius: 2px; }
     #command-menu { display: none; position: absolute; top: calc(100% + 7px); right: 0; z-index: 92; width: min(320px, calc(100vw - 20px)); padding: 8px; grid-template-columns: 1fr; gap: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 18px 46px rgba(0,0,0,.42); }
     #command-actions.mobile-menu-open #command-menu { display: grid; }
     .command-popout > summary { min-height: 36px; padding: 5px 8px; font-size: 12px; }
-    #ctl-halt { grid-area: halt; min-height: 38px; min-width: 82px; }
+    #ctl-halt { grid-area: halt; min-height: 38px; min-width: 82px; border-color: #f04444; color: #fff; background: linear-gradient(#ec3737,#c91924); border-radius: 2px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; }
     #view-navigation { display: block; overflow: hidden; }
     .tabs { display: grid; width: 100%; min-width: 0; grid-template-columns: repeat(5, minmax(0, 1fr)); overflow: hidden; }
     .tab { flex: 1 1 0; width: auto; min-width: 0; min-height: 38px; padding-inline: 4px; font-size: 11px; }
