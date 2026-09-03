@@ -1336,9 +1336,9 @@
     .surface-direction-pad button, .surface-jog-center { border: 1px solid #52626b; border-radius: 14px; background: linear-gradient(145deg,#202b32,#11191e); transform: rotate(-45deg); }
     .surface-direction-pad button { min-height: 100px; color: #e1e9ed; font-size: 25px; }
     .surface-jog-center { color: #68d9ee; border-color: #68d9ee; font-size: 13px; }
-    .surface-axis-column { min-height: 0; align-self: stretch; display: grid; grid-template-rows: minmax(0,1fr) 52px 60px; gap: 12px; }
-    .surface-jog-actions { display: grid; grid-template-columns: 1fr; grid-template-rows: repeat(2,minmax(90px,1fr)); gap: 0; }
-    .surface-jog-actions button { min-height: 0; border-radius: 0; border-color: #52626b; font-size: 24px; font-weight: 750; }
+    .surface-axis-column { min-height: 0; align-self: start; display: grid; grid-template-rows: 152px 52px 60px; gap: 12px; }
+    .surface-jog-actions { display: grid; grid-template-columns: 1fr; grid-template-rows: repeat(2,76px); gap: 0; }
+    .surface-jog-actions button { min-height: 0; border-radius: 0; border-color: #52626b; font-size: 21px; font-weight: 750; }
     .surface-jog-actions button:first-child { border-radius: 10px 10px 0 0; }
     .surface-jog-actions button:nth-child(2) { border-top: 0; border-radius: 0 0 10px 10px; }
     #surface-map-open { grid-row: 2; min-height: 52px; border-radius: 2px; font-size: 14px; }
@@ -1346,6 +1346,22 @@
     .surface-a-guard span { display: grid; place-items: center; border-right: 1px solid #3a4a54; }
     .surface-a-guard button { border: 0; border-radius: 0; background: transparent; color: #65717a; font-weight: 750; }
     .surface-position-panel { align-content: start; justify-content: stretch; padding-inline: 22px; }
+    .surface-position-panel .machine-axis-grid { grid-template-columns: repeat(2, minmax(0,1fr)); grid-auto-rows: 74px; }
+    .surface-position-panel .machine-axis { min-height: 0; grid-template-columns: 40px minmax(0,1fr); grid-template-rows: 1fr 1fr; gap: 2px 6px; padding: 7px 10px; }
+    .surface-position-panel .machine-axis:nth-child(2) { border-right: 0; }
+    .surface-position-panel .machine-axis:nth-child(n+3) { border-top: 1px solid var(--border); }
+    .surface-position-panel .machine-axis-label { position: static; grid-column: 1; grid-row: 1 / -1; align-self: center; font-size: 25px; }
+    .surface-position-panel .machine-axis-label::after { content: " / mm"; color: #8ca5b4; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+    .surface-position-panel .machine-axis-a .machine-axis-label::after { content: " / °"; }
+    .surface-position-panel .machine-axis-value { grid-column: 2; grid-template-columns: 22px minmax(0,1fr); gap: 3px; margin-left: -12px; padding: 0; }
+    .surface-position-panel .machine-axis-value i { color: #9bb3c1; font-size: 13px; font-weight: 750; letter-spacing: .02em; }
+    .surface-position-panel .machine-axis-value[data-machine-row="work"] i { font-size: 0; }
+    .surface-position-panel .machine-axis-value[data-machine-row="work"] i::after { content: "W"; font-size: 13px; }
+    .surface-position-panel .machine-axis-value[data-machine-row="machine"] i { font-size: 0; }
+    .surface-position-panel .machine-axis-value[data-machine-row="machine"] i::after { content: "M"; font-size: 13px; }
+    .surface-position-panel .machine-axis strong, .surface-position-panel .machine-axis small { text-align: left; }
+    .surface-position-panel .machine-axis strong { font-size: clamp(16px, 1.5vw, 22px); }
+    .surface-position-panel .machine-axis small { font-size: clamp(11px, .95vw, 13px); }
     .surface-position-summary { gap: 4px; padding: 12px 0; border-bottom: 1px solid #31404a; }
     .surface-position-actions { margin-top: auto; }
     .surface-position-actions button { min-height: 46px; }
@@ -1837,7 +1853,7 @@
           </div>
           <div class="surface-axis-column">
             <div class="surface-jog-actions"><button type="button" data-surface-z-sign="1">Z+</button><button type="button" data-surface-z-sign="-1">Z−</button></div>
-            <button type="button" id="surface-map-open">XY-karta</button>
+            <button type="button" id="surface-map-open">XY Target Map</button>
             <div class="surface-a-guard" aria-label="A axis unavailable"><span aria-hidden="true">🔒</span><button type="button" disabled>A−</button><button type="button" disabled>A+</button></div>
           </div>
         </div>
