@@ -1380,6 +1380,10 @@
     body[data-active-tab="files"] #files-view { height: 100%; min-height: 0; grid-template-rows: auto minmax(260px,1fr) auto; overflow: auto; }
     body[data-active-tab="files"] .files-browser-section, body[data-active-tab="files"] #file-browser, body[data-active-tab="files"] #file-main { height: 100%; min-height: 0; }
   }
+  @media (hover: hover) and (pointer: fine) and (min-width: 1180px) {
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-label::after { content: ""; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-unit { display: block; right: auto; bottom: 5px; left: 12px; font-size: 10px; }
+  }
 </style>
 </head>
 <body>
