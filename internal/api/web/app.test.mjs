@@ -1001,6 +1001,31 @@ test("virtual MPG gesture produces one terminal summary after its final acknowle
   assert.equal(state.jog.surfaceWheel.gestureReleased, false);
 });
 
+test("virtual MPG click uses a short audible pulse once the audio context is running", () => {
+  const calls = [];
+  const oscillator = {
+    frequency: { setValueAtTime: (...args) => calls.push(["frequency", ...args]) },
+    connect: () => calls.push(["oscillator-connect"]),
+    start: (...args) => calls.push(["start", ...args]),
+    stop: (...args) => calls.push(["stop", ...args]),
+  };
+  const gain = {
+    gain: {
+      setValueAtTime: (...args) => calls.push(["gain", ...args]),
+      exponentialRampToValueAtTime: (...args) => calls.push(["ramp", ...args]),
+    },
+    connect: () => calls.push(["gain-connect"]),
+  };
+  const audio = { state: "running", currentTime: 3, createOscillator: () => oscillator, createGain: () => gain, destination: {} };
+  const ctx = buildContext(["playSurfaceMPGClick"]);
+  ctx.audio = audio;
+  assert.equal(vm.runInContext("playSurfaceMPGClick(audio)", ctx), true);
+  assert.deepEqual(calls.find(([name]) => name === "frequency"), ["frequency", 1100, 3]);
+  assert.deepEqual(calls.find(([name]) => name === "start"), ["start", 3]);
+  assert.deepEqual(calls.find(([name]) => name === "stop"), ["stop", 3.019]);
+  assert.match(source, /surfaceMPGAudioResume/, "early detents wait for Firefox to finish waking its audio context");
+});
+
 test("mobile jog options start collapsed without changing the desktop default", () => {
   const options = { open: true };
   const ctx = buildContext(["initializeSurfaceMobileOptions"], [], {

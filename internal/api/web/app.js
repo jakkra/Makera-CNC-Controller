@@ -185,6 +185,7 @@ const state = {
 let probeConfirmResolve = null;
 let outlineContextRevision = 1;
 let surfaceMPGAudioContext = null;
+let surfaceMPGAudioResume = null;
 let surfaceMPGFeedbackTimer = null;
 
 const gcodeView = {
@@ -13710,11 +13711,33 @@ function prepareSurfaceMPGFeedback() {
   if (!AudioContextCtor) return null;
   try {
     if (!surfaceMPGAudioContext) surfaceMPGAudioContext = new AudioContextCtor({ latencyHint: "interactive" });
-    if (surfaceMPGAudioContext.state === "suspended") surfaceMPGAudioContext.resume().catch(() => {});
+    if (surfaceMPGAudioContext.state !== "running" && !surfaceMPGAudioResume) {
+      surfaceMPGAudioResume = Promise.resolve(surfaceMPGAudioContext.resume?.())
+        .catch(() => null)
+        .then(() => surfaceMPGAudioContext)
+        .finally(() => { surfaceMPGAudioResume = null; });
+    }
   } catch {
     surfaceMPGAudioContext = null;
+    surfaceMPGAudioResume = null;
   }
   return surfaceMPGAudioContext;
+}
+
+function playSurfaceMPGClick(audio) {
+  if (!audio || audio.state !== "running") return false;
+  const now = audio.currentTime;
+  const oscillator = audio.createOscillator();
+  const gain = audio.createGain();
+  oscillator.type = "square";
+  oscillator.frequency.setValueAtTime(1100, now);
+  gain.gain.setValueAtTime(0.045, now);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.018);
+  oscillator.connect(gain);
+  gain.connect(audio.destination);
+  oscillator.start(now);
+  oscillator.stop(now + 0.019);
+  return true;
 }
 
 function pulseSurfaceMPGDetent(wheel) {
@@ -13724,18 +13747,9 @@ function pulseSurfaceMPGDetent(wheel) {
     // Vibration is optional and is not exposed by most desktop hardware.
   }
   const audio = prepareSurfaceMPGFeedback();
-  if (audio?.state === "running") {
-    const now = audio.currentTime;
-    const oscillator = audio.createOscillator();
-    const gain = audio.createGain();
-    oscillator.type = "square";
-    oscillator.frequency.setValueAtTime(760, now);
-    gain.gain.setValueAtTime(0.018, now);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.012);
-    oscillator.connect(gain);
-    gain.connect(audio.destination);
-    oscillator.start(now);
-    oscillator.stop(now + 0.013);
+  if (!playSurfaceMPGClick(audio) && surfaceMPGAudioResume) {
+    const resume = surfaceMPGAudioResume;
+    resume.then((resumedAudio) => { playSurfaceMPGClick(resumedAudio); }).catch(() => {});
   }
   if (!wheel) return;
   wheel.classList.add("is-detent");
