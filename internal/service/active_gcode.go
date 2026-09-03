@@ -17,6 +17,7 @@ import (
 	"github.com/uwin/cnc-proxy/internal/gcodelog"
 	"github.com/uwin/cnc-proxy/internal/machine"
 	"github.com/uwin/cnc-proxy/internal/protocol"
+	"github.com/uwin/cnc-proxy/internal/session"
 	"github.com/uwin/cnc-proxy/internal/store"
 )
 
@@ -302,13 +303,26 @@ func (s *Service) loadActiveGcodeFromMachine(playStatus bool) {
 	if err := s.setMachineReportedActiveGcode(remote, expectedMD5); err != nil {
 		return
 	}
-	// Metadata is useful immediately. Do not start a file transfer while the
-	// program is running: the firmware has a single shared conversation and an
-	// incomplete download must never compete with active playback.
+	// Metadata is useful immediately. The official controller can download the
+	// active source while it is playing, so owner mode may mirror that read-only
+	// transfer into the local cache. In relay mode the official controller owns
+	// the conversation and Sensei stays a passive observer.
 	if _, _, err := s.ReadCache(remote); err == nil {
 		loaded = true
 		return
 	}
+	if s.arb.Mode() != session.ModeOwner {
+		loaded = true
+		return
+	}
+	if err := s.fetchToCache(remote, false, expectedMD5); err != nil {
+		// The active file remains known even if this best-effort background
+		// cache fill cannot complete. Avoid turning status updates into a
+		// repeated transfer loop while a job is in progress.
+		loaded = true
+		return
+	}
+	loaded = true
 }
 
 func (s *Service) queryMachineActiveGcode(playStatus bool) (string, string, bool, error) {

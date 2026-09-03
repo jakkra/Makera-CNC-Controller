@@ -1519,7 +1519,7 @@ func TestActiveGcodeDoesNotQueryUnsupportedZ1ProgressCommand(t *testing.T) {
 	}
 }
 
-func TestActiveGcodeDiscoversExternalZ1PlaybackWithoutDownload(t *testing.T) {
+func TestActiveGcodeCachesExternalZ1PlaybackWhileRunning(t *testing.T) {
 	svc, m, tr := serviceWithMachine(t)
 	const runningPath = "/sd/gcodes/external job.nc"
 	content := []byte("G21\nG90\nG0 X1 Y2\n")
@@ -1538,12 +1538,12 @@ func TestActiveGcodeDiscoversExternalZ1PlaybackWithoutDownload(t *testing.T) {
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		active := svc.ActiveGcode()
-		if active.Path == runningPath && active.Entry != nil && active.Entry.Sync == store.RemoteOnly && active.Preview == nil {
+		if active.Path == runningPath && active.Entry != nil && active.Preview != nil && active.Preview.LineCount == 3 {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("active gcode was not discovered as remote-only: %+v", svc.ActiveGcode())
+	t.Fatalf("active gcode was not cached and parsed: %+v", svc.ActiveGcode())
 }
 
 func TestMachineReportedActiveGcodeReplacesResidentSourceAndSegments(t *testing.T) {
