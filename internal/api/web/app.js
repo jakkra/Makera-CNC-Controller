@@ -13725,6 +13725,10 @@ function bindSurfaceHoldButton(button, axis, sign, useSelectedAxis = false) {
   const stop = () => stopSurfaceHoldJog();
   button.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
+    // A hold-to-move control owns the touch for its full duration. Prevent the
+    // browser from turning a deliberate hold into text selection or a context
+    // menu while preserving the button's keyboard path below.
+    e.preventDefault();
     pointerId = e.pointerId;
     button.setPointerCapture?.(pointerId);
     if (state.surface.motion === "hold" || useSelectedAxis) start();
@@ -13737,6 +13741,7 @@ function bindSurfaceHoldButton(button, axis, sign, useSelectedAxis = false) {
   });
   button.addEventListener("pointercancel", stop);
   button.addEventListener("lostpointercapture", stop);
+  button.addEventListener("contextmenu", (e) => e.preventDefault());
   button.addEventListener("keydown", (e) => {
     if (e.repeat || (e.key !== "Enter" && e.key !== " ")) return;
     e.preventDefault();

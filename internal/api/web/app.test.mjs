@@ -937,6 +937,13 @@ test("virtual MPG presents a visible detent ring and relative step readout", () 
   assert.match(htmlSource, /id="surface-mpg-feedback"><option value="confirmed">Confirmed step<\/option><option value="detent">Every wheel click<\/option>/);
 });
 
+test("Surface hold buttons reserve a long touch for continuous jogging", () => {
+  assert.match(htmlSource, /\.surface-hold-controls button \{[^}]*touch-action: none;[^}]*-webkit-touch-callout: none;/);
+  const binding = extractFunction("bindSurfaceHoldButton");
+  assert.match(binding, /e\.preventDefault\(\);/);
+  assert.match(binding, /addEventListener\("contextmenu", \(e\) => e\.preventDefault\(\)\)/);
+});
+
 test("Surface MPG feedback preference defaults to confirmed steps and permits every wheel detent", () => {
   const ctx = buildContext(["defaultSurfaceViewPreferences", "loadSurfaceViewPreferences"], ["SURFACE_VIEW_PREFERENCES_KEY"], {
     localStorage: { getItem: () => JSON.stringify({ mpg_feedback: "detent" }) },

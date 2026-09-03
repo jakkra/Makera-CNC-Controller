@@ -148,7 +148,7 @@
   .surface-wheel.is-disabled:not(.is-turning) { opacity: .42; cursor: not-allowed; }
   .surface-wheel:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
   .surface-hold-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-sm); }
-  .surface-hold-controls button { min-height: 72px; justify-content: center; font-size: 18px; font-weight: 750; }
+  .surface-hold-controls button { min-height: 72px; justify-content: center; font-size: 18px; font-weight: 750; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   .surface-jog-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-sm); }
   .surface-jog-actions button { min-height: 52px; justify-content: center; }
   .surface-jog-actions button:last-child:nth-child(odd) { grid-column: 1 / -1; }
