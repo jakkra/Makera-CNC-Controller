@@ -302,15 +302,12 @@ func (s *Service) loadActiveGcodeFromMachine(playStatus bool) {
 	if err := s.setMachineReportedActiveGcode(remote, expectedMD5); err != nil {
 		return
 	}
-	// Metadata is useful immediately. Fetch the actual active program as a
-	// read-only transfer so source/preview work without Studio. A busy transfer
-	// simply leaves it remote-only and this probe retries later.
+	// Metadata is useful immediately. Do not start a file transfer while the
+	// program is running: the firmware has a single shared conversation and an
+	// incomplete download must never compete with active playback.
 	if _, _, err := s.ReadCache(remote); err == nil {
 		loaded = true
 		return
-	}
-	if err := s.fetchToCache(remote, false, expectedMD5); err == nil {
-		loaded = true
 	}
 }
 
