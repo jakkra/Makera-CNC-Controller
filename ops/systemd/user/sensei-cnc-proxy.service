@@ -1,0 +1,16 @@
+[Unit]
+Description=Sensei CNC proxy
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/sensei/proxy.env
+ExecStart=%h/.local/bin/sensei-cnc-proxy
+Restart=always
+RestartSec=2s
+
+[Install]
+WantedBy=default.target
