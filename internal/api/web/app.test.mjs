@@ -127,6 +127,7 @@ test("Overview and Jog mount one shared machine readout with work and machine co
   assert.match(htmlSource, /body\[data-active-tab="active-job"\] \.active-gcode-workspace \{ display: grid; grid-template-columns: 1fr; height: auto; min-height: 0; gap: 10px; overflow: visible; \}/);
   assert.match(htmlSource, /body\[data-active-tab="active-job"\] #active-gcode-left \{ grid-column: 1; grid-row: 1;/);
   assert.match(htmlSource, /body\[data-active-tab="active-job"\] #gcode-preview-wrap \{ grid-column: 1; grid-row: 2;/);
+  assert.match(appSource, /gcodeView\.resizeObserver\.observe\(document\.getElementById\("gcode-preview-wrap"\) \|\| canvas\);/);
   assert.match(htmlSource, /machine-axis-value \{ grid-column: 2; grid-template-columns: 24px minmax\(0,1fr\); gap: 4px; margin-left: -16px; padding: 0; \}/);
   assert.match(htmlSource, /machine-axis-value i \{ color: #9bb3c1; font-size: 14px;/);
   assert.match(htmlSource, /machine-axis-value\[data-machine-row="work"\] i::after \{ content: "W"; font-size: 14px; \}/);
