@@ -119,12 +119,14 @@ test("Overview and Jog mount one shared machine readout with work and machine co
   assert.match(htmlSource, /grid-template-columns: minmax\(0,1fr\) minmax\(400px, 32vw\);/, "the camera job pane gets the overview width");
   assert.doesNotMatch(htmlSource, /id="dashboard-open-job"/, "the footer owns the sole job-details shortcut");
   assert.match(htmlSource, /id="development-refresh" aria-label="Refresh page" title="Refresh page">↻<\/button>/);
+  assert.match(htmlSource, /@media \(max-width: 760px\), \(pointer: coarse\) and \(max-width: 1179px\)/);
+  assert.match(htmlSource, /@media \(hover: hover\) and \(pointer: fine\), \(min-width: 1180px\)/);
   assert.match(htmlSource, /machine-axis-value \{ grid-column: 2; grid-template-columns: 24px minmax\(0,1fr\); gap: 4px; margin-left: -16px; padding: 0; \}/);
   assert.match(htmlSource, /machine-axis-value i \{ color: #9bb3c1; font-size: 14px;/);
   assert.match(htmlSource, /machine-axis-value\[data-machine-row="work"\] i::after \{ content: "W"; font-size: 14px; \}/);
   assert.match(htmlSource, /machine-axis-value\[data-machine-row="machine"\] i::after \{ content: "M"; font-size: 14px; \}/);
   assert.match(htmlSource, /#dashboard-external-camera-image \{ transform: rotate\(180deg\); \}/);
-  assert.match(htmlSource, /@media \(hover: hover\) and \(pointer: fine\) and \(min-width: 1180px\)/);
+  assert.match(htmlSource, /@media \(hover: hover\) and \(pointer: fine\)/);
   assert.match(htmlSource, /dashboard-machine \.machine-axis-label::after \{ content: ""; \}/);
   assert.match(htmlSource, /dashboard-machine \.machine-axis-unit \{ display: block; right: auto; bottom: 5px; left: 12px; font-size: 10px; \}/);
   assert.doesNotMatch(htmlSource, /[åäö]/i);

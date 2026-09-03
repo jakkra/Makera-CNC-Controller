@@ -1061,7 +1061,7 @@
   .attention-surface p { margin: 0; color: var(--muted); font-size: 16px; }
   .attention-actions { display: flex; flex-wrap: wrap; gap: 10px; }
   .attention-actions button { min-height: 46px; padding-inline: 18px; }
-  @media (max-width: 760px), (pointer: coarse) and (max-width: 900px) {
+  @media (max-width: 760px), (pointer: coarse) and (max-width: 1179px) {
     header { gap: 6px; padding: 7px 10px; }
     #command-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) max-content; grid-template-areas: "brand halt" "machine actions"; min-height: 0; gap: 7px 10px; }
     #app-brand { grid-area: brand; }
@@ -1251,7 +1251,7 @@
     .surface-jog-actions button:last-child:nth-child(odd) { grid-column: auto; }
     #surface-map-open { display: none; }
   }
-  @media (min-width: 1180px) {
+  @media (hover: hover) and (pointer: fine), (min-width: 1180px) {
     :root { --surface-header-h: 72px; --surface-rail-w: 188px; --surface-footer-h: 76px; }
     body { background: radial-gradient(circle at 52% 18%, #14222c 0, #0b1218 46%, #090e12 100%); }
     header { position: relative; height: var(--surface-header-h); min-height: var(--surface-header-h); display: block; padding: 0 22px 0 26px; background: rgba(8,14,19,.96); border-bottom-color: #31404a; box-shadow: none; }
@@ -1380,7 +1380,7 @@
     body[data-active-tab="files"] #files-view { height: 100%; min-height: 0; grid-template-rows: auto minmax(260px,1fr) auto; overflow: auto; }
     body[data-active-tab="files"] .files-browser-section, body[data-active-tab="files"] #file-browser, body[data-active-tab="files"] #file-main { height: 100%; min-height: 0; }
   }
-  @media (hover: hover) and (pointer: fine) and (min-width: 1180px) {
+  @media (hover: hover) and (pointer: fine) {
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-label::after { content: ""; }
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-unit { display: block; right: auto; bottom: 5px; left: 12px; font-size: 10px; }
   }
