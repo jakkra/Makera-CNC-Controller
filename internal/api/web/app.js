@@ -188,6 +188,7 @@ let surfaceMPGAudioContext = null;
 let surfaceMPGAudioResume = null;
 let surfaceMPGNextClickTime = 0;
 let surfaceMPGFeedbackTimer = null;
+const SURFACE_MPG_AUDIO_LOOKAHEAD_S = 0.01;
 
 const gcodeView = {
   key: "",
@@ -13733,7 +13734,11 @@ function playSurfaceMPGClick(audio) {
   // Browser/WebAudio can receive several acknowledgement callbacks inside one
   // render turn. Space the physical feedback pulses so they remain audible as
   // distinct detents instead of summing into one nearly silent transient.
-  const start = Math.max(now, surfaceMPGNextClickTime);
+  // Starting exactly at currentTime can miss the first audio render quantum in
+  // Firefox. The oscillator then joins after the fast fade has already begun,
+  // making an otherwise identical click sound randomly quiet. A tiny fixed
+  // lead gives every pulse the same full attack without adding perceptible lag.
+  const start = Math.max(now + SURFACE_MPG_AUDIO_LOOKAHEAD_S, surfaceMPGNextClickTime);
   surfaceMPGNextClickTime = start + 0.03;
   const oscillator = audio.createOscillator();
   const gain = audio.createGain();

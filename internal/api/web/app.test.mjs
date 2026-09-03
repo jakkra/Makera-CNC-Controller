@@ -1054,15 +1054,17 @@ test("virtual MPG click uses a short audible pulse once the audio context is run
     connect: () => calls.push(["gain-connect"]),
   };
   const audio = { state: "running", currentTime: 3, createOscillator: () => oscillator, createGain: () => gain, destination: {} };
-  const ctx = buildContext(["playSurfaceMPGClick"]);
+  const ctx = buildContext(["playSurfaceMPGClick"], ["SURFACE_MPG_AUDIO_LOOKAHEAD_S"]);
   ctx.audio = audio;
   ctx.surfaceMPGNextClickTime = 0;
   assert.equal(vm.runInContext("playSurfaceMPGClick(audio)", ctx), true);
   assert.equal(vm.runInContext("playSurfaceMPGClick(audio)", ctx), true, "rapid detents each receive a separately scheduled pulse");
-  assert.deepEqual(calls.filter(([name]) => name === "frequency"), [["frequency", 900, 3], ["frequency", 900, 3.03]]);
-  assert.deepEqual(calls.filter(([name]) => name === "gain"), [["gain", 0.15, 3], ["gain", 0.15, 3.03]]);
-  assert.deepEqual(calls.find(([name]) => name === "start"), ["start", 3]);
-  assert.deepEqual(calls.find(([name]) => name === "stop"), ["stop", 3.027]);
+  const roundedPulses = (name) => calls.filter(([call]) => call === name).map(([call, value, time]) => [call, value, Number(time.toFixed(2))]);
+  assert.deepEqual(roundedPulses("frequency"), [["frequency", 900, 3.01], ["frequency", 900, 3.04]]);
+  assert.deepEqual(roundedPulses("gain"), [["gain", 0.15, 3.01], ["gain", 0.15, 3.04]]);
+  assert.deepEqual(calls.find(([name]) => name === "start"), ["start", 3.01]);
+  assert.deepEqual(calls.find(([name]) => name === "stop"), ["stop", 3.037]);
+  assert.match(source, /SURFACE_MPG_AUDIO_LOOKAHEAD_S/, "each click gets a short scheduling lead so Firefox can render its full attack");
   assert.match(source, /surfaceMPGAudioResume/, "early detents wait for Firefox to finish waking its audio context");
   assert.match(source, /surfaceMPGNextClickTime/, "rapid detents stay audibly separate");
 });
