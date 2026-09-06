@@ -908,8 +908,8 @@ test("movement arm labels an external owner before disarming it", () => {
 
 test("mobile jog options summarize the active precision and method", () => {
   const ctx = buildContext(["surfaceJogOptionsSummary"]);
-  assert.equal(vm.runInContext(`surfaceJogOptionsSummary({motion:"step",step_mm:1,method:"directional"})`, ctx), "Step · 1 mm · Directional");
-  assert.equal(vm.runInContext(`surfaceJogOptionsSummary({motion:"hold",step_mm:0.1,method:"mpg"})`, ctx), "Hold · 0.1 mm · MPG");
+  assert.equal(vm.runInContext(`surfaceJogOptionsSummary({motion:"step",step_mm:1,method:"directional"})`, ctx), "Step · 1 mm/° · Directional");
+  assert.equal(vm.runInContext(`surfaceJogOptionsSummary({motion:"hold",step_mm:0.1,method:"mpg"})`, ctx), "Hold · 0.1 mm/° · MPG");
 });
 
 test("virtual MPG follows circular motion across the angle seam", () => {
@@ -955,16 +955,39 @@ test("Surface MPG feedback preference defaults to confirmed steps and permits ev
   assert.equal(vm.runInContext("loadSurfaceViewPreferences().mpg_feedback", ctx), "detent");
 });
 
-test("Surface MPG preserves A-axis selection and exposes bounded A step controls", () => {
+test("Surface MPG preserves A-axis selection and exposes rotary controls in degrees", () => {
   const ctx = buildContext(["defaultSurfaceViewPreferences", "loadSurfaceViewPreferences", "surfaceStepUnit"], ["SURFACE_VIEW_PREFERENCES_KEY"], {
     localStorage: { getItem: () => JSON.stringify({ mpg_axis: "a" }) },
   });
   assert.equal(vm.runInContext("loadSurfaceViewPreferences().mpg_axis", ctx), "a");
-  assert.equal(vm.runInContext('surfaceStepUnit("a")', ctx), "degrees");
+  assert.equal(vm.runInContext('surfaceStepUnit("a")', ctx), "°");
   assert.equal(vm.runInContext('surfaceStepUnit("x")', ctx), "mm");
   assert.match(htmlSource, /data-surface-mpg-axis="a"/);
   assert.match(htmlSource, /data-surface-a-sign="-1"/);
   assert.match(htmlSource, /data-surface-a-sign="1"/);
+  assert.match(htmlSource, /data-surface-a-turn="360"/);
+  assert.match(htmlSource, /10 mm \/ 10°/);
+  assert.match(source, /a: axis === "a" \? \(sign < 0 \? -1 : 1\) : 0/, "A hold must stay in the continuous deadman input");
+});
+
+test("Surface full-turn control sends one positive 360-degree A jog", () => {
+  const sent = [];
+  const state = {
+    surface: { step_mm: 1 },
+    jog: { surfaceStepPending: 0, surfaceStepSource: "", surfaceWheel: { gestureSteps: 0 } },
+  };
+  const ctx = buildContext(["surfaceStepDistance", "surfaceStepUnit", "sendSurfaceStep"], [], {
+    state,
+    surfaceJogBaseReady: () => true,
+    sendJog: (message) => { sent.push(message); return 17; },
+    setStatusMessage: () => {},
+    renderJog: () => {},
+    renderSurfaceMPGWheel: () => {},
+    connectJog: () => {},
+  });
+  assert.equal(vm.runInContext('sendSurfaceStep("a", 1, "button", 360)', ctx), true);
+  assert.equal(JSON.stringify(sent), JSON.stringify([{ type: "step", axis: "a", distance: 360 }]));
+  assert.equal(state.jog.zStepLabel, "A+ 360°");
 });
 
 test("virtual MPG binding keeps clockwise steps positive through a full circular gesture", () => {
@@ -987,6 +1010,7 @@ test("virtual MPG binding keeps clockwise steps positive through a full circular
     {
       state,
       document: { getElementById: () => wheel },
+      window: { addEventListener: () => {} },
       surfaceJogReady: () => true,
       sendSurfaceStep: (_axis, sign, source) => {
         assert.equal(source, "mpg");
@@ -997,6 +1021,8 @@ test("virtual MPG binding keeps clockwise steps positive through a full circular
       prepareSurfaceMPGFeedback: () => {},
       pulseSurfaceMPGDetent: () => {},
       renderSurfaceMPGWheel: () => {},
+      renderMachine: () => {},
+      finishSurfaceMPGGesture: () => {},
     },
   );
   vm.runInContext("bindSurfaceMPGWheel()", ctx);
@@ -1027,11 +1053,14 @@ test("every-wheel-click MPG feedback pulses even while a prior machine step is a
     {
       state,
       document: { getElementById: () => wheel },
+      window: { addEventListener: () => {} },
       surfaceJogReady: () => true,
       sendSurfaceStep: () => { throw new Error("pending detent must not send another machine step"); },
       prepareSurfaceMPGFeedback: () => {},
       pulseSurfaceMPGDetent: () => { pulses++; },
       renderSurfaceMPGWheel: () => {},
+      renderMachine: () => {},
+      finishSurfaceMPGGesture: () => {},
     },
   );
   vm.runInContext("bindSurfaceMPGWheel()", ctx);

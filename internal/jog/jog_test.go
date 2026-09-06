@@ -196,7 +196,7 @@ func TestStepAndTargetJogClampToSoftLimit(t *testing.T) {
 	}
 }
 
-func TestRotaryAStepUsesFreshAbsoluteMachinePosition(t *testing.T) {
+func TestRotaryAStepUsesRelativeInstantJog(t *testing.T) {
 	mgr, fm, cleanup := newJogManager(t)
 	defer cleanup()
 	status := "<Idle|MPos:0,0,0,45|WPos:0,0,0,45>"
@@ -218,9 +218,56 @@ func TestRotaryAStepUsesFreshAbsoluteMachinePosition(t *testing.T) {
 		t.Fatalf("A step target = %+v, want A50", ack.Target)
 	}
 	waitForGcodeCount(t, fm, 1)
-	if got := fm.Gcodes()[0]; got != "G53 G0 A50.0000" {
-		t.Fatalf("A step command = %q, want absolute A command", got)
+	if got := fm.Gcodes()[0]; got != "$J A5.0000 F1.0000" {
+		t.Fatalf("A step command = %q, want relative instant jog", got)
 	}
+}
+
+func TestRotaryAFullTurnStepUsesDegrees(t *testing.T) {
+	delta, err := stepDelta("a", 360)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if delta.A != 360 || delta.X != 0 || delta.Y != 0 || delta.Z != 0 {
+		t.Fatalf("A full-turn delta = %+v, want exactly 360 degrees", delta)
+	}
+	cfg := DefaultConfig()
+	dur := stepJogDuration(delta, cfg)
+	if dur != 6*time.Second {
+		t.Fatalf("A full-turn duration = %s, want 6s at %.0f deg/min", dur, cfg.MaxADegMin)
+	}
+	if got := jogCommandForDuration(machine.AxisValues{"a": 405}, delta, cfg, dur); got != "$J A360.0000 F1.0000" {
+		t.Fatalf("A full-turn command = %q, want relative 360-degree jog", got)
+	}
+	if _, err := stepDelta("a", 360.01); err == nil {
+		t.Fatal("A step over one revolution was accepted")
+	}
+}
+
+func TestContinuousRotaryAHoldEmitsInstantJog(t *testing.T) {
+	mgr, fm, cleanup := newJogManager(t)
+	defer cleanup()
+	status := "<Idle|MPos:0,0,0,45|WPos:0,0,0,45>"
+	fm.SetStatus(status)
+	if !mgr.arb.Tracker().ObserveStatusPayload(status) {
+		t.Fatal("rotary status precondition failed")
+	}
+
+	s, err := mgr.Start(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	drainUntil(t, s, "hello")
+	s.Arm(1)
+	drainUntil(t, s, "ack")
+	s.SetInput(Input{Seq: 2, Deadman: true, Axes: Axes{A: 1}, At: time.Now()})
+	drainUntil(t, s, "motion")
+	waitForGcodeCount(t, fm, 1)
+	if got := fm.Gcodes()[0]; !strings.HasPrefix(got, "$J A") || strings.Contains(got, "G53") {
+		t.Fatalf("A hold command = %q, want relative instant jog", got)
+	}
+	s.SetInput(Input{Seq: 3, Deadman: false, Axes: Axes{}, At: time.Now()})
 }
 
 func TestStatusQueryTimeoutToleratesTransportLatency(t *testing.T) {

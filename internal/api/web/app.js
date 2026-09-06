@@ -121,7 +121,7 @@ const state = {
     link: "offline",
     pad: "",
     deadman: false,
-    axes: { x: 0, y: 0, z: 0 },
+    axes: { x: 0, y: 0, z: 0, a: 0 },
     mpos: null,
     wpos: null,
     observed: null,
@@ -134,7 +134,7 @@ const state = {
     motionStreamRevision: 0,
     availability: null,
     target: null,
-    lead: { x: 0, y: 0, z: 0 },
+    lead: { x: 0, y: 0, z: 0, a: 0 },
     path: [],
     buttons: [],
     armPending: 0,
@@ -2129,16 +2129,9 @@ function renderSurfaceJog() {
     button.setAttribute("aria-pressed", String(button.dataset.surfaceMotion === surface.motion));
   }
   for (const button of document.querySelectorAll(".surface-mpg-axis")) button.setAttribute("aria-pressed", String(button.dataset.surfaceMpgAxis === surface.mpg_axis));
-  for (const button of document.querySelectorAll("[data-surface-axis], [data-surface-z-sign], [data-surface-a-sign], [data-surface-hold-sign]")) {
+  for (const button of document.querySelectorAll("[data-surface-axis], [data-surface-z-sign], [data-surface-a-sign], [data-surface-a-turn], [data-surface-hold-sign]")) {
     button.disabled = busy;
     setSoftDisabled(button, !busy && !ready);
-  }
-  // The firmware documents continuous $J jogging for XYZ only. A is available
-  // as a bounded step/MPG action until its rotary rate is hardware-verified.
-  for (const button of document.querySelectorAll("[data-surface-hold-sign]")) {
-    const rotary = surface.mpg_axis === "a";
-    button.disabled = busy || rotary;
-    setSoftDisabled(button, !busy && !ready && !rotary);
   }
   renderSurfaceMPGWheel(ready && !surfaceButtonBusy);
 }
@@ -2175,7 +2168,7 @@ function renderSurfaceMPGWheel(ready = surfaceJogBaseReady()) {
     wheel.classList.toggle("is-disabled", !ready && !turning);
     wheel.tabIndex = ready || turning ? 0 : -1;
   }
-  setTextIfChanged(document.getElementById("surface-mpg-wheel-step"), `${surfaceStepDistance()} ${surface.mpg_axis === "a" ? "degrees" : "mm"} / click`);
+  setTextIfChanged(document.getElementById("surface-mpg-wheel-step"), `${surfaceStepDistance()}${surface.mpg_axis === "a" ? "°" : " mm"} / click`);
 }
 
 function surfaceQuickActionState(machineState) {
@@ -2251,7 +2244,7 @@ function surfaceJogOptionsSummary(surface = state.surface) {
   const motion = surface.motion === "hold" ? "Hold" : "Step";
   const step = [10, 1, 0.1, 0.01].includes(Number(surface.step_mm)) ? Number(surface.step_mm) : 1;
   const method = surface.method === "mpg" ? "MPG" : "Directional";
-  return `${motion} · ${step} mm · ${method}`;
+  return `${motion} · ${step} mm/° · ${method}`;
 }
 
 function initializeSurfaceMobileOptions(isMobile = window.matchMedia?.("(max-width: 600px)")?.matches === true) {
@@ -2308,16 +2301,17 @@ function surfaceStepDistance() {
 }
 
 function surfaceStepUnit(axis) {
-  return String(axis).toLowerCase() === "a" ? "degrees" : "mm";
+  return String(axis).toLowerCase() === "a" ? "°" : "mm";
 }
 
-function sendSurfaceStep(axis, sign, source = "button") {
+function sendSurfaceStep(axis, sign, source = "button", explicitDistance = 0) {
   if (state.jog.surfaceStepPending) return false;
   if (!surfaceJogBaseReady()) {
     setStatusMessage("surface-jog", "Arm Movement after a fresh Idle status before jogging.", "error", { force: true });
     return false;
   }
-  const distance = surfaceStepDistance() * (sign < 0 ? -1 : 1);
+  const magnitude = Number(explicitDistance) > 0 ? Number(explicitDistance) : surfaceStepDistance();
+  const distance = magnitude * (sign < 0 ? -1 : 1);
   const seq = sendJog({ type: "step", axis, distance });
   if (!seq) {
     setStatusMessage("surface-jog", "Jog service is not connected.", "error", { force: true });
@@ -2326,7 +2320,7 @@ function sendSurfaceStep(axis, sign, source = "button") {
   }
   state.jog.surfaceStepPending = seq;
   state.jog.surfaceStepSource = source;
-  state.jog.zStepLabel = `${axis.toUpperCase()}${distance >= 0 ? "+" : "−"} ${Math.abs(distance)} ${surfaceStepUnit(axis)}`;
+  state.jog.zStepLabel = `${axis.toUpperCase()}${distance >= 0 ? "+" : "−"} ${Math.abs(distance)}${surfaceStepUnit(axis) === "°" ? "°" : " mm"}`;
   if (source === "mpg") {
     if (!state.jog.surfaceWheel.gestureSteps) {
       setStatusMessage("surface-jog", `MPG ${axis.toUpperCase()} active...`, "", { timeoutMs: 0, force: true });
@@ -2351,7 +2345,7 @@ function beginSurfaceHoldJog(axis, sign) {
   state.jog.surfaceInput = { axis, sign: sign < 0 ? -1 : 1 };
   state.jog.pad = "Surface";
   state.jog.deadman = true;
-  state.jog.axes = { x: axis === "x" ? (sign < 0 ? -1 : 1) : 0, y: axis === "y" ? (sign < 0 ? -1 : 1) : 0, z: axis === "z" ? (sign < 0 ? -1 : 1) : 0 };
+  state.jog.axes = { x: axis === "x" ? (sign < 0 ? -1 : 1) : 0, y: axis === "y" ? (sign < 0 ? -1 : 1) : 0, z: axis === "z" ? (sign < 0 ? -1 : 1) : 0, a: axis === "a" ? (sign < 0 ? -1 : 1) : 0 };
   setStatusMessage("surface-jog", "Jogging " + axis.toUpperCase() + "; release to stop.", "", { timeoutMs: 0, force: true });
   sendJogInput({ deadman: true, axes: state.jog.axes }, true);
   renderJog();
@@ -2363,7 +2357,7 @@ function stopSurfaceHoldJog() {
   state.jog.surfaceInput = null;
   state.jog.pad = "";
   state.jog.deadman = false;
-  state.jog.axes = { x: 0, y: 0, z: 0 };
+  state.jog.axes = { x: 0, y: 0, z: 0, a: 0 };
   if (state.jog.armed) sendJogInput({ deadman: false, axes: state.jog.axes }, true);
   clearNotice("surface-jog");
   renderJog();
@@ -11432,7 +11426,7 @@ function sameJogInput(a, b) {
 }
 
 function jogInputActive(input) {
-  return !!input?.deadman && ["x", "y", "z"].some((axis) => Math.abs(Number(input.axes?.[axis] || 0)) > JOG_INPUT_DEADZONE);
+  return !!input?.deadman && ["x", "y", "z", "a"].some((axis) => Math.abs(Number(input.axes?.[axis] || 0)) > JOG_INPUT_DEADZONE);
 }
 
 function resetJogInputSender() {
@@ -11455,7 +11449,7 @@ function clearDisconnectedJogInput() {
   }
   state.jog.pad = "";
   state.jog.deadman = false;
-  state.jog.axes = { x: 0, y: 0, z: 0 };
+  state.jog.axes = { x: 0, y: 0, z: 0, a: 0 };
   state.jog.buttons = [];
   state.jog.surfaceStepSource = "";
   resetJogInputSender();
@@ -12700,7 +12694,7 @@ function stopMobileWorkAreaJog(e = null) {
   resetMobileWorkAreaJog(e);
   state.jog.pad = "";
   state.jog.deadman = false;
-  state.jog.axes = { x: 0, y: 0, z: 0 };
+  state.jog.axes = { x: 0, y: 0, z: 0, a: 0 };
   if (state.jog.armed) sendJog({ type: "input", deadman: false, axes: state.jog.axes }, true);
   e?.preventDefault?.();
   renderJog();
@@ -12862,7 +12856,7 @@ function clearDisarmedMovementState() {
   if (resetMobileWorkAreaJog()) {
     state.jog.pad = "";
     state.jog.deadman = false;
-    state.jog.axes = { x: 0, y: 0, z: 0 };
+    state.jog.axes = { x: 0, y: 0, z: 0, a: 0 };
   }
   resetJogInputSender();
   state.jog.targetPending = 0;
@@ -13244,7 +13238,7 @@ function handleGamepadMacroButtons(buttons, deadman) {
 }
 
 function sameJogAxes(a, b) {
-  return ["x", "y", "z"].every((axis) => Number(a?.[axis] || 0) === Number(b?.[axis] || 0));
+  return ["x", "y", "z", "a"].every((axis) => Number(a?.[axis] || 0) === Number(b?.[axis] || 0));
 }
 
 function sameButtonStates(a, b) {
@@ -13266,7 +13260,7 @@ function sampleJog() {
     }
     if (state.jog.surfaceInput) {
       const { axis, sign } = state.jog.surfaceInput;
-      const axes = { x: axis === "x" ? sign : 0, y: axis === "y" ? sign : 0, z: axis === "z" ? sign : 0 };
+      const axes = { x: axis === "x" ? sign : 0, y: axis === "y" ? sign : 0, z: axis === "z" ? sign : 0, a: axis === "a" ? sign : 0 };
       state.jog.pad = "Surface";
       state.jog.deadman = true;
       state.jog.axes = axes;
@@ -13328,11 +13322,11 @@ function releaseJogInput(force = false) {
   const surfaceChanged = !!state.jog.surfaceInput;
   state.jog.surfaceInput = null;
   const changed = touchChanged || surfaceChanged || !!state.jog.pad || !!state.jog.deadman ||
-    !sameJogAxes(state.jog.axes, { x: 0, y: 0, z: 0 }) ||
+    !sameJogAxes(state.jog.axes, { x: 0, y: 0, z: 0, a: 0 }) ||
     (Array.isArray(state.jog.buttons) && state.jog.buttons.length > 0);
   state.jog.pad = "";
   state.jog.deadman = false;
-  state.jog.axes = { x: 0, y: 0, z: 0 };
+  state.jog.axes = { x: 0, y: 0, z: 0, a: 0 };
   state.jog.buttons = [];
   if (state.jog.armed && (force || changed || jogInputActive(state.jog.lastInput))) {
     sendJog({ type: "input", deadman: false, axes: state.jog.axes }, true);
@@ -14385,6 +14379,9 @@ function init() {
   }
   for (const button of document.querySelectorAll("[data-surface-a-sign]")) {
     bindSurfaceStepButton(button, "a", Number(button.dataset.surfaceASign));
+  }
+  for (const button of document.querySelectorAll("[data-surface-a-turn]")) {
+    bindButtonAction(button, () => sendSurfaceStep("a", 1, "button", Number(button.dataset.surfaceATurn)));
   }
   for (const button of document.querySelectorAll("[data-surface-hold-sign]")) {
     bindSurfaceHoldButton(button, "", Number(button.dataset.surfaceHoldSign), true);

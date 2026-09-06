@@ -1324,6 +1324,7 @@ type fakeCycleSticky struct {
 const (
 	fakeFirmwareMaxXYMMMin = 3000.0
 	fakeFirmwareMaxZMMMin  = 2000.0
+	fakeFirmwareMaxADegMin = 3600.0
 )
 
 func defaultFakeMachineConfig() map[string]string {
@@ -2970,6 +2971,8 @@ func fakeSelectedMachineMax(delta map[byte]float64) float64 {
 		rate := fakeFirmwareMaxXYMMMin
 		if axis == 'Z' {
 			rate = fakeFirmwareMaxZMMMin
+		} else if axis == 'A' {
+			rate = fakeFirmwareMaxADegMin
 		}
 		if maxRate == 0 || rate < maxRate {
 			maxRate = rate

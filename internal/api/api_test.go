@@ -1768,10 +1768,23 @@ func TestJogWebSocketBadAxis(t *testing.T) {
 	c := dialWS(t, srv.URL)
 	defer c.Close(websocket.StatusNormalClosure, "")
 	readWSEvent(t, c, "hello")
-	writeWS(t, c, map[string]any{"type": "input", "seq": 1, "deadman": true, "axes": map[string]float64{"a": 1}})
+	writeWS(t, c, map[string]any{"type": "input", "seq": 1, "deadman": true, "axes": map[string]float64{"b": 1}})
 	ev := readWSEvent(t, c, "error")
 	if ev.Code != jog.CodeBadInput {
 		t.Fatalf("error = %+v", ev)
+	}
+}
+
+func TestParseJogAxesAcceptsStandaloneRotaryA(t *testing.T) {
+	axes, err := parseJogAxes(map[string]float64{"a": -0.75})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if axes.A != -0.75 || axes.X != 0 || axes.Y != 0 || axes.Z != 0 {
+		t.Fatalf("parsed rotary axes = %+v", axes)
+	}
+	if _, err := parseJogAxes(map[string]float64{"a": 1, "x": 1}); err == nil {
+		t.Fatal("mixed rotary and linear jog input was accepted")
 	}
 }
 

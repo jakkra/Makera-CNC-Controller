@@ -92,9 +92,10 @@ interaction. Do not wire the map preview to that message. Server work is still
 needed for a server-authoritative target preview, continuous hold lease and
 verified safe-Z-then-XY execution before the map can move the machine.
 
-The current jog service exposes X/Y/Z only. A-axis controls remain guarded and
-unavailable for motion until the backend can enforce the same motion lease and
-safety policy for that axis.
+The jog service exposes X/Y/Z plus rotary A. A uses degrees, the firmware's
+modal-isolated relative `$J` path, and the same armed lease/deadman policy as
+linear jogging. Incremental A controls allow up to one deliberate 360-degree
+turn; the separate held controls stop admitting motion immediately on release.
 
 ## Physical evaluation
 
@@ -102,7 +103,7 @@ The three methods are intentionally implemented before choosing a winner. Test
 them on the Surface and real Z1 for representative setup tasks:
 
 - move from an arbitrary position to the front/clamping area;
-- make coarse then fine X/Y/Z adjustments;
+- make coarse then fine X/Y/Z adjustments and index A in both directions;
 - approach a known edge or probing position;
 - reach a repeated saved/setup position;
 - stop continuous movement by releasing touch and by breaking the connection.

@@ -66,6 +66,7 @@ func Options() []Option {
 		{Name: "jog-enabled", Label: "Gamepad Jog Enabled", Type: OptionBool, Default: "true"},
 		{Name: "jog-max-xy-mm-min", Label: "Max XY Jog mm/min", Type: OptionFloat, Default: trimFloat(jogDefaults.MaxXYMMMin)},
 		{Name: "jog-max-z-mm-min", Label: "Max Z Jog mm/min", Type: OptionFloat, Default: trimFloat(jogDefaults.MaxZMMMin)},
+		{Name: "jog-max-a-deg-min", Label: "Max A Jog deg/min", Type: OptionFloat, Default: trimFloat(jogDefaults.MaxADegMin)},
 		{Name: "jog-tick", Label: "Jog Tick", Type: OptionDuration, Default: jogDefaults.Tick.String()},
 		{Name: "jog-status-interval", Label: "Jog Status Interval", Type: OptionDuration, Default: jogDefaults.StatusInterval.String()},
 		{Name: "jog-deadman-timeout", Label: "Jog Deadman Timeout", Type: OptionDuration, Default: jogDefaults.DeadmanTimeout.String()},

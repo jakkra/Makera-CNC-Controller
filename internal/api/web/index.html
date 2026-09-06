@@ -1342,9 +1342,9 @@
     .surface-jog-actions button:first-child { border-radius: 10px 10px 0 0; }
     .surface-jog-actions button:nth-child(2) { border-top: 0; border-radius: 0 0 10px 10px; }
     #surface-map-open { grid-row: 2; min-height: 52px; border-radius: 2px; font-size: 14px; }
-    .surface-a-guard { display: grid; grid-template-columns: 38px 1fr 1fr; gap: 0; align-items: stretch; min-height: 58px; border: 1px solid #3a4a54; color: #77848d; }
+    .surface-a-guard { display: grid; grid-template-columns: 38px repeat(3,minmax(0,1fr)); gap: 0; align-items: stretch; min-height: 58px; border: 1px solid #3a4a54; color: #77848d; }
     .surface-a-guard span { display: grid; place-items: center; border-right: 1px solid #3a4a54; }
-    .surface-a-guard button { border: 0; border-radius: 0; background: transparent; color: #65717a; font-weight: 750; }
+    .surface-a-guard button { padding: 0 4px; border: 0; border-radius: 0; background: transparent; color: #65717a; font-size: 13px; font-weight: 750; }
     .surface-position-panel { align-content: start; justify-content: stretch; padding-inline: 22px; }
     .surface-position-panel .machine-axis-grid { grid-template-columns: repeat(2, minmax(0,1fr)); grid-auto-rows: 74px; }
     .surface-position-panel .machine-axis { min-height: 0; grid-template-columns: 40px minmax(0,1fr); grid-template-rows: 1fr 1fr; gap: 2px 6px; padding: 7px 10px; }
@@ -1805,21 +1805,21 @@
       <section class="surface-jog-panel surface-motion-panel">
         <div class="surface-jog-heading"><div><h2>JOG</h2><p>Manual machine movement</p></div><button type="button" id="surface-jog-arm">Arm Movement</button></div>
         <details id="surface-mobile-options" class="surface-mobile-options" open>
-          <summary><span>Precision &amp; controls</span><span id="surface-jog-options-summary">Step · 1 mm · Directional</span></summary>
+          <summary><span>Precision &amp; controls</span><span id="surface-jog-options-summary">Step · 1 mm/° · Directional</span></summary>
           <div class="surface-options-content">
             <div class="surface-jog-options">
               <label>Motion<select id="surface-jog-motion"><option value="step">Step</option><option value="hold">Hold to move</option></select></label>
-              <label>Increment<select id="surface-jog-step"><option value="10">10 mm</option><option value="1" selected>1 mm</option><option value="0.1">0.1 mm</option><option value="0.01">0.01 mm</option></select></label>
+              <label>Increment<select id="surface-jog-step"><option value="10">10 mm / 10°</option><option value="1" selected>1 mm / 1°</option><option value="0.1">0.1 mm / 0.1°</option><option value="0.01">0.01 mm / 0.01°</option></select></label>
             </div>
             <div class="surface-jog-mode" role="group" aria-label="Jog method">
               <button type="button" id="surface-jog-directional" aria-pressed="true">Directional</button>
               <button type="button" id="surface-jog-mpg" aria-pressed="false">Virtual MPG</button>
             </div>
             <div class="surface-kiosk-precision" role="group" aria-label="Step distance">
-              <button type="button" data-surface-step="0.01" aria-pressed="false">0.01 mm</button>
-              <button type="button" data-surface-step="0.1" aria-pressed="false">0.1 mm</button>
-              <button type="button" data-surface-step="1" aria-pressed="true">1 mm</button>
-              <button type="button" data-surface-step="10" aria-pressed="false">10 mm</button>
+              <button type="button" data-surface-step="0.01" aria-pressed="false" aria-label="0.01 millimetres for XYZ or 0.01 degrees for A">0.01 mm/°</button>
+              <button type="button" data-surface-step="0.1" aria-pressed="false" aria-label="0.1 millimetres for XYZ or 0.1 degrees for A">0.1 mm/°</button>
+              <button type="button" data-surface-step="1" aria-pressed="true" aria-label="1 millimetre for XYZ or 1 degree for A">1 mm/°</button>
+              <button type="button" data-surface-step="10" aria-pressed="false" aria-label="10 millimetres for XYZ or 10 degrees for A">10 mm/°</button>
             </div>
             <div class="surface-kiosk-motion" role="group" aria-label="Motion mode">
               <button type="button" data-surface-motion="step" aria-pressed="true">Step</button>
@@ -1855,7 +1855,7 @@
           <div class="surface-axis-column">
             <div class="surface-jog-actions"><button type="button" data-surface-z-sign="1">Z+</button><button type="button" data-surface-z-sign="-1">Z−</button></div>
             <button type="button" id="surface-map-open">XY Target Map</button>
-            <div class="surface-a-guard" role="group" aria-label="A axis step jog"><span aria-hidden="true">A</span><button type="button" data-surface-a-sign="-1">A−</button><button type="button" data-surface-a-sign="1">A+</button></div>
+            <div class="surface-a-guard" role="group" aria-label="A axis rotary jog"><span aria-hidden="true">A</span><button type="button" data-surface-a-sign="-1">A−</button><button type="button" data-surface-a-sign="1">A+</button><button type="button" data-surface-a-turn="360" aria-label="Rotate A axis positive 360 degrees">+360°</button></div>
           </div>
         </div>
       </section>

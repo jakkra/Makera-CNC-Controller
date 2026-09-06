@@ -34,30 +34,29 @@ const (
 	slowScale       = 0.2
 	baseMaxXYLeadMM = 2.5
 	baseMaxZLeadMM  = 1.0
+	baseMaxALeadDeg = 8.0
 	// The firmware's `$J ... F` argument is a scale of the slowest selected
 	// actuator max rate, not a feedrate. These match CarveraFirmware
 	// config.default for XYZ. Firmware accepts scales above 1; the firmware
 	// planner may still cap real hardware at configured machine limits.
-	firmwareMaxXYMMMin = 3000.0
-	firmwareMaxZMMMin  = 2000.0
-	minJogTick         = 5 * time.Millisecond
-	minStatusEvery     = 100 * time.Millisecond
-	minDeadmanTimeout  = 300 * time.Millisecond
-	minJogSegment      = 60 * time.Millisecond
-	maxJogSegment      = 100 * time.Millisecond
-	minJogLookahead    = 120 * time.Millisecond
-	maxJogLookahead    = 180 * time.Millisecond
-	minActiveStatusGap = time.Second
-	maxActiveStatusGap = 2 * time.Second
-	maxSegmentsPerTick = 2
-	motionLogGap       = time.Second
-	motionEventGap     = 33 * time.Millisecond
-	statusWaitGap      = 500 * time.Millisecond
-	maxManualStepMM    = 50.0
-	// The rotary axis is stepped with an absolute G53 move rather than the
-	// firmware's XYZ-only $J primitive. Keep a single touch action small until
-	// the machine's rotary rate and limits are learned from hardware.
-	maxManualStepDegrees      = 10.0
+	firmwareMaxXYMMMin        = 3000.0
+	firmwareMaxZMMMin         = 2000.0
+	firmwareMaxADegMin        = 3600.0
+	minJogTick                = 5 * time.Millisecond
+	minStatusEvery            = 100 * time.Millisecond
+	minDeadmanTimeout         = 300 * time.Millisecond
+	minJogSegment             = 60 * time.Millisecond
+	maxJogSegment             = 100 * time.Millisecond
+	minJogLookahead           = 120 * time.Millisecond
+	maxJogLookahead           = 180 * time.Millisecond
+	minActiveStatusGap        = time.Second
+	maxActiveStatusGap        = 2 * time.Second
+	maxSegmentsPerTick        = 2
+	motionLogGap              = time.Second
+	motionEventGap            = 33 * time.Millisecond
+	statusWaitGap             = 500 * time.Millisecond
+	maxManualStepMM           = 50.0
+	maxManualStepDegrees      = 360.0
 	maxTargetFeedMMMin        = 10000.0
 	jogCoordinateResolutionMM = 0.0001
 	targetPositionToleranceMM = 0.02
@@ -69,6 +68,7 @@ type Config struct {
 	Enabled         bool
 	MaxXYMMMin      float64
 	MaxZMMMin       float64
+	MaxADegMin      float64
 	Tick            time.Duration
 	StatusInterval  time.Duration
 	DeadmanTimeout  time.Duration
@@ -112,6 +112,7 @@ func DefaultConfig() Config {
 		Enabled:         true,
 		MaxXYMMMin:      firmwareMaxXYMMMin,
 		MaxZMMMin:       300,
+		MaxADegMin:      firmwareMaxADegMin,
 		Tick:            20 * time.Millisecond,
 		StatusInterval:  100 * time.Millisecond,
 		DeadmanTimeout:  minDeadmanTimeout,
@@ -126,6 +127,9 @@ func (c Config) normalize() Config {
 	}
 	if c.MaxZMMMin <= 0 {
 		c.MaxZMMMin = d.MaxZMMMin
+	}
+	if c.MaxADegMin <= 0 {
+		c.MaxADegMin = d.MaxADegMin
 	}
 	if c.Tick <= 0 {
 		c.Tick = d.Tick
@@ -155,11 +159,14 @@ func (c Config) normalize() Config {
 	return c
 }
 
-// Axes is a normalized XYZ gamepad vector.
+// Axes is a normalized XYZ+A jog vector. XYZ values are linear motion and A is
+// rotary motion; normalized inputs remain dimensionless while generated
+// deltas use millimetres for XYZ and degrees for A.
 type Axes struct {
 	X float64 `json:"x"`
 	Y float64 `json:"y"`
 	Z float64 `json:"z"`
+	A float64 `json:"a"`
 }
 
 // Input is the latest operator intent from the gamepad client.
@@ -184,6 +191,7 @@ type Capabilities struct {
 	Axes             []string     `json:"axes"`
 	MaxXYMMMin       float64      `json:"max_xy_mm_min"`
 	MaxZMMMin        float64      `json:"max_z_mm_min"`
+	MaxADegMin       float64      `json:"max_a_deg_min"`
 	TickMs           int64        `json:"tick_ms"`
 	StatusIntervalMs int64        `json:"status_interval_ms"`
 	DeadmanTimeoutMs int64        `json:"deadman_timeout_ms"`
@@ -359,6 +367,7 @@ func (m *Manager) capabilities(ignore *Session) Capabilities {
 		Axes:             []string{"x", "y", "z", "a"},
 		MaxXYMMMin:       m.cfg.MaxXYMMMin,
 		MaxZMMMin:        m.cfg.MaxZMMMin,
+		MaxADegMin:       m.cfg.MaxADegMin,
 		TickMs:           m.cfg.Tick.Milliseconds(),
 		StatusIntervalMs: m.cfg.StatusInterval.Milliseconds(),
 		DeadmanTimeoutMs: m.cfg.DeadmanTimeout.Milliseconds(),
@@ -818,10 +827,6 @@ func (s *Session) handleCommand(cmd command) {
 
 func (s *Session) handleStep(seq int64, axis string, distance float64) {
 	axis = strings.ToLower(strings.TrimSpace(axis))
-	if axis == "a" {
-		s.handleRotaryStep(seq, distance)
-		return
-	}
 	delta, err := stepDelta(axis, distance)
 	if err != nil {
 		s.emit(Event{Type: "error", Seq: seq, Code: CodeBadInput, Message: err.Error()})
@@ -872,14 +877,24 @@ func (s *Session) handleStep(seq int64, axis string, distance float64) {
 		s.emit(Event{Type: "error", Seq: seq, Code: CodeStaleStatus, Message: "machine position is unavailable"})
 		return
 	}
+	if delta.A != 0 {
+		a, ok := planned["a"]
+		if !ok || math.IsNaN(a) || math.IsInf(a, 0) {
+			s.emit(Event{Type: "error", Seq: seq, Code: CodeStaleStatus, Message: "machine A position is unavailable"})
+			return
+		}
+	}
 
 	target := copyAxes(planned)
 	target["x"] += delta.X
 	target["y"] += delta.Y
 	target["z"] += delta.Z
+	if delta.A != 0 {
+		target["a"] += delta.A
+	}
 	target = clampJogTarget(planned, target, s.mgr.softLimits())
 	delta = axesDelta(planned, target)
-	if delta.X == 0 && delta.Y == 0 && delta.Z == 0 {
+	if axesEmpty(delta) {
 		s.emitMotionEstimate(now, st, target, delta, "", queuedLead)
 		s.emit(Event{Type: "ack", Seq: seq, Target: target})
 		return
@@ -911,88 +926,6 @@ func (s *Session) handleStep(seq int64, axis string, distance float64) {
 	s.mu.Unlock()
 	s.logMotion(now, cmd)
 	s.emitMotionEstimate(now, st, target, delta, cmd, queuedLead)
-	s.emit(Event{Type: "ack", Seq: seq, Target: target})
-}
-
-// handleRotaryStep moves the physical rotary A axis. The firmware's low
-// latency $J command is documented for XYZ only, so rotary steps use an
-// absolute machine-coordinate G53 move from a fresh A readout instead.
-func (s *Session) handleRotaryStep(seq int64, distance float64) {
-	if math.IsNaN(distance) || math.IsInf(distance, 0) || distance == 0 || math.Abs(distance) > maxManualStepDegrees {
-		s.emit(Event{Type: "error", Seq: seq, Code: CodeBadInput, Message: "A step must be between -10 and 10 degrees"})
-		return
-	}
-	now := s.mgr.now()
-	s.mu.Lock()
-	lease := s.lease
-	st := s.lastStatus
-	lastStatusAt := s.lastStatusAt
-	planned := copyAxes(s.planned)
-	queuedUntil := s.queuedUntil
-	statusInFlight := s.statusInFlight
-	targetPending := s.targetPending != nil
-	s.mu.Unlock()
-	if lease == nil {
-		s.emit(Event{Type: "error", Seq: seq, Code: CodeBadInput, Message: "arm jog before using step buttons"})
-		s.emitState(seq)
-		return
-	}
-	if targetPending {
-		s.emit(Event{Type: "error", Seq: seq, Code: CodeBusy, Message: "wait for the current tap move to reach its target"})
-		return
-	}
-	if !canContinueJog(st.State) {
-		s.release(nil)
-		s.emit(Event{Type: "error", Seq: seq, Code: CodeNotIdle, Message: "machine left joggable state: " + stateLabel(st.State)})
-		s.emitState(seq)
-		return
-	}
-	queuedLead := queueLead(now, queuedUntil)
-	if (len(st.MPos) == 0 || now.Sub(lastStatusAt) > activeStatusMaxAge(s.mgr.cfg)) && queuedLead == 0 {
-		if !statusInFlight {
-			s.requestStatus()
-		}
-		s.emit(Event{Type: "error", Seq: seq, Code: CodeStatusWaiting, Message: "Waiting for fresh machine status before A step jog."})
-		return
-	}
-	if planned == nil || (queuedLead == 0 && statusObservedAfterQueue(lastStatusAt, queuedUntil)) {
-		planned = copyAxes(st.MPos)
-	}
-	if planned == nil {
-		s.emit(Event{Type: "error", Seq: seq, Code: CodeStaleStatus, Message: "machine A position is unavailable"})
-		return
-	}
-	a, ok := planned["a"]
-	if !ok || math.IsNaN(a) || math.IsInf(a, 0) {
-		s.emit(Event{Type: "error", Seq: seq, Code: CodeStaleStatus, Message: "machine A position is unavailable"})
-		return
-	}
-	target := copyAxes(planned)
-	target["a"] = a + distance
-	cmd := fmt.Sprintf("G53 G0 A%.4f", target["a"])
-	if err := lease.Conn.WriteGcodeLine(cmd); err != nil {
-		s.failLease(CodeMachineError, err)
-		return
-	}
-	// A command is deliberately not given a speculative rotary feed rate. The
-	// short boundary prevents another command from replacing this target before
-	// a status report can reconcile the real position.
-	segStart := queuedUntil
-	if segStart.Before(now) {
-		segStart = now
-	}
-	segEnd := segStart.Add(minJogSegment)
-	queuedUntil = segEnd
-	queuedLead = queueLead(now, queuedUntil)
-	s.mu.Lock()
-	s.planned = target
-	s.queuedUntil = queuedUntil
-	s.segments = appendPlannedSegment(s.segments, plannedSegment{start: segStart, end: segEnd, from: copyAxes(planned), to: copyAxes(target)}, now)
-	s.mgr.markMotion()
-	s.lastMotionCmd = cmd
-	s.mu.Unlock()
-	s.logMotion(now, cmd)
-	s.emitMotionEstimate(now, st, target, Axes{}, cmd, queuedLead)
 	s.emit(Event{Type: "ack", Seq: seq, Target: target})
 }
 
@@ -1717,7 +1650,7 @@ func (s *Session) motionTick() {
 	lookahead := jogLookahead(s.mgr.cfg)
 
 	delta := MotionDelta(in.Axes, in.Slow, s.mgr.cfg)
-	if delta.X == 0 && delta.Y == 0 && delta.Z == 0 {
+	if axesEmpty(delta) {
 		if queuedLead > 0 {
 			s.emitMotionEstimate(now, st, planned, Axes{}, "", queuedLead)
 		}
@@ -1755,7 +1688,7 @@ func (s *Session) motionTick() {
 		// is being written (especially over USB). Recompute every block so a
 		// direction, speed, or slow-mode change never causes a second stale block.
 		delta = MotionDelta(latest.Axes, latest.Slow, s.mgr.cfg)
-		if delta.X == 0 && delta.Y == 0 && delta.Z == 0 {
+		if axesEmpty(delta) {
 			s.admissionMu.Unlock()
 			break
 		}
@@ -1763,9 +1696,12 @@ func (s *Session) motionTick() {
 		target["x"] += delta.X
 		target["y"] += delta.Y
 		target["z"] += delta.Z
+		if delta.A != 0 {
+			target["a"] += delta.A
+		}
 		target = clampJogTarget(planned, target, s.mgr.softLimits())
 		delta = axesDelta(planned, target)
-		if delta.X == 0 && delta.Y == 0 && delta.Z == 0 {
+		if axesEmpty(delta) {
 			s.admissionMu.Unlock()
 			break
 		}
@@ -1831,13 +1767,15 @@ func (s *Session) finishSegmentAdmission() {
 	s.admissionMu.Unlock()
 }
 
-// Normalize converts raw axes into one tick of motion in mm.
+// Normalize converts raw axes into one tick of motion in mm for XYZ and
+// degrees for A.
 func Normalize(axes Axes, slow bool, cfg Config) Axes {
 	cfg = cfg.normalize()
 	return normalizeForDuration(axes, slow, cfg, cfg.Tick)
 }
 
-// MotionDelta converts raw axes into one jog segment in mm.
+// MotionDelta converts raw axes into one jog segment in mm for XYZ and degrees
+// for A.
 func MotionDelta(axes Axes, slow bool, cfg Config) Axes {
 	cfg = cfg.normalize()
 	return normalizeForDuration(axes, slow, cfg, jogSegmentDuration(cfg))
@@ -1848,6 +1786,7 @@ func normalizeForDuration(axes Axes, slow bool, cfg Config, d time.Duration) Axe
 	x := response(axes.X)
 	y := response(axes.Y)
 	z := response(axes.Z)
+	a := response(axes.A)
 	if mag := math.Hypot(x, y); mag > 1 {
 		x /= mag
 		y /= mag
@@ -1861,18 +1800,22 @@ func normalizeForDuration(axes Axes, slow bool, cfg Config, d time.Duration) Axe
 		X: x * cfg.MaxXYMMMin * dtMin * scale,
 		Y: y * cfg.MaxXYMMMin * dtMin * scale,
 		Z: z * cfg.MaxZMMMin * dtMin * scale,
+		A: a * cfg.MaxADegMin * dtMin * scale,
 	}
 }
 
 func stepDelta(axis string, distance float64) (Axes, error) {
 	axis = strings.ToLower(strings.TrimSpace(axis))
-	if axis != "x" && axis != "y" && axis != "z" {
-		return Axes{}, fmt.Errorf("axis must be one of: x, y, z")
+	if axis != "x" && axis != "y" && axis != "z" && axis != "a" {
+		return Axes{}, fmt.Errorf("axis must be one of: x, y, z, a")
 	}
 	if math.IsNaN(distance) || math.IsInf(distance, 0) || distance == 0 {
 		return Axes{}, fmt.Errorf("distance must be non-zero")
 	}
-	if math.Abs(distance) > maxManualStepMM {
+	if axis == "a" && math.Abs(distance) > maxManualStepDegrees {
+		return Axes{}, fmt.Errorf("A distance must be between %.0f and %.0f degrees", -maxManualStepDegrees, maxManualStepDegrees)
+	}
+	if axis != "a" && math.Abs(distance) > maxManualStepMM {
 		return Axes{}, fmt.Errorf("distance must be between %.1f and %.1f mm", -maxManualStepMM, maxManualStepMM)
 	}
 	switch axis {
@@ -1880,8 +1823,10 @@ func stepDelta(axis string, distance float64) (Axes, error) {
 		return Axes{X: distance}, nil
 	case "y":
 		return Axes{Y: distance}, nil
-	default:
+	case "z":
 		return Axes{Z: distance}, nil
+	default:
+		return Axes{A: distance}, nil
 	}
 }
 
@@ -1911,6 +1856,7 @@ func stepJogDuration(delta Axes, cfg Config) time.Duration {
 	cfg = cfg.normalize()
 	xyDist := math.Hypot(delta.X, delta.Y)
 	zDist := math.Abs(delta.Z)
+	aDist := math.Abs(delta.A)
 	mins := 0.0
 	if xyDist > 0 && cfg.MaxXYMMMin > 0 {
 		mins = xyDist / cfg.MaxXYMMMin
@@ -1919,6 +1865,12 @@ func stepJogDuration(delta Axes, cfg Config) time.Duration {
 		zMins := zDist / cfg.MaxZMMMin
 		if zMins > mins {
 			mins = zMins
+		}
+	}
+	if aDist > 0 && cfg.MaxADegMin > 0 {
+		aMins := aDist / cfg.MaxADegMin
+		if aMins > mins {
+			mins = aMins
 		}
 	}
 	d := time.Duration(mins * float64(time.Minute))
@@ -1933,7 +1885,12 @@ func axesDelta(from, target machine.AxisValues) Axes {
 		X: target["x"] - from["x"],
 		Y: target["y"] - from["y"],
 		Z: target["z"] - from["z"],
+		A: target["a"] - from["a"],
 	}
+}
+
+func axesEmpty(axes Axes) bool {
+	return axes.X == 0 && axes.Y == 0 && axes.Z == 0 && axes.A == 0
 }
 
 func clampJogTarget(from, target machine.AxisValues, limits SoftLimits) machine.AxisValues {
@@ -2062,7 +2019,10 @@ func jogCommand(target machine.AxisValues, delta Axes, cfg Config) string {
 
 func jogCommandForDuration(target machine.AxisValues, delta Axes, cfg Config, d time.Duration) string {
 	cfg = cfg.normalize()
-	if cfg.MotionPrimitive == MotionPrimitiveG53 {
+	// A has no usable machine/work coordinate split on Carvera and must remain
+	// relative. The firmware's $J path accepts ABC axes without changing the
+	// controller's modal G90/G91 state, so it is also the safe rotary fallback.
+	if cfg.MotionPrimitive == MotionPrimitiveG53 && delta.A == 0 {
 		return g53JogCommand(target, delta)
 	}
 	return instantJogCommand(delta, cfg, d)
@@ -2078,6 +2038,9 @@ func instantJogCommand(delta Axes, cfg Config, d time.Duration) string {
 	}
 	if delta.Z != 0 {
 		parts += fmt.Sprintf(" Z%.4f", delta.Z)
+	}
+	if delta.A != 0 {
+		parts += fmt.Sprintf(" A%.4f", delta.A)
 	}
 	parts += fmt.Sprintf(" F%.4f", jogFeedScale(delta, cfg, d))
 	return parts
@@ -2099,7 +2062,7 @@ func g53JogCommand(target machine.AxisValues, delta Axes) string {
 
 func jogFeedScale(delta Axes, cfg Config, d time.Duration) float64 {
 	cfg = cfg.normalize()
-	dist := math.Sqrt(delta.X*delta.X + delta.Y*delta.Y + delta.Z*delta.Z)
+	dist := math.Sqrt(delta.X*delta.X + delta.Y*delta.Y + delta.Z*delta.Z + delta.A*delta.A)
 	if dist == 0 || d <= 0 {
 		return 1
 	}
@@ -2122,6 +2085,9 @@ func selectedJogMachineMax(delta Axes) float64 {
 	}
 	if delta.Z != 0 && (maxRate == 0 || firmwareMaxZMMMin < maxRate) {
 		maxRate = firmwareMaxZMMMin
+	}
+	if delta.A != 0 && (maxRate == 0 || firmwareMaxADegMin < maxRate) {
+		maxRate = firmwareMaxADegMin
 	}
 	return maxRate
 }
@@ -2180,7 +2146,19 @@ func jogLeadTooLarge(target, observed machine.AxisValues, cfg Config) bool {
 	}
 	to, toOK := target["z"]
 	at, atOK := observed["z"]
-	return !toOK || !atOK || math.Abs(to-at) > zLimit
+	if !toOK || !atOK || math.Abs(to-at) > zLimit {
+		return true
+	}
+	aLimit := cfg.MaxADegMin * window.Minutes()
+	if aLimit < baseMaxALeadDeg {
+		aLimit = baseMaxALeadDeg
+	}
+	to, toOK = target["a"]
+	at, atOK = observed["a"]
+	if !toOK && !atOK {
+		return false
+	}
+	return !toOK || !atOK || math.Abs(to-at) > aLimit
 }
 
 func physicalLeadCheckDue(now, observedAt time.Time, cfg Config) bool {
@@ -2234,7 +2212,7 @@ func motionInputActive(haveInput bool, in Input, now time.Time, cfg Config) bool
 	if !haveInput || !in.Deadman || now.Sub(in.At) > cfg.DeadmanTimeout {
 		return false
 	}
-	return response(in.Axes.X) != 0 || response(in.Axes.Y) != 0 || response(in.Axes.Z) != 0
+	return response(in.Axes.X) != 0 || response(in.Axes.Y) != 0 || response(in.Axes.Z) != 0 || response(in.Axes.A) != 0
 }
 
 func commandNeedsClearStatusTransaction(typ string) bool {
@@ -2385,6 +2363,7 @@ func motionEvent(target, observed, estimated machine.AxisValues, delta Axes, cmd
 			X: target["x"] - leadFrom["x"],
 			Y: target["y"] - leadFrom["y"],
 			Z: target["z"] - leadFrom["z"],
+			A: target["a"] - leadFrom["a"],
 		},
 		QueueLeadMs: queuedLead.Milliseconds(),
 		Command:     cmd,

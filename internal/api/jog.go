@@ -170,7 +170,7 @@ func writeWSEvent(ctx context.Context, c *websocket.Conn, ev jog.Event) error {
 func parseJogAxes(in map[string]float64) (jog.Axes, error) {
 	var out jog.Axes
 	for k, v := range in {
-		if v < -1 || v > 1 {
+		if math.IsNaN(v) || math.IsInf(v, 0) || v < -1 || v > 1 {
 			return out, fmt.Errorf("axis %q must be between -1 and 1", k)
 		}
 		switch k {
@@ -180,9 +180,14 @@ func parseJogAxes(in map[string]float64) (jog.Axes, error) {
 			out.Y = v
 		case "z":
 			out.Z = v
+		case "a":
+			out.A = v
 		default:
 			return out, fmt.Errorf("unsupported axis %q", k)
 		}
+	}
+	if out.A != 0 && (out.X != 0 || out.Y != 0 || out.Z != 0) {
+		return jog.Axes{}, fmt.Errorf("A-axis jog cannot be combined with XYZ motion")
 	}
 	return out, nil
 }
