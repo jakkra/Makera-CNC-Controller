@@ -18,7 +18,7 @@ func (s *Server) getJogCapabilities(w http.ResponseWriter, r *http.Request) {
 	if s.jog == nil {
 		writeJSON(w, http.StatusOK, jog.Capabilities{
 			Enabled:      false,
-			Axes:         []string{"x", "y", "z"},
+			Axes:         []string{"x", "y", "z", "a"},
 			Availability: jog.Availability{Available: false, Reason: jog.CodeDisabled},
 		})
 		return

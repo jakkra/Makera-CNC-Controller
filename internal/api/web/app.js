@@ -628,7 +628,7 @@ function loadSurfaceViewPreferences() {
       method: saved?.method === "mpg" ? "mpg" : "directional",
       motion: saved?.motion === "hold" ? "hold" : "step",
       step_mm: [10, 1, 0.1, 0.01].includes(Number(saved?.step_mm)) ? Number(saved.step_mm) : fallback.step_mm,
-      mpg_axis: ["x", "y", "z"].includes(saved?.mpg_axis) ? saved.mpg_axis : fallback.mpg_axis,
+      mpg_axis: ["x", "y", "z", "a"].includes(saved?.mpg_axis) ? saved.mpg_axis : fallback.mpg_axis,
       mpg_feedback: saved?.mpg_feedback === "detent" ? "detent" : fallback.mpg_feedback,
       position_space: saved?.position_space === "machine" ? "machine" : fallback.position_space,
     };
@@ -2129,9 +2129,16 @@ function renderSurfaceJog() {
     button.setAttribute("aria-pressed", String(button.dataset.surfaceMotion === surface.motion));
   }
   for (const button of document.querySelectorAll(".surface-mpg-axis")) button.setAttribute("aria-pressed", String(button.dataset.surfaceMpgAxis === surface.mpg_axis));
-  for (const button of document.querySelectorAll("[data-surface-axis], [data-surface-z-sign], [data-surface-hold-sign]")) {
+  for (const button of document.querySelectorAll("[data-surface-axis], [data-surface-z-sign], [data-surface-a-sign], [data-surface-hold-sign]")) {
     button.disabled = busy;
     setSoftDisabled(button, !busy && !ready);
+  }
+  // The firmware documents continuous $J jogging for XYZ only. A is available
+  // as a bounded step/MPG action until its rotary rate is hardware-verified.
+  for (const button of document.querySelectorAll("[data-surface-hold-sign]")) {
+    const rotary = surface.mpg_axis === "a";
+    button.disabled = busy || rotary;
+    setSoftDisabled(button, !busy && !ready && !rotary);
   }
   renderSurfaceMPGWheel(ready && !surfaceButtonBusy);
 }
@@ -2168,7 +2175,7 @@ function renderSurfaceMPGWheel(ready = surfaceJogBaseReady()) {
     wheel.classList.toggle("is-disabled", !ready && !turning);
     wheel.tabIndex = ready || turning ? 0 : -1;
   }
-  setTextIfChanged(document.getElementById("surface-mpg-wheel-step"), `${surfaceStepDistance()} mm / click`);
+  setTextIfChanged(document.getElementById("surface-mpg-wheel-step"), `${surfaceStepDistance()} ${surface.mpg_axis === "a" ? "degrees" : "mm"} / click`);
 }
 
 function surfaceQuickActionState(machineState) {
@@ -2266,7 +2273,7 @@ function selectSurfaceJogMethod(method) {
 }
 
 function selectSurfaceMPGAxis(axis) {
-  if (!["x", "y", "z"].includes(axis)) return;
+  if (!["x", "y", "z", "a"].includes(axis)) return;
   state.surface.mpg_axis = axis;
   saveSurfaceViewPreferences();
   renderSurfaceJog();
@@ -2300,6 +2307,10 @@ function surfaceStepDistance() {
   return [10, 1, 0.1, 0.01].includes(Number(state.surface.step_mm)) ? Number(state.surface.step_mm) : 1;
 }
 
+function surfaceStepUnit(axis) {
+  return String(axis).toLowerCase() === "a" ? "degrees" : "mm";
+}
+
 function sendSurfaceStep(axis, sign, source = "button") {
   if (state.jog.surfaceStepPending) return false;
   if (!surfaceJogBaseReady()) {
@@ -2315,7 +2326,7 @@ function sendSurfaceStep(axis, sign, source = "button") {
   }
   state.jog.surfaceStepPending = seq;
   state.jog.surfaceStepSource = source;
-  state.jog.zStepLabel = `${axis.toUpperCase()}${distance >= 0 ? "+" : "−"} ${Math.abs(distance)} mm`;
+  state.jog.zStepLabel = `${axis.toUpperCase()}${distance >= 0 ? "+" : "−"} ${Math.abs(distance)} ${surfaceStepUnit(axis)}`;
   if (source === "mpg") {
     if (!state.jog.surfaceWheel.gestureSteps) {
       setStatusMessage("surface-jog", `MPG ${axis.toUpperCase()} active...`, "", { timeoutMs: 0, force: true });
@@ -2326,6 +2337,10 @@ function sendSurfaceStep(axis, sign, source = "button") {
     renderJog();
   }
   return true;
+}
+
+function bindSurfaceStepButton(button, axis, sign) {
+  bindButtonAction(button, () => sendSurfaceStep(axis, sign));
 }
 
 function beginSurfaceHoldJog(axis, sign) {
@@ -14367,6 +14382,9 @@ function init() {
   }
   for (const button of document.querySelectorAll("[data-surface-z-sign]")) {
     bindSurfaceHoldButton(button, "z", Number(button.dataset.surfaceZSign), false);
+  }
+  for (const button of document.querySelectorAll("[data-surface-a-sign]")) {
+    bindSurfaceStepButton(button, "a", Number(button.dataset.surfaceASign));
   }
   for (const button of document.querySelectorAll("[data-surface-hold-sign]")) {
     bindSurfaceHoldButton(button, "", Number(button.dataset.surfaceHoldSign), true);

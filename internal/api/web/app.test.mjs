@@ -955,6 +955,18 @@ test("Surface MPG feedback preference defaults to confirmed steps and permits ev
   assert.equal(vm.runInContext("loadSurfaceViewPreferences().mpg_feedback", ctx), "detent");
 });
 
+test("Surface MPG preserves A-axis selection and exposes bounded A step controls", () => {
+  const ctx = buildContext(["defaultSurfaceViewPreferences", "loadSurfaceViewPreferences", "surfaceStepUnit"], ["SURFACE_VIEW_PREFERENCES_KEY"], {
+    localStorage: { getItem: () => JSON.stringify({ mpg_axis: "a" }) },
+  });
+  assert.equal(vm.runInContext("loadSurfaceViewPreferences().mpg_axis", ctx), "a");
+  assert.equal(vm.runInContext('surfaceStepUnit("a")', ctx), "degrees");
+  assert.equal(vm.runInContext('surfaceStepUnit("x")', ctx), "mm");
+  assert.match(htmlSource, /data-surface-mpg-axis="a"/);
+  assert.match(htmlSource, /data-surface-a-sign="-1"/);
+  assert.match(htmlSource, /data-surface-a-sign="1"/);
+});
+
 test("virtual MPG binding keeps clockwise steps positive through a full circular gesture", () => {
   const listeners = {};
   const rect = { left: 0, top: 0, width: 200, height: 200 };

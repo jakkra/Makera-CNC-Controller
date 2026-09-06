@@ -38,22 +38,26 @@ const (
 	// actuator max rate, not a feedrate. These match CarveraFirmware
 	// config.default for XYZ. Firmware accepts scales above 1; the firmware
 	// planner may still cap real hardware at configured machine limits.
-	firmwareMaxXYMMMin        = 3000.0
-	firmwareMaxZMMMin         = 2000.0
-	minJogTick                = 5 * time.Millisecond
-	minStatusEvery            = 100 * time.Millisecond
-	minDeadmanTimeout         = 300 * time.Millisecond
-	minJogSegment             = 60 * time.Millisecond
-	maxJogSegment             = 100 * time.Millisecond
-	minJogLookahead           = 120 * time.Millisecond
-	maxJogLookahead           = 180 * time.Millisecond
-	minActiveStatusGap        = time.Second
-	maxActiveStatusGap        = 2 * time.Second
-	maxSegmentsPerTick        = 2
-	motionLogGap              = time.Second
-	motionEventGap            = 33 * time.Millisecond
-	statusWaitGap             = 500 * time.Millisecond
-	maxManualStepMM           = 50.0
+	firmwareMaxXYMMMin = 3000.0
+	firmwareMaxZMMMin  = 2000.0
+	minJogTick         = 5 * time.Millisecond
+	minStatusEvery     = 100 * time.Millisecond
+	minDeadmanTimeout  = 300 * time.Millisecond
+	minJogSegment      = 60 * time.Millisecond
+	maxJogSegment      = 100 * time.Millisecond
+	minJogLookahead    = 120 * time.Millisecond
+	maxJogLookahead    = 180 * time.Millisecond
+	minActiveStatusGap = time.Second
+	maxActiveStatusGap = 2 * time.Second
+	maxSegmentsPerTick = 2
+	motionLogGap       = time.Second
+	motionEventGap     = 33 * time.Millisecond
+	statusWaitGap      = 500 * time.Millisecond
+	maxManualStepMM    = 50.0
+	// The rotary axis is stepped with an absolute G53 move rather than the
+	// firmware's XYZ-only $J primitive. Keep a single touch action small until
+	// the machine's rotary rate and limits are learned from hardware.
+	maxManualStepDegrees      = 10.0
 	maxTargetFeedMMMin        = 10000.0
 	jogCoordinateResolutionMM = 0.0001
 	targetPositionToleranceMM = 0.02
@@ -352,7 +356,7 @@ func (m *Manager) Capabilities() Capabilities {
 func (m *Manager) capabilities(ignore *Session) Capabilities {
 	return Capabilities{
 		Enabled:          m.cfg.Enabled,
-		Axes:             []string{"x", "y", "z"},
+		Axes:             []string{"x", "y", "z", "a"},
 		MaxXYMMMin:       m.cfg.MaxXYMMMin,
 		MaxZMMMin:        m.cfg.MaxZMMMin,
 		TickMs:           m.cfg.Tick.Milliseconds(),
@@ -813,6 +817,11 @@ func (s *Session) handleCommand(cmd command) {
 }
 
 func (s *Session) handleStep(seq int64, axis string, distance float64) {
+	axis = strings.ToLower(strings.TrimSpace(axis))
+	if axis == "a" {
+		s.handleRotaryStep(seq, distance)
+		return
+	}
 	delta, err := stepDelta(axis, distance)
 	if err != nil {
 		s.emit(Event{Type: "error", Seq: seq, Code: CodeBadInput, Message: err.Error()})
@@ -902,6 +911,88 @@ func (s *Session) handleStep(seq int64, axis string, distance float64) {
 	s.mu.Unlock()
 	s.logMotion(now, cmd)
 	s.emitMotionEstimate(now, st, target, delta, cmd, queuedLead)
+	s.emit(Event{Type: "ack", Seq: seq, Target: target})
+}
+
+// handleRotaryStep moves the physical rotary A axis. The firmware's low
+// latency $J command is documented for XYZ only, so rotary steps use an
+// absolute machine-coordinate G53 move from a fresh A readout instead.
+func (s *Session) handleRotaryStep(seq int64, distance float64) {
+	if math.IsNaN(distance) || math.IsInf(distance, 0) || distance == 0 || math.Abs(distance) > maxManualStepDegrees {
+		s.emit(Event{Type: "error", Seq: seq, Code: CodeBadInput, Message: "A step must be between -10 and 10 degrees"})
+		return
+	}
+	now := s.mgr.now()
+	s.mu.Lock()
+	lease := s.lease
+	st := s.lastStatus
+	lastStatusAt := s.lastStatusAt
+	planned := copyAxes(s.planned)
+	queuedUntil := s.queuedUntil
+	statusInFlight := s.statusInFlight
+	targetPending := s.targetPending != nil
+	s.mu.Unlock()
+	if lease == nil {
+		s.emit(Event{Type: "error", Seq: seq, Code: CodeBadInput, Message: "arm jog before using step buttons"})
+		s.emitState(seq)
+		return
+	}
+	if targetPending {
+		s.emit(Event{Type: "error", Seq: seq, Code: CodeBusy, Message: "wait for the current tap move to reach its target"})
+		return
+	}
+	if !canContinueJog(st.State) {
+		s.release(nil)
+		s.emit(Event{Type: "error", Seq: seq, Code: CodeNotIdle, Message: "machine left joggable state: " + stateLabel(st.State)})
+		s.emitState(seq)
+		return
+	}
+	queuedLead := queueLead(now, queuedUntil)
+	if (len(st.MPos) == 0 || now.Sub(lastStatusAt) > activeStatusMaxAge(s.mgr.cfg)) && queuedLead == 0 {
+		if !statusInFlight {
+			s.requestStatus()
+		}
+		s.emit(Event{Type: "error", Seq: seq, Code: CodeStatusWaiting, Message: "Waiting for fresh machine status before A step jog."})
+		return
+	}
+	if planned == nil || (queuedLead == 0 && statusObservedAfterQueue(lastStatusAt, queuedUntil)) {
+		planned = copyAxes(st.MPos)
+	}
+	if planned == nil {
+		s.emit(Event{Type: "error", Seq: seq, Code: CodeStaleStatus, Message: "machine A position is unavailable"})
+		return
+	}
+	a, ok := planned["a"]
+	if !ok || math.IsNaN(a) || math.IsInf(a, 0) {
+		s.emit(Event{Type: "error", Seq: seq, Code: CodeStaleStatus, Message: "machine A position is unavailable"})
+		return
+	}
+	target := copyAxes(planned)
+	target["a"] = a + distance
+	cmd := fmt.Sprintf("G53 G0 A%.4f", target["a"])
+	if err := lease.Conn.WriteGcodeLine(cmd); err != nil {
+		s.failLease(CodeMachineError, err)
+		return
+	}
+	// A command is deliberately not given a speculative rotary feed rate. The
+	// short boundary prevents another command from replacing this target before
+	// a status report can reconcile the real position.
+	segStart := queuedUntil
+	if segStart.Before(now) {
+		segStart = now
+	}
+	segEnd := segStart.Add(minJogSegment)
+	queuedUntil = segEnd
+	queuedLead = queueLead(now, queuedUntil)
+	s.mu.Lock()
+	s.planned = target
+	s.queuedUntil = queuedUntil
+	s.segments = appendPlannedSegment(s.segments, plannedSegment{start: segStart, end: segEnd, from: copyAxes(planned), to: copyAxes(target)}, now)
+	s.mgr.markMotion()
+	s.lastMotionCmd = cmd
+	s.mu.Unlock()
+	s.logMotion(now, cmd)
+	s.emitMotionEstimate(now, st, target, Axes{}, cmd, queuedLead)
 	s.emit(Event{Type: "ack", Seq: seq, Target: target})
 }
 
@@ -2265,7 +2356,7 @@ func estimatedWorkPosition(estimated machine.AxisValues, st machine.Status) mach
 	if out == nil {
 		out = machine.AxisValues{}
 	}
-	for _, axis := range []string{"x", "y", "z"} {
+	for _, axis := range []string{"x", "y", "z", "a"} {
 		m, mok := st.MPos[axis]
 		w, wok := st.WPos[axis]
 		e, eok := estimated[axis]

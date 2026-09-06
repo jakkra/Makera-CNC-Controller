@@ -133,7 +133,7 @@
   .surface-direction-pad button[data-surface-axis="y"][data-surface-sign="-1"] { grid-area: 3 / 2; }
   .surface-direction-pad button[data-surface-axis="x"][data-surface-sign="1"] { grid-area: 2 / 3; }
   .surface-jog-center { grid-area: 2 / 2; display: grid; place-items: center; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; border: 1px dashed var(--border); border-radius: 50%; }
-  .surface-mpg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap-sm); }
+  .surface-mpg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap-sm); }
   .surface-mpg-axis[aria-pressed="true"] { border-color: rgba(87,166,214,.8); background: rgba(87,166,214,.15); color: var(--text); }
   .surface-wheel { --wheel-angle: 0deg; position: relative; width: min(100%, 360px); aspect-ratio: 1; justify-self: center; display: grid; place-items: center; border: 0; border-radius: 50%; background: repeating-conic-gradient(from -1deg, #73838b 0 2deg, transparent 2deg 15deg); color: var(--text); font-weight: 750; letter-spacing: .06em; touch-action: none; user-select: none; cursor: grab; }
   .surface-wheel::before { content: ""; position: absolute; inset: 11%; border: 2px solid #53636b; border-radius: 50%; background: radial-gradient(circle at 37% 31%, #344149 0, #202a2f 38%, #11171b 76%); box-shadow: inset 0 0 0 8px rgba(255,255,255,.018), inset 0 -18px 30px rgba(0,0,0,.44), 0 8px 20px rgba(0,0,0,.36); }
@@ -1843,6 +1843,7 @@
                 <button type="button" class="surface-mpg-axis" data-surface-mpg-axis="x" aria-pressed="true">X axis</button>
                 <button type="button" class="surface-mpg-axis" data-surface-mpg-axis="y" aria-pressed="false">Y axis</button>
                 <button type="button" class="surface-mpg-axis" data-surface-mpg-axis="z" aria-pressed="false">Z axis</button>
+                <button type="button" class="surface-mpg-axis" data-surface-mpg-axis="a" aria-pressed="false">A axis</button>
               </div>
               <div id="surface-mpg-wheel" class="surface-wheel" role="slider" tabindex="0" aria-label="Virtual MPG wheel; turn the outer ring" aria-valuemin="-999999" aria-valuemax="999999" aria-valuenow="0" aria-valuetext="0 increments">
                 <span class="surface-wheel-indicator" aria-hidden="true"></span>
@@ -1854,7 +1855,7 @@
           <div class="surface-axis-column">
             <div class="surface-jog-actions"><button type="button" data-surface-z-sign="1">Z+</button><button type="button" data-surface-z-sign="-1">Z−</button></div>
             <button type="button" id="surface-map-open">XY Target Map</button>
-            <div class="surface-a-guard" aria-label="A axis unavailable"><span aria-hidden="true">🔒</span><button type="button" disabled>A−</button><button type="button" disabled>A+</button></div>
+            <div class="surface-a-guard" role="group" aria-label="A axis step jog"><span aria-hidden="true">A</span><button type="button" data-surface-a-sign="-1">A−</button><button type="button" data-surface-a-sign="1">A+</button></div>
           </div>
         </div>
       </section>

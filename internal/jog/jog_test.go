@@ -196,6 +196,33 @@ func TestStepAndTargetJogClampToSoftLimit(t *testing.T) {
 	}
 }
 
+func TestRotaryAStepUsesFreshAbsoluteMachinePosition(t *testing.T) {
+	mgr, fm, cleanup := newJogManager(t)
+	defer cleanup()
+	status := "<Idle|MPos:0,0,0,45|WPos:0,0,0,45>"
+	fm.SetStatus(status)
+	if !mgr.arb.Tracker().ObserveStatusPayload(status) {
+		t.Fatal("rotary status precondition failed")
+	}
+	s, err := mgr.Start(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	drainUntil(t, s, "hello")
+	s.Arm(1)
+	drainUntil(t, s, "ack")
+	s.Step(2, "a", 5)
+	ack := drainUntil(t, s, "ack")
+	if ack.Target["a"] != 50 {
+		t.Fatalf("A step target = %+v, want A50", ack.Target)
+	}
+	waitForGcodeCount(t, fm, 1)
+	if got := fm.Gcodes()[0]; got != "G53 G0 A50.0000" {
+		t.Fatalf("A step command = %q, want absolute A command", got)
+	}
+}
+
 func TestStatusQueryTimeoutToleratesTransportLatency(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Tick = 5 * time.Millisecond
