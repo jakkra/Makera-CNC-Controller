@@ -1039,7 +1039,13 @@
   .dashboard-camera[data-camera-primary="false"]:hover { border-color: #8fd1e8; }
   .dashboard-camera:focus-visible { z-index: 6; outline: 2px solid #79d2ed; outline-offset: -2px; }
   .dashboard-camera img { width: 100%; height: 100%; display: block; object-fit: cover; }
+  .dashboard-external-camera-frame { position: absolute; inset: 0; transform: scale(var(--external-camera-zoom,1)); transform-origin: var(--external-camera-focus-x,50%) var(--external-camera-focus-y,50%); transition: transform 140ms ease-out; pointer-events: none; }
   #dashboard-external-camera-image { transform: rotate(180deg); }
+  .dashboard-camera.is-zoomed[data-camera-primary="true"] { cursor: crosshair; }
+  .dashboard-camera-zoom { position: absolute; z-index: 5; top: 12px; left: 12px; display: none; align-items: center; gap: 4px; padding: 4px; background: rgba(5,9,11,.82); border: 1px solid rgba(98,119,129,.65); border-radius: 7px; backdrop-filter: blur(8px); cursor: default; }
+  .dashboard-camera-stage.external-camera-live:not(.builtin-primary) .dashboard-camera-zoom { display: flex; }
+  .dashboard-camera-zoom button { width: 40px; min-width: 40px; height: 40px; min-height: 40px; padding: 0; font-size: 18px; line-height: 1; }
+  .dashboard-camera-zoom output { width: 48px; color: #dce7eb; font-size: 12px; font-weight: 750; text-align: center; font-variant-numeric: tabular-nums; }
   .dashboard-camera-main { inset: 0; }
   .dashboard-camera-inset { z-index: 3; top: 16px; right: 16px; width: min(34%,310px); aspect-ratio: 4/3; border: 1px solid #586872; border-radius: 7px; box-shadow: 0 14px 34px rgba(0,0,0,.5); }
   .dashboard-camera-empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 7px; padding: 20px; color: var(--muted); text-align: center; }
@@ -1657,9 +1663,15 @@
         </div>
         <div class="dashboard-camera-stage" aria-label="Camera monitoring">
           <div id="dashboard-external-camera" class="dashboard-camera dashboard-camera-main is-unconfigured" role="button" tabindex="-1" aria-pressed="true" aria-label="External camera is the main view">
-            <img id="dashboard-external-camera-image" alt="External camera" hidden>
+            <div id="dashboard-external-camera-frame" class="dashboard-external-camera-frame"><img id="dashboard-external-camera-image" alt="External camera" hidden></div>
             <div class="dashboard-camera-empty"><span class="dashboard-camera-icon" aria-hidden="true">▣</span><strong id="dashboard-external-camera-state">External camera not configured</strong><small id="dashboard-external-camera-detail">Connect a USB camera to the controller for the main view.</small></div>
             <div class="dashboard-camera-label"><span>External camera</span><b id="dashboard-external-camera-badge">Not configured</b></div>
+          </div>
+          <div class="dashboard-camera-zoom" role="group" aria-label="External camera zoom">
+            <button type="button" id="dashboard-external-camera-zoom-out" aria-label="Zoom external camera out">−</button>
+            <output id="dashboard-external-camera-zoom-value" aria-live="off">1×</output>
+            <button type="button" id="dashboard-external-camera-zoom-in" aria-label="Zoom external camera in">+</button>
+            <button type="button" id="dashboard-external-camera-zoom-center" aria-label="Center external camera view" title="Center view">⌖</button>
           </div>
           <div id="dashboard-builtin-camera" class="dashboard-camera dashboard-camera-inset is-unconfigured" role="button" tabindex="-1" aria-pressed="false" aria-label="Make Z1 camera the main view">
             <img id="dashboard-builtin-camera-image" alt="Z1 camera" hidden>
@@ -2366,6 +2378,6 @@
 <div id="status-bar" role="status" aria-live="polite" hidden>
   <div id="notice"></div>
 </div>
-<script type="module" src="/app.js?v=surface-overview-camera-5"></script>
+<script type="module" src="/app.js?v=external-camera-zoom-1"></script>
 </body>
 </html>

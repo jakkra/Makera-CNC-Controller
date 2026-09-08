@@ -35,6 +35,8 @@ const ACTIVE_JOB_SPLITTER_PX = 16;
 const VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files", "attention"];
 const NAV_VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files"];
 const SURFACE_VIEW_PREFERENCES_KEY = "cnc-proxy.surface-view-preferences.v1";
+const EXTERNAL_CAMERA_VIEW_KEY = "cnc-proxy.external-camera-view.v1";
+const EXTERNAL_CAMERA_ZOOM_LEVELS = [1, 1.5, 2, 3];
 const DASHBOARD_PANEL_DEFS = [{ id: "machine", label: "Machine" }, { id: "job", label: "Current job" }, { id: "telemetry", label: "Machine telemetry" }, { id: "gcode", label: "Gcode stream" }];
 const JOG_INPUT_HEARTBEAT_MS = 100;
 const JOG_INPUT_DEADZONE = 0.12;
@@ -82,6 +84,7 @@ const state = {
   dashboardSettingsLoaded: false,
   dashboardDraftProfileID: "",
   dashboardCameraPrimary: loadDashboardCameraPrimary(),
+  dashboardExternalCameraView: loadDashboardExternalCameraView(),
   cameras: {
     loaded: false,
     sources: { builtin: { configured: false }, external: { configured: false } },
@@ -1872,6 +1875,10 @@ function renderAttention(m) {
   const resumeAction = attentionResumeAction(machineState);
   if (resume) {
     resume.hidden = state.readOnly || !resumeAction;
+    resume.disabled = !!state.activeGcodePending || !!state.controlPendingAction;
+    resume.setAttribute("aria-busy", String(
+      state.activeGcodePending === "resume_job" || state.controlPendingAction === "resume",
+    ));
     resume.dataset.resumeAction = resumeAction;
     setTextIfChanged(resume, machineState === "Pause" ? "Resume paused job" : "Resume motion");
   }
@@ -2187,9 +2194,17 @@ function renderSurfaceQuickActions(machineState = String(state.machine?.state ||
   const hold = document.getElementById("surface-footer-hold");
   const resume = document.getElementById("surface-footer-resume");
   const details = document.getElementById("surface-footer-job");
-  if (hold) hold.hidden = !actions.hold;
+  if (hold) {
+    hold.hidden = !actions.hold;
+    hold.disabled = state.readOnly || !!state.controlPendingAction || !!state.activeGcodePending;
+    hold.setAttribute("aria-busy", String(state.controlPendingAction === "hold"));
+  }
   if (resume) {
     resume.hidden = !actions.resume;
+    resume.disabled = state.readOnly || !!state.controlPendingAction || !!state.activeGcodePending;
+    resume.setAttribute("aria-busy", String(
+      state.activeGcodePending === "resume_job" || state.controlPendingAction === "resume",
+    ));
     setTextIfChanged(resume, machineState === "Pause" ? "▶ Resume job" : "▶ Resume");
   }
   if (details) details.hidden = !actions.details;
@@ -7727,7 +7742,6 @@ function renderActiveGcode() {
     drawGcodePreview(null);
     renderActiveJobProgress(null, {}, external);
     renderDashboard();
-    if (!state.activeGcodePending) clearNotice("active-gcode");
     return;
   }
 
@@ -7991,6 +8005,7 @@ function setDashboardCameraState(kind, status, title, detail = "") {
   const detailText = document.getElementById(`dashboard-${kind}-camera-detail`);
   const badge = document.getElementById(`dashboard-${kind}-camera-badge`);
   if (!root) return;
+  if (kind === "external") document.querySelector(".dashboard-camera-stage")?.classList.toggle("external-camera-live", status === "live");
   root.classList.toggle("is-live", status === "live");
   root.classList.toggle("is-error", status === "error");
   root.classList.toggle("is-connecting", status === "connecting");
@@ -8008,6 +8023,88 @@ function loadDashboardCameraPrimary() {
   } catch {
     return "external";
   }
+}
+
+function normalizeDashboardExternalCameraView(value) {
+  const zoom = EXTERNAL_CAMERA_ZOOM_LEVELS.includes(Number(value?.zoom)) ? Number(value.zoom) : 1;
+  const clampPercent = (input) => {
+    if (input === null || input === undefined || input === "") return 50;
+    return Math.max(0, Math.min(100, Number.isFinite(Number(input)) ? Number(input) : 50));
+  };
+  return { zoom, x: clampPercent(value?.x), y: clampPercent(value?.y) };
+}
+
+function loadDashboardExternalCameraView() {
+  try {
+    return normalizeDashboardExternalCameraView(JSON.parse(window.localStorage?.getItem(EXTERNAL_CAMERA_VIEW_KEY) || "null"));
+  } catch {
+    return normalizeDashboardExternalCameraView(null);
+  }
+}
+
+function saveDashboardExternalCameraView() {
+  try {
+    window.localStorage?.setItem(EXTERNAL_CAMERA_VIEW_KEY, JSON.stringify(state.dashboardExternalCameraView));
+  } catch {
+    // Camera framing remains available for this page load without storage.
+  }
+}
+
+function renderDashboardExternalCameraView() {
+  const view = normalizeDashboardExternalCameraView(state.dashboardExternalCameraView);
+  state.dashboardExternalCameraView = view;
+  const frame = document.getElementById("dashboard-external-camera-frame");
+  const root = document.getElementById("dashboard-external-camera");
+  const value = document.getElementById("dashboard-external-camera-zoom-value");
+  const zoomOut = document.getElementById("dashboard-external-camera-zoom-out");
+  const zoomIn = document.getElementById("dashboard-external-camera-zoom-in");
+  const center = document.getElementById("dashboard-external-camera-zoom-center");
+  frame?.style.setProperty("--external-camera-zoom", String(view.zoom));
+  frame?.style.setProperty("--external-camera-focus-x", view.x + "%");
+  frame?.style.setProperty("--external-camera-focus-y", view.y + "%");
+  root?.classList.toggle("is-zoomed", view.zoom > 1);
+  if (root && dashboardCameraPrimary() === "external") {
+    root.setAttribute("aria-label", view.zoom > 1
+      ? "External camera main view; click to focus the zoomed image or use arrow keys to pan"
+      : "External camera is the main view");
+  }
+  setTextIfChanged(value, view.zoom.toFixed(view.zoom % 1 ? 1 : 0) + "×");
+  if (zoomOut) zoomOut.disabled = view.zoom === EXTERNAL_CAMERA_ZOOM_LEVELS[0];
+  if (zoomIn) zoomIn.disabled = view.zoom === EXTERNAL_CAMERA_ZOOM_LEVELS[EXTERNAL_CAMERA_ZOOM_LEVELS.length - 1];
+  if (center) center.disabled = view.zoom === 1 && view.x === 50 && view.y === 50;
+}
+
+function setDashboardExternalCameraView(next) {
+  state.dashboardExternalCameraView = normalizeDashboardExternalCameraView(next);
+  saveDashboardExternalCameraView();
+  renderDashboardExternalCameraView();
+}
+
+function stepDashboardExternalCameraZoom(direction) {
+  const view = normalizeDashboardExternalCameraView(state.dashboardExternalCameraView);
+  const current = EXTERNAL_CAMERA_ZOOM_LEVELS.indexOf(view.zoom);
+  const index = Math.max(0, Math.min(EXTERNAL_CAMERA_ZOOM_LEVELS.length - 1, current + (direction < 0 ? -1 : 1)));
+  setDashboardExternalCameraView({ ...view, zoom: EXTERNAL_CAMERA_ZOOM_LEVELS[index] });
+}
+
+function focusDashboardExternalCamera(clientX, clientY) {
+  const root = document.getElementById("dashboard-external-camera");
+  const view = normalizeDashboardExternalCameraView(state.dashboardExternalCameraView);
+  const rect = root?.getBoundingClientRect?.();
+  if (!root || view.zoom <= 1 || !rect || rect.width <= 0 || rect.height <= 0) return false;
+  setDashboardExternalCameraView({
+    ...view,
+    x: ((clientX - rect.left) / rect.width) * 100,
+    y: ((clientY - rect.top) / rect.height) * 100,
+  });
+  return true;
+}
+
+function panDashboardExternalCamera(dx, dy) {
+  const view = normalizeDashboardExternalCameraView(state.dashboardExternalCameraView);
+  if (view.zoom <= 1) return false;
+  setDashboardExternalCameraView({ ...view, x: view.x + dx, y: view.y + dy });
+  return true;
 }
 
 function dashboardCameraPrimary() {
@@ -8037,6 +8134,7 @@ function renderDashboardCameraConfig() {
   const builtin = dashboardCameraSource("builtin");
   const stage = document.querySelector(".dashboard-camera-stage");
   const primary = dashboardCameraPrimary();
+  renderDashboardExternalCameraView();
   stage?.classList.toggle("builtin-primary", primary === "builtin");
   for (const kind of ["external", "builtin"]) {
     const root = document.getElementById(`dashboard-${kind}-camera`);
@@ -8046,9 +8144,12 @@ function renderDashboardCameraConfig() {
     root.dataset.cameraPrimary = String(isPrimary);
     root.tabIndex = configured ? 0 : -1;
     root.setAttribute("aria-pressed", String(isPrimary));
-    root.setAttribute("aria-label", isPrimary
-      ? `${kind === "external" ? "External" : "Z1"} camera is the main view`
-      : `Make ${kind === "external" ? "external" : "Z1"} camera the main view`);
+    const externalZoomed = kind === "external" && isPrimary && state.dashboardExternalCameraView.zoom > 1;
+    root.setAttribute("aria-label", externalZoomed
+      ? "External camera main view; click to focus the zoomed image or use arrow keys to pan"
+      : (isPrimary
+        ? `${kind === "external" ? "External" : "Z1"} camera is the main view`
+        : `Make ${kind === "external" ? "external" : "Z1"} camera the main view`));
   }
   if (!state.cameras.loaded) {
     setDashboardCameraState("external", "connecting", "Loading camera configuration", "Cameras run only while Overview is visible.");
@@ -8206,13 +8307,36 @@ function bindDashboardCameraSwitches() {
     const root = document.getElementById(`dashboard-${kind}-camera`);
     if (!root) continue;
     const select = () => setDashboardCameraPrimary(kind);
-    root.addEventListener("click", select);
+    root.addEventListener("click", (event) => {
+      if (kind === "external" && dashboardCameraPrimary() === "external" && focusDashboardExternalCamera(event.clientX, event.clientY)) return;
+      select();
+    });
     root.addEventListener("keydown", (event) => {
+      if (kind === "external" && dashboardCameraPrimary() === "external") {
+        const amount = event.shiftKey ? 10 : 4;
+        const moves = { ArrowLeft: [-amount, 0], ArrowRight: [amount, 0], ArrowUp: [0, -amount], ArrowDown: [0, amount] };
+        if (moves[event.key] && panDashboardExternalCamera(...moves[event.key])) {
+          event.preventDefault();
+          return;
+        }
+      }
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       select();
     });
   }
+  const bindZoom = (id, handler) => {
+    const button = document.getElementById(id);
+    if (!button) return;
+    bindButtonAction(button, (event) => {
+      event.stopPropagation();
+      handler();
+    });
+  };
+  bindZoom("dashboard-external-camera-zoom-out", () => stepDashboardExternalCameraZoom(-1));
+  bindZoom("dashboard-external-camera-zoom-in", () => stepDashboardExternalCameraZoom(1));
+  bindZoom("dashboard-external-camera-zoom-center", () => setDashboardExternalCameraView({ zoom: state.dashboardExternalCameraView.zoom, x: 50, y: 50 }));
+  renderDashboardExternalCameraView();
 }
 
 function bindDashboardToolpathShortcut() {
@@ -10184,7 +10308,18 @@ async function runActiveGcode() {
 }
 
 async function runActiveJobControl(action) {
-  if (state.activeGcodePending) return;
+  if (state.activeGcodePending) {
+    setActiveFeedback("Another active job action is still in progress.", "error");
+    return false;
+  }
+  const machineState = String(state.machine?.state || "Unknown");
+  const expectedState = action === "pause_job" ? "Run" : (action === "resume_job" ? "Pause" : "");
+  if (!expectedState || machineState !== expectedState) {
+    setActiveFeedback(action === "resume_job"
+      ? `Resume is unavailable while the machine is ${machineState}.`
+      : `Pause is unavailable while the machine is ${machineState}.`, "error");
+    return false;
+  }
   if (action === "pause_job" && !confirm("Pause the running job and enable manual paused controls?")) return;
   if (action === "resume_job") {
     const spindle = state.machine?.spindle;
@@ -10193,7 +10328,7 @@ async function runActiveJobControl(action) {
   }
   state.activeGcodePending = action;
   setActiveFeedback(action === "pause_job" ? "Pausing job..." : "Restoring the paused job...", "");
-  renderActiveGcode();
+  renderMachine();
   try {
     const response = await request("/api/control", {
       method: "POST",
@@ -10203,11 +10338,13 @@ async function runActiveJobControl(action) {
     const result = await response.json();
     setActiveFeedback(result.message, result.verified ? "ok" : "error");
     await pollMachine();
+    return !!result.verified;
   } catch (error) {
     setActiveFeedback((action === "pause_job" ? "Pause failed: " : "Resume failed: ") + error.message, "error");
+    return false;
   } finally {
     state.activeGcodePending = "";
-    renderActiveGcode();
+    renderMachine();
   }
 }
 

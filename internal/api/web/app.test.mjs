@@ -97,6 +97,18 @@ test("external camera refresh is limited to explicit snapshot sources", () => {
   assert.equal(vm.runInContext("dashboardExternalCameraIsSnapshot({})", ctx), false);
 });
 
+test("external camera framing clamps persisted zoom and focus", () => {
+  const ctx = buildContext(["normalizeDashboardExternalCameraView"], ["EXTERNAL_CAMERA_ZOOM_LEVELS"]);
+  assert.equal(
+    JSON.stringify(vm.runInContext("normalizeDashboardExternalCameraView({zoom:2,x:-20,y:140})", ctx)),
+    JSON.stringify({ zoom: 2, x: 0, y: 100 }),
+  );
+  assert.equal(
+    JSON.stringify(vm.runInContext("normalizeDashboardExternalCameraView({zoom:2.25,x:'bad',y:null})", ctx)),
+    JSON.stringify({ zoom: 1, x: 50, y: 50 }),
+  );
+});
+
 test("built-in camera keeps the previous frame until the replacement has loaded", () => {
   assert.match(source, /state\.cameras\.builtinObjectURLs\.add\(nextURL\);/);
   assert.match(source, /image\.onload = \(\) => \{/);
@@ -876,6 +888,50 @@ test("attention resume chooses the state-safe controller path", () => {
   assert.equal(vm.runInContext(`attentionResumeAction("Wait")`, ctx), "", "ambiguous wait state must not expose a blind resume");
   assert.equal(vm.runInContext(`attentionResumeAction("Tool")`, ctx), "");
   assert.equal(vm.runInContext(`attentionResumeAction("Alarm")`, ctx), "");
+});
+
+test("paused-job resume owns pending state independently of the Active Job view", async () => {
+  const feedback = [];
+  const bodies = [];
+  let renders = 0;
+  const state = { activeGcodePending: "", machine: { state: "Pause" } };
+  const ctx = buildContext(["runActiveJobControl"], [], {
+    state,
+    confirm: () => true,
+    setActiveFeedback: (text, kind) => feedback.push([text, kind]),
+    renderMachine: () => { renders++; },
+    request: async (_path, options) => {
+      bodies.push(JSON.parse(options.body));
+      return { json: async () => ({ message: "Job resumed.", verified: true }) };
+    },
+    pollMachine: async () => {},
+  });
+
+  assert.equal(await vm.runInContext('runActiveJobControl("resume_job")', ctx), true);
+  assert.deepEqual(bodies, [{ action: "resume_job" }]);
+  assert.equal(state.activeGcodePending, "");
+  assert.equal(renders, 2);
+  assert.deepEqual(feedback.at(-1), ["Job resumed.", "ok"]);
+  assert.doesNotMatch(extractFunction("renderActiveGcode"), /clearNotice\("active-gcode"\)/);
+});
+
+test("paused-job resume reports stale and busy clicks instead of failing silently", async () => {
+  const feedback = [];
+  let requests = 0;
+  const state = { activeGcodePending: "feed_override", machine: { state: "Pause" } };
+  const ctx = buildContext(["runActiveJobControl"], [], {
+    state,
+    setActiveFeedback: (text, kind) => feedback.push([text, kind]),
+    request: async () => { requests++; },
+  });
+  assert.equal(await vm.runInContext('runActiveJobControl("resume_job")', ctx), false);
+  assert.equal(requests, 0);
+  assert.deepEqual(feedback.at(-1), ["Another active job action is still in progress.", "error"]);
+
+  state.activeGcodePending = "";
+  state.machine.state = "Hold";
+  assert.equal(await vm.runInContext('runActiveJobControl("resume_job")', ctx), false);
+  assert.deepEqual(feedback.at(-1), ["Resume is unavailable while the machine is Hold.", "error"]);
 });
 
 test("movement arm stays locked until status is fresh Idle but disarm remains available", () => {
