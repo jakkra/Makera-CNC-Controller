@@ -160,6 +160,55 @@ func (s *Server) externalCamera(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, resp.Body)
 }
 
+func (s *Server) externalCameraFocus(w http.ResponseWriter, r *http.Request) {
+	if s.camera == nil {
+		writeErr(w, http.StatusServiceUnavailable, "external camera focus is not configured")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	focus, err := s.camera.Focus(ctx)
+	if errors.Is(err, camera.ErrFocusUnavailable) {
+		writeErr(w, http.StatusServiceUnavailable, "external camera focus is not configured")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, focus)
+}
+
+func (s *Server) setExternalCameraFocus(w http.ResponseWriter, r *http.Request) {
+	if s.camera == nil {
+		writeErr(w, http.StatusServiceUnavailable, "external camera focus is not configured")
+		return
+	}
+	var body struct {
+		Autofocus *bool `json:"autofocus"`
+		Absolute  *int  `json:"absolute"`
+	}
+	if !s.decodeJSON(w, r, &body) {
+		return
+	}
+	if body.Autofocus == nil || body.Absolute == nil {
+		writeErr(w, http.StatusBadRequest, "autofocus and absolute are required")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	focus, err := s.camera.SetFocus(ctx, *body.Autofocus, *body.Absolute)
+	if errors.Is(err, camera.ErrFocusUnavailable) {
+		writeErr(w, http.StatusServiceUnavailable, "external camera focus is not configured")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, focus)
+}
+
 func allowedCameraContentType(raw string) (string, bool) {
 	mediaType, params, err := mime.ParseMediaType(raw)
 	if err != nil {

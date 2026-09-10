@@ -10,11 +10,15 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os/exec"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 var ErrNotConfigured = errors.New("camera source is not configured")
+var ErrFocusUnavailable = errors.New("external camera focus controls are not configured")
 
 const (
 	ExternalModeMJPEG    = "mjpeg"
@@ -30,7 +34,8 @@ type Config struct {
 	// ExternalMode is intentionally explicit because a snapshot needs periodic
 	// browser reloads while an MJPEG response must stay open. Empty defaults to
 	// MJPEG for backwards-compatible streaming behavior.
-	ExternalMode string
+	ExternalMode   string
+	ExternalDevice string
 	// HTTPClient is primarily useful for tests. Nil selects a client that does
 	// not use environment proxies or follow redirects to another endpoint.
 	HTTPClient *http.Client
@@ -53,13 +58,24 @@ type Status struct {
 	External SourceStatus `json:"external"`
 }
 
+type FocusStatus struct {
+	Available bool `json:"available"`
+	Autofocus bool `json:"autofocus"`
+	Absolute  int  `json:"absolute"`
+	Min       int  `json:"min"`
+	Max       int  `json:"max"`
+	Step      int  `json:"step"`
+}
+
 // Manager holds validated fixed upstreams.
 type Manager struct {
 	builtin        *url.URL
 	builtinDerived bool
 	external       *url.URL
 	externalMode   string
+	externalDevice string
 	httpClient     *http.Client
+	focusMu        sync.Mutex
 }
 
 func New(cfg Config) (*Manager, error) {
@@ -94,7 +110,7 @@ func New(cfg Config) (*Manager, error) {
 	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
-	return &Manager{builtin: builtin, builtinDerived: builtin != nil && cfg.BuiltinDerived, external: external, externalMode: externalMode, httpClient: client}, nil
+	return &Manager{builtin: builtin, builtinDerived: builtin != nil && cfg.BuiltinDerived, external: external, externalMode: externalMode, externalDevice: strings.TrimSpace(cfg.ExternalDevice), httpClient: client}, nil
 }
 
 func normalizeExternalMode(raw string) (string, error) {
@@ -194,4 +210,77 @@ func (m *Manager) ExternalResponse(ctx context.Context) (*http.Response, error) 
 	}
 	req.Header.Set("Accept", "multipart/x-mixed-replace, image/jpeg, image/png;q=0.9")
 	return m.httpClient.Do(req)
+}
+
+func (m *Manager) Focus(ctx context.Context) (FocusStatus, error) {
+	if m == nil || m.externalDevice == "" {
+		return FocusStatus{}, ErrFocusUnavailable
+	}
+	m.focusMu.Lock()
+	defer m.focusMu.Unlock()
+	return m.readFocusLocked(ctx)
+}
+
+func (m *Manager) SetFocus(ctx context.Context, autofocus bool, absolute int) (FocusStatus, error) {
+	if m == nil || m.externalDevice == "" {
+		return FocusStatus{}, ErrFocusUnavailable
+	}
+	if absolute < 0 || absolute > 250 || absolute%5 != 0 {
+		return FocusStatus{}, fmt.Errorf("focus value must be between 0 and 250 in steps of 5")
+	}
+	m.focusMu.Lock()
+	defer m.focusMu.Unlock()
+	auto := "0"
+	if autofocus {
+		auto = "1"
+	}
+	if output, err := exec.CommandContext(ctx, "v4l2-ctl", "-d", m.externalDevice, "--set-ctrl=focus_automatic_continuous="+auto).CombinedOutput(); err != nil {
+		return FocusStatus{}, fmt.Errorf("set camera autofocus: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	if !autofocus {
+		if output, err := exec.CommandContext(ctx, "v4l2-ctl", "-d", m.externalDevice, "--set-ctrl=focus_absolute="+strconv.Itoa(absolute)).CombinedOutput(); err != nil {
+			return FocusStatus{}, fmt.Errorf("set camera focus: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+	}
+	return m.readFocusLocked(ctx)
+}
+
+func (m *Manager) readFocusLocked(ctx context.Context) (FocusStatus, error) {
+	autoOutput, err := exec.CommandContext(ctx, "v4l2-ctl", "-d", m.externalDevice, "--get-ctrl=focus_automatic_continuous").CombinedOutput()
+	if err != nil {
+		return FocusStatus{}, fmt.Errorf("read camera focus: %w: %s", err, strings.TrimSpace(string(autoOutput)))
+	}
+	values := parseFocusControlOutput(autoOutput)
+	autofocus, okAuto := values["focus_automatic_continuous"]
+	if !okAuto {
+		return FocusStatus{}, fmt.Errorf("camera did not report autofocus control")
+	}
+	absolute := 0
+	absOutput, absErr := exec.CommandContext(ctx, "v4l2-ctl", "-d", m.externalDevice, "--get-ctrl=focus_absolute").CombinedOutput()
+	if absErr == nil {
+		absoluteValues := parseFocusControlOutput(absOutput)
+		var okAbsolute bool
+		absolute, okAbsolute = absoluteValues["focus_absolute"]
+		if !okAbsolute && autofocus == 0 {
+			return FocusStatus{}, fmt.Errorf("camera did not report manual focus control")
+		}
+	} else if autofocus == 0 {
+		return FocusStatus{}, fmt.Errorf("read camera focus: %w: %s", absErr, strings.TrimSpace(string(absOutput)))
+	}
+	return FocusStatus{Available: true, Autofocus: autofocus != 0, Absolute: absolute, Min: 0, Max: 250, Step: 5}, nil
+}
+
+func parseFocusControlOutput(output []byte) map[string]int {
+	values := map[string]int{}
+	for _, line := range strings.Split(string(output), "\n") {
+		parts := strings.SplitN(strings.TrimSpace(line), ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		value, parseErr := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if parseErr == nil {
+			values[strings.TrimSpace(parts[0])] = value
+		}
+	}
+	return values
 }

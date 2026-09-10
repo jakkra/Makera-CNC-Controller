@@ -109,6 +109,34 @@ test("external camera framing clamps persisted zoom and focus", () => {
   );
 });
 
+test("external camera snapshot captures the decoded frame and preserves its orientation", () => {
+  assert.match(htmlSource, /id="dashboard-external-camera-snapshot"/);
+  assert.match(htmlSource, /id="dashboard-camera-snapshot-modal"/);
+  assert.match(htmlSource, /id="dashboard-camera-snapshot-viewport"/);
+  assert.match(htmlSource, /id="dashboard-camera-snapshot-image"/);
+  assert.match(source, /image\.naturalWidth/);
+  assert.match(source, /context\.rotate\(Math\.PI\)/);
+  assert.match(source, /canvas\.toDataURL\("image\/jpeg", 0\.92\)/);
+  assert.match(source, /meta\.textContent = `\$\{width\}×\$\{height\} pixels/);
+  assert.match(source, /const CAMERA_SNAPSHOT_ZOOM = 2\.5;/);
+  assert.match(source, /toggleDashboardCameraSnapshotZoom\(clientX, clientY\)/);
+  assert.match(source, /transform = `scale\(\$\{zoomed \? CAMERA_SNAPSHOT_ZOOM : 1\}\)`/);
+});
+
+test("external camera focus controls expose auto/manual mode and a hardware-step slider", () => {
+  for (const marker of [
+    'id="dashboard-external-camera-focus-open"',
+    'id="dashboard-camera-focus-modal"',
+    'id="dashboard-camera-focus-mode"',
+    'id="dashboard-camera-focus-value"',
+    'id="dashboard-camera-focus-apply"',
+  ]) assert.match(htmlSource, new RegExp(marker));
+  assert.match(htmlSource, /id="dashboard-camera-focus-value" type="range" min="0" max="250" step="5"/);
+  assert.match(source, /\/api\/camera\/external\/focus/);
+  assert.match(source, /focus\.draftAutofocus/);
+  assert.match(source, /focus\.draftAbsolute/);
+});
+
 test("built-in camera keeps the previous frame until the replacement has loaded", () => {
   assert.match(source, /state\.cameras\.builtinObjectURLs\.add\(nextURL\);/);
   assert.match(source, /image\.onload = \(\) => \{/);
@@ -182,6 +210,31 @@ test("Overview and Jog mount one shared machine readout with work and machine co
   assert.equal(model.metrics.tool.detail, "TLO 14.307");
 });
 
+test("Overview feed override has stable state, limits, and pending value", () => {
+  assert.match(htmlSource, /data-machine-feed-delta="-10"/);
+  assert.match(htmlSource, /data-machine-feed-reset/);
+  assert.match(htmlSource, /dashboard-machine \.machine-feed-override \{ display: grid; \}/);
+  assert.match(htmlSource, /machine-metric\[data-machine-metric="feed"\] \{ grid-column: 1 \/ -1;/);
+  const ctx = buildContext(["machineFeedOverrideControlModel"]);
+  const model = (machine, pending = "", percent = null, readOnly = false) => JSON.parse(vm.runInContext(
+    `JSON.stringify(machineFeedOverrideControlModel(${JSON.stringify(machine)}, ${JSON.stringify(pending)}, ${JSON.stringify(percent)}, ${readOnly}))`,
+    ctx,
+  ));
+
+  assert.deepEqual(model({ state: "Run", connected: true, stale: false, feed: { override: 110 } }), {
+    value: "110%", pending: false, available: true,
+    decreaseDisabled: false, increaseDisabled: false, resetDisabled: false,
+  });
+  assert.deepEqual(model({ state: "Run", connected: true, stale: false, feed: { override: 110 } }, "feed_override", 120), {
+    value: "120%", pending: true, available: true,
+    decreaseDisabled: true, increaseDisabled: true, resetDisabled: true,
+  });
+  assert.equal(model({ state: "Idle", connected: true, stale: false, feed: { override: 50 } }).decreaseDisabled, true);
+  assert.equal(model({ state: "Tool", connected: true, stale: false, feed: { override: 100 } }).available, false);
+  assert.equal(model({ state: "Run", connected: false, feed: { override: 100 } }).available, false);
+  assert.equal(model({ state: "Run", connected: true, feed: { override: null } }).value, "—");
+});
+
 test("Surface footer only exposes safe job actions for the reported machine state", () => {
   const ctx = buildContext(["surfaceQuickActionState"]);
   const stateFor = (machineState) => vm.runInContext(`JSON.stringify(surfaceQuickActionState(${JSON.stringify(machineState)}))`, ctx);
@@ -191,6 +244,16 @@ test("Surface footer only exposes safe job actions for the reported machine stat
   assert.equal(stateFor("Pause"), '{"setup":false,"hold":false,"resume":true,"details":true}');
   assert.equal(stateFor("Wait"), '{"setup":false,"hold":false,"resume":false,"details":true}');
   assert.equal(stateFor("Tool"), '{"setup":false,"hold":false,"resume":false,"details":true}');
+});
+
+test("stale machine snapshots never expose machine actions", () => {
+  const state = { machine: {} };
+  const ctx = buildContext(["machineActionState"], [], { state });
+  const actionState = (machine) => vm.runInContext(`machineActionState(${JSON.stringify(machine)})`, ctx);
+  assert.equal(actionState({ state: "Pause", connected: true, stale: false, age_ms: 500 }), "Pause");
+  assert.equal(actionState({ state: "Run", connected: true, stale: true, age_ms: 500 }), "Unknown");
+  assert.equal(actionState({ state: "Run", connected: true, stale: false, age_ms: 10001 }), "Unknown");
+  assert.equal(actionState({ state: "Run", connected: false, stale: false, age_ms: 10 }), "Unknown");
 });
 
 test("Surface footer includes one stateful Auto Vacuum control", () => {
@@ -894,8 +957,8 @@ test("paused-job resume owns pending state independently of the Active Job view"
   const feedback = [];
   const bodies = [];
   let renders = 0;
-  const state = { activeGcodePending: "", machine: { state: "Pause" } };
-  const ctx = buildContext(["runActiveJobControl"], [], {
+  const state = { activeGcodePending: "", machine: { state: "Pause", connected: true, stale: false, age_ms: 0 } };
+  const ctx = buildContext(["machineActionState", "runActiveJobControl"], [], {
     state,
     confirm: () => true,
     setActiveFeedback: (text, kind) => feedback.push([text, kind]),
@@ -918,8 +981,8 @@ test("paused-job resume owns pending state independently of the Active Job view"
 test("paused-job resume reports stale and busy clicks instead of failing silently", async () => {
   const feedback = [];
   let requests = 0;
-  const state = { activeGcodePending: "feed_override", machine: { state: "Pause" } };
-  const ctx = buildContext(["runActiveJobControl"], [], {
+  const state = { activeGcodePending: "feed_override", machine: { state: "Pause", connected: true, stale: false, age_ms: 0 } };
+  const ctx = buildContext(["machineActionState", "runActiveJobControl"], [], {
     state,
     setActiveFeedback: (text, kind) => feedback.push([text, kind]),
     request: async () => { requests++; },
@@ -932,6 +995,47 @@ test("paused-job resume reports stale and busy clicks instead of failing silentl
   state.machine.state = "Hold";
   assert.equal(await vm.runInContext('runActiveJobControl("resume_job")', ctx), false);
   assert.deepEqual(feedback.at(-1), ["Resume is unavailable while the machine is Hold.", "error"]);
+});
+
+test("Active Job resume selects firmware resume for Pause and realtime resume for Hold", async () => {
+  const calls = [];
+  const state = { machine: { state: "Pause", connected: true, stale: false, age_ms: 0 } };
+  const ctx = buildContext(["machineActionState", "resumeActiveJob"], [], {
+    state,
+    runActiveJobControl: async (action) => { calls.push(action); return true; },
+    sendControl: async (action) => { calls.push(action); return true; },
+    setActiveFeedback: () => {},
+  });
+  assert.equal(await vm.runInContext("resumeActiveJob()", ctx), true);
+  state.machine.state = "Hold";
+  assert.equal(await vm.runInContext("resumeActiveJob()", ctx), true);
+  assert.deepEqual(calls, ["resume_job", "resume"]);
+});
+
+test("manual G-code owns a stable pending lifecycle and bottom-bar feedback", async () => {
+  const messages = [];
+  const disabledStates = [];
+  const state = { gcodePending: false };
+  const input = { disabled: false };
+  const button = { disabled: false };
+  const form = {
+    setAttribute: (_name, value) => disabledStates.push([value, input.disabled, button.disabled]),
+    querySelector: () => button,
+  };
+  const ctx = buildContext(["renderGcodeCommandState", "submitGcode"], [], {
+    state,
+    document: { getElementById: (id) => id === "gcode-form" ? form : id === "gcode-input" ? input : null },
+    rememberCommand: () => {},
+    setStatusMessage: (_key, text, kind) => messages.push([text, kind]),
+    sendGcode: async () => true,
+  });
+
+  assert.equal(await vm.runInContext('submitGcode("G53 G0 Z-5")', ctx), true);
+  assert.equal(state.gcodePending, false);
+  assert.equal(input.disabled, false);
+  assert.equal(button.disabled, false);
+  assert.deepEqual(messages.at(-1), ["Manual command sent: G53 G0 Z-5", "ok"]);
+  assert.match(extractFunction("sendGcode"), /Manual command failed:/);
 });
 
 test("movement arm stays locked until status is fresh Idle but disarm remains available", () => {

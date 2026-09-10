@@ -37,6 +37,7 @@ const NAV_VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files"];
 const SURFACE_VIEW_PREFERENCES_KEY = "cnc-proxy.surface-view-preferences.v1";
 const EXTERNAL_CAMERA_VIEW_KEY = "cnc-proxy.external-camera-view.v1";
 const EXTERNAL_CAMERA_ZOOM_LEVELS = [1, 1.5, 2, 3];
+const CAMERA_SNAPSHOT_ZOOM = 2.5;
 const DASHBOARD_PANEL_DEFS = [{ id: "machine", label: "Machine" }, { id: "job", label: "Current job" }, { id: "telemetry", label: "Machine telemetry" }, { id: "gcode", label: "Gcode stream" }];
 const JOG_INPUT_HEARTBEAT_MS = 100;
 const JOG_INPUT_DEADZONE = 0.12;
@@ -85,6 +86,20 @@ const state = {
   dashboardDraftProfileID: "",
   dashboardCameraPrimary: loadDashboardCameraPrimary(),
   dashboardExternalCameraView: loadDashboardExternalCameraView(),
+  dashboardCameraSnapshotZoomed: false,
+  dashboardCameraSnapshotFocus: { x: 50, y: 50 },
+  cameraFocus: {
+    loaded: false,
+    available: false,
+    autofocus: true,
+    absolute: 5,
+    min: 0,
+    max: 250,
+    step: 5,
+    pending: false,
+    draftAutofocus: true,
+    draftAbsolute: 5,
+  },
   cameras: {
     loaded: false,
     sources: { builtin: { configured: false }, external: { configured: false } },
@@ -100,11 +115,13 @@ const state = {
 	fileRenderTimer: null,
   currentDir: "",
   controlPendingAction: "",
+  gcodePending: false,
   autoVacuumPending: false,
   lastControlResult: null,
   activeGcode: { path: "", runnable: false, message: "" },
   externalJobObservedAt: 0,
   activeGcodePending: "",
+  feedOverridePendingPercent: null,
   activeGcodeLoading: false,
   activeSelectPendingPath: "",
   toolPending: "",
@@ -501,6 +518,24 @@ function mountMachineReadouts() {
   }
 }
 
+function machineFeedOverrideControlModel(machine, pendingAction = "", pendingPercent = null, readOnly = false) {
+  const rawReported = machine?.feed?.override;
+  const reported = rawReported === null || rawReported === undefined || rawReported === "" ? NaN : Number(rawReported);
+  const pending = pendingAction === "feed_override";
+  const shown = pending && Number.isFinite(pendingPercent) ? pendingPercent : reported;
+  const allowedState = ["Idle", "Run", "Hold", "Pause"].includes(String(machine?.state || ""));
+  const available = !readOnly && !!machine?.connected && !machine?.stale && Number.isFinite(reported) && allowedState;
+  const busy = !!pendingAction;
+  return {
+    value: Number.isFinite(shown) ? Math.round(shown) + "%" : "—",
+    pending,
+    available,
+    decreaseDisabled: busy || !available || reported <= 50,
+    increaseDisabled: busy || !available || reported >= 200,
+    resetDisabled: busy || !available || reported === 100,
+  };
+}
+
 function renderMachineReadouts(machine = state.machine || {}) {
   for (const host of document.querySelectorAll("[data-machine-readout-host]")) {
     const jogHost = !!host.closest("#jog-view");
@@ -517,6 +552,25 @@ function renderMachineReadouts(machine = state.machine || {}) {
       if (!row) continue;
       setTextIfChanged(row.querySelector("[data-machine-primary]"), metric.current);
       setTextIfChanged(row.querySelector("[data-machine-secondary]"), metric.detail);
+    }
+    const feedControls = host.querySelector("[data-machine-feed-override]");
+    if (feedControls) {
+      const control = machineFeedOverrideControlModel(
+        machine,
+        state.activeGcodePending,
+        state.feedOverridePendingPercent,
+        state.readOnly,
+      );
+      feedControls.hidden = state.readOnly || !host.closest(".dashboard-machine");
+      feedControls.setAttribute("aria-busy", String(control.pending));
+      const reset = feedControls.querySelector("[data-machine-feed-reset]");
+      setTextIfChanged(reset, control.value);
+      for (const button of feedControls.querySelectorAll("button")) {
+        if (button.dataset.machineFeedDelta === "-10") button.disabled = control.decreaseDisabled;
+        else if (button.dataset.machineFeedDelta === "10") button.disabled = control.increaseDisabled;
+        else button.disabled = control.resetDisabled;
+        button.title = control.available ? "" : "Feed override is available while the connected machine is Idle, running, held, or paused.";
+      }
     }
   }
 }
@@ -1078,9 +1132,13 @@ function applyAPICapabilities(caps) {
     "command-actions", "ctl-halt", "tab-jog", "tab-control", "tab-files",
     "active-gcode-run", "active-gcode-pause", "paused-job-controls",
     "feed-override-controls", "alarm-actions", "attention-resume", "attention-recover",
+    "dashboard-external-camera-focus-open",
   ]) {
     const element = document.getElementById(id);
     if (element) element.hidden = state.readOnly;
+  }
+  for (const element of document.querySelectorAll("[data-machine-feed-override]")) {
+    element.hidden = state.readOnly || !element.closest(".dashboard-machine");
   }
   if (state.readOnly && ["jog", "control", "files"].includes(state.activeTab)) {
     showTab("dashboard", "replace");
@@ -1826,14 +1884,22 @@ function pendingCount() {
   return Number.isFinite(n) ? n : queuePendingCount();
 }
 
+function machineActionState(machine = state.machine) {
+  const age = Number(machine?.age_ms);
+  if (!machine?.connected || machine?.stale || (Number.isFinite(age) && age > 10000)) return "Unknown";
+  return String(machine?.state || "Unknown");
+}
+
 function renderMachine() {
   const m = state.machine || {};
   document.getElementById("mode").textContent = m.mode || "owner";
   document.getElementById("age").textContent = fmtAge(m.age_ms);
   document.getElementById("pending").textContent = String(pendingCount());
   const el = document.getElementById("state");
-  el.textContent = m.state || "Unknown";
-  el.className = "badge state-" + (m.state || "Unknown");
+  const actionableState = machineActionState(m);
+  const displayState = actionableState === "Unknown" && m.reconnecting ? "Reconnecting" : actionableState;
+  el.textContent = displayState;
+  el.className = "badge state-" + actionableState;
   document.getElementById("status-mpos").textContent = fmtPos(m.mpos, !!m.motion_estimated);
   document.getElementById("status-wpos").textContent = fmtPos(m.wpos, !!m.motion_estimated);
   document.getElementById("status-feed").textContent = fmtActiveFeed(m.feed);
@@ -1859,7 +1925,7 @@ function renderMachine() {
 }
 
 function renderAttention(m) {
-  const machineState = String(m?.state || "Unknown");
+  const machineState = machineActionState(m);
   const details = {
     Tool: "Tool change requested. Open Tool actions to confirm the tool and continue only when the physical change is complete.",
     Pause: "The job is paused. Review the job before resuming motion.",
@@ -2148,7 +2214,7 @@ function surfaceMPGGestureActive() {
     state.jog?.surfaceWheel?.pointerId !== null;
 }
 
-function surfaceJogDisplayState(machineState = String(state.machine?.state || "Unknown")) {
+function surfaceJogDisplayState(machineState = machineActionState()) {
   // A local step briefly reports Run while the operator is still holding the
   // wheel. Keep the Surface footer stable for that gesture only; this affects
   // presentation, never the machine status used by jog safety or controls.
@@ -2187,7 +2253,7 @@ function surfaceQuickActionState(machineState) {
   };
 }
 
-function renderSurfaceQuickActions(machineState = String(state.machine?.state || "Unknown")) {
+function renderSurfaceQuickActions(machineState = machineActionState()) {
   const root = document.getElementById("surface-quick-actions");
   const actions = surfaceQuickActionState(machineState);
   for (const button of document.querySelectorAll("[data-surface-setup]")) button.hidden = !actions.setup;
@@ -7765,7 +7831,7 @@ function renderActiveGcode() {
     bounds,
     tools,
   ].filter(Boolean).join(" | ");
-  const machineReady = state.machine?.state === "Idle";
+  const machineReady = machineActionState() === "Idle";
   run.disabled = !!state.activeGcodePending;
   setSoftDisabled(run, !state.activeGcodePending && (!active.runnable || !machineReady));
   renderActiveJobProgress(live, preview);
@@ -7774,7 +7840,7 @@ function renderActiveGcode() {
 }
 
 function renderActiveGcodeControls(active) {
-  const machineState = state.machine?.state || "";
+  const machineState = machineActionState();
   const pending = !!state.activeGcodePending;
   const run = document.getElementById("active-gcode-run");
   const pause = document.getElementById("active-gcode-pause");
@@ -7791,14 +7857,21 @@ function renderActiveGcodeControls(active) {
 
   const running = machineState === "Run";
   const suspended = machineState === "Pause";
-  run.hidden = running || suspended;
+  const held = machineState === "Hold";
+  run.hidden = running || suspended || held;
   pause.hidden = !running;
-  paused.hidden = !suspended;
-  feedControls.hidden = !running && !suspended;
+  paused.hidden = !suspended && !held;
+  raise.hidden = !suspended;
+  stopSpindle.hidden = !suspended;
+  setTextIfChanged(resume, held ? "Resume motion" : "Resume job");
+  feedControls.hidden = !running && !suspended && !held;
   const feedOverride = Number(state.machine?.feed?.override);
   const hasFeedOverride = Number.isFinite(feedOverride);
   const roundedFeedOverride = hasFeedOverride ? Math.round(feedOverride) : 0;
-  feedValue.value = hasFeedOverride ? roundedFeedOverride + "%" : "-";
+  const shownFeedOverride = state.activeGcodePending === "feed_override" && Number.isFinite(state.feedOverridePendingPercent)
+    ? state.feedOverridePendingPercent
+    : roundedFeedOverride;
+  feedValue.value = hasFeedOverride ? Math.round(shownFeedOverride) + "%" : "-";
   feedValue.textContent = feedValue.value;
   feedControls.setAttribute("aria-busy", pending ? "true" : "false");
   feedDecrease.disabled = pending || !hasFeedOverride || roundedFeedOverride <= 50;
@@ -8015,6 +8088,12 @@ function setDashboardCameraState(kind, status, title, detail = "") {
   if (detailText) detailText.textContent = detail;
   if (badge) badge.textContent = status === "live" ? "Live" :
     (status === "connecting" ? "Connecting" : (status === "error" ? "Offline" : "Not configured"));
+  if (kind === "external") {
+    const snapshot = document.getElementById("dashboard-external-camera-snapshot");
+    if (snapshot) snapshot.disabled = status !== "live" || dashboardCameraPrimary() !== "external";
+    const focus = document.getElementById("dashboard-external-camera-focus-open");
+    if (focus) focus.disabled = status !== "live" || dashboardCameraPrimary() !== "external";
+  }
 }
 
 function loadDashboardCameraPrimary() {
@@ -8107,6 +8186,174 @@ function panDashboardExternalCamera(dx, dy) {
   return true;
 }
 
+function captureDashboardExternalCameraSnapshot() {
+  const image = document.getElementById("dashboard-external-camera-image");
+  const modal = document.getElementById("dashboard-camera-snapshot-modal");
+  const snapshot = document.getElementById("dashboard-camera-snapshot-image");
+  const meta = document.getElementById("dashboard-camera-snapshot-meta");
+  if (!image || !modal || !snapshot || !meta || image.hidden || !image.complete || !image.naturalWidth || !image.naturalHeight) {
+    setStatusMessage("dashboard-camera-snapshot", "Snapshot unavailable: the external camera has no decoded frame.", "error", { force: true });
+    return false;
+  }
+  try {
+    const width = image.naturalWidth;
+    const height = image.naturalHeight;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("canvas is unavailable");
+    // The live external camera is mounted upside down. Keep the snapshot in
+    // the same orientation as the operator sees in the dashboard.
+    context.translate(width, height);
+    context.rotate(Math.PI);
+    context.drawImage(image, 0, 0, width, height);
+    snapshot.src = canvas.toDataURL("image/jpeg", 0.92);
+    meta.textContent = `${width}×${height} pixels · captured from the current frame`;
+    const viewport = document.getElementById("dashboard-camera-snapshot-viewport");
+    if (viewport) viewport.style.aspectRatio = `${width} / ${height}`;
+    state.dashboardCameraSnapshotZoomed = false;
+    state.dashboardCameraSnapshotFocus = { x: 50, y: 50 };
+    renderDashboardCameraSnapshotView();
+    setStatusMessage("dashboard-camera-snapshot", "");
+    if (typeof modal.showModal === "function" && !modal.open) modal.showModal();
+    else modal.setAttribute("open", "");
+    return true;
+  } catch (error) {
+    setStatusMessage("dashboard-camera-snapshot", `Snapshot failed: ${error?.message || "the frame could not be read"}.`, "error", { force: true });
+    return false;
+  }
+}
+
+function renderDashboardCameraSnapshotView() {
+  const image = document.getElementById("dashboard-camera-snapshot-image");
+  if (!image) return;
+  const focus = state.dashboardCameraSnapshotFocus || { x: 50, y: 50 };
+  const zoomed = state.dashboardCameraSnapshotZoomed === true;
+  image.style.transform = `scale(${zoomed ? CAMERA_SNAPSHOT_ZOOM : 1})`;
+  image.style.transformOrigin = `${focus.x}% ${focus.y}%`;
+  image.classList.toggle("is-zoomed", zoomed);
+  image.setAttribute("aria-pressed", String(zoomed));
+  image.setAttribute("aria-label", zoomed
+    ? "Reset snapshot zoom"
+    : `Zoom snapshot image ${CAMERA_SNAPSHOT_ZOOM} times`);
+}
+
+function toggleDashboardCameraSnapshotZoom(clientX, clientY) {
+  const image = document.getElementById("dashboard-camera-snapshot-image");
+  if (!image?.src) return false;
+  if (state.dashboardCameraSnapshotZoomed) {
+    state.dashboardCameraSnapshotZoomed = false;
+    renderDashboardCameraSnapshotView();
+    return true;
+  }
+  const rect = image.getBoundingClientRect?.();
+  if (rect && rect.width > 0 && rect.height > 0 && Number.isFinite(clientX) && Number.isFinite(clientY)) {
+    state.dashboardCameraSnapshotFocus = {
+      x: Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100)),
+      y: Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100)),
+    };
+  }
+  state.dashboardCameraSnapshotZoomed = true;
+  renderDashboardCameraSnapshotView();
+  return true;
+}
+
+function renderDashboardCameraFocusControls() {
+  const mode = document.getElementById("dashboard-camera-focus-mode");
+  const range = document.getElementById("dashboard-camera-focus-value");
+  const label = document.getElementById("dashboard-camera-focus-value-label");
+  const apply = document.getElementById("dashboard-camera-focus-apply");
+  const focus = state.cameraFocus;
+  const auto = focus.draftAutofocus === true;
+  if (mode && document.activeElement !== mode) mode.value = auto ? "auto" : "manual";
+  if (range) {
+    range.min = String(focus.min ?? 0);
+    range.max = String(focus.max ?? 250);
+    range.step = String(focus.step || 5);
+    if (document.activeElement !== range) range.value = String(focus.draftAbsolute);
+    range.disabled = auto || focus.pending || !focus.available;
+  }
+  if (label) label.textContent = String(focus.draftAbsolute);
+  if (apply) apply.disabled = focus.pending || !focus.available;
+}
+
+function normalizeDashboardCameraFocus(data) {
+  const min = Number.isFinite(Number(data?.min)) ? Number(data.min) : 0;
+  const max = Number.isFinite(Number(data?.max)) ? Number(data.max) : 250;
+  const step = Number.isFinite(Number(data?.step)) && Number(data.step) > 0 ? Number(data.step) : 5;
+  const rawAbsolute = Number.isFinite(Number(data?.absolute)) ? Number(data.absolute) : min;
+  const absolute = Math.max(min, Math.min(max, min + Math.round((rawAbsolute - min) / step) * step));
+  return {
+    available: data?.available === true,
+    autofocus: data?.autofocus === true,
+    absolute,
+    min,
+    max,
+    step,
+  };
+}
+
+async function loadDashboardCameraFocus() {
+  const focus = state.cameraFocus;
+  focus.pending = true;
+  focus.loaded = false;
+  focus.available = false;
+  renderDashboardCameraFocusControls();
+  setStatusMessage("dashboard-camera-focus", "Reading camera focus…");
+  try {
+    const response = await request("/api/camera/external/focus");
+    const data = normalizeDashboardCameraFocus(await response.json());
+    Object.assign(focus, data, {
+      loaded: true,
+      pending: false,
+      draftAutofocus: data.autofocus,
+      draftAbsolute: data.absolute,
+    });
+    setStatusMessage("dashboard-camera-focus", "");
+  } catch (error) {
+    focus.loaded = true;
+    focus.available = false;
+    setStatusMessage("dashboard-camera-focus", `Camera focus unavailable: ${error?.message || "the controls could not be read"}.`, "error", { force: true });
+  } finally {
+    focus.pending = false;
+    renderDashboardCameraFocusControls();
+  }
+}
+
+function openDashboardCameraFocus() {
+  const modal = document.getElementById("dashboard-camera-focus-modal");
+  if (!modal) return;
+  if (!modal.open && typeof modal.showModal === "function") modal.showModal();
+  else modal.setAttribute("open", "");
+  loadDashboardCameraFocus();
+}
+
+async function applyDashboardCameraFocus() {
+  const focus = state.cameraFocus;
+  const modal = document.getElementById("dashboard-camera-focus-modal");
+  if (focus.pending || !focus.available) return;
+  focus.pending = true;
+  renderDashboardCameraFocusControls();
+  setStatusMessage("dashboard-camera-focus", "Applying camera focus…");
+  try {
+    const response = await request("/api/camera/external/focus", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ autofocus: focus.draftAutofocus, absolute: focus.draftAbsolute }),
+    });
+    const data = normalizeDashboardCameraFocus(await response.json());
+    Object.assign(focus, data, { draftAutofocus: data.autofocus, draftAbsolute: data.absolute });
+    setStatusMessage("dashboard-camera-focus", "Camera focus updated.", "ok", { force: true });
+    if (modal?.open) modal.close();
+  } catch (error) {
+    setStatusMessage("dashboard-camera-focus", `Camera focus failed: ${error?.message || "the controls could not be updated"}.`, "error", { force: true });
+  } finally {
+    focus.pending = false;
+    renderDashboardCameraFocusControls();
+  }
+}
+
 function dashboardCameraPrimary() {
   const preferred = state.dashboardCameraPrimary;
   const external = dashboardCameraSource("external");
@@ -8162,6 +8409,11 @@ function renderDashboardCameraConfig() {
   if (!builtin.configured) {
     setDashboardCameraState("builtin", "unconfigured", "Z1 camera not configured", "Configure the Z1 camera WebSocket or start the proxy with a fixed Z1 address.");
   }
+  const snapshot = document.getElementById("dashboard-external-camera-snapshot");
+  if (snapshot) snapshot.disabled = !external.configured || dashboardCameraPrimary() !== "external" || !document.getElementById("dashboard-external-camera")?.classList.contains("is-live");
+  const focus = document.getElementById("dashboard-external-camera-focus-open");
+  if (focus) focus.disabled = state.readOnly || !external.configured || dashboardCameraPrimary() !== "external" || !document.getElementById("dashboard-external-camera")?.classList.contains("is-live");
+  renderDashboardCameraFocusControls();
 }
 
 function dashboardWebSocketURL(path) {
@@ -8336,7 +8588,44 @@ function bindDashboardCameraSwitches() {
   bindZoom("dashboard-external-camera-zoom-out", () => stepDashboardExternalCameraZoom(-1));
   bindZoom("dashboard-external-camera-zoom-in", () => stepDashboardExternalCameraZoom(1));
   bindZoom("dashboard-external-camera-zoom-center", () => setDashboardExternalCameraView({ zoom: state.dashboardExternalCameraView.zoom, x: 50, y: 50 }));
+  bindZoom("dashboard-external-camera-snapshot", captureDashboardExternalCameraSnapshot);
+  bindZoom("dashboard-external-camera-focus-open", openDashboardCameraFocus);
+  const snapshotImage = document.getElementById("dashboard-camera-snapshot-image");
+  snapshotImage?.addEventListener("click", (event) => {
+    toggleDashboardCameraSnapshotZoom(event.clientX, event.clientY);
+  });
+  snapshotImage?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    toggleDashboardCameraSnapshotZoom(NaN, NaN);
+  });
+  bindButtonAction(document.getElementById("dashboard-camera-snapshot-close"), () => {
+    const modal = document.getElementById("dashboard-camera-snapshot-modal");
+    if (modal?.open) modal.close();
+  });
+  bindButtonAction(document.getElementById("dashboard-camera-focus-close"), () => {
+    const modal = document.getElementById("dashboard-camera-focus-modal");
+    if (modal?.open) modal.close();
+  });
+  bindButtonAction(document.getElementById("dashboard-camera-focus-cancel"), () => {
+    const modal = document.getElementById("dashboard-camera-focus-modal");
+    if (modal?.open) modal.close();
+  });
+  bindButtonAction(document.getElementById("dashboard-camera-focus-apply"), applyDashboardCameraFocus);
+  const focusMode = document.getElementById("dashboard-camera-focus-mode");
+  focusMode?.addEventListener("change", () => {
+    state.cameraFocus.draftAutofocus = focusMode.value === "auto";
+    renderDashboardCameraFocusControls();
+  });
+  const focusRange = document.getElementById("dashboard-camera-focus-value");
+  focusRange?.addEventListener("input", () => {
+    const value = Number(focusRange.value);
+    if (Number.isFinite(value)) state.cameraFocus.draftAbsolute = value;
+    const label = document.getElementById("dashboard-camera-focus-value-label");
+    if (label) label.textContent = String(state.cameraFocus.draftAbsolute);
+  });
   renderDashboardExternalCameraView();
+  renderDashboardCameraFocusControls();
 }
 
 function bindDashboardToolpathShortcut() {
@@ -10281,7 +10570,7 @@ async function runActiveGcode() {
     setActiveFeedback(active.message || "Active gcode is not runnable.", "error");
     return;
   }
-  if (state.machine?.state !== "Idle") {
+  if (machineActionState() !== "Idle") {
     setActiveFeedback("Machine must be Idle before running active gcode.", "error");
     return;
   }
@@ -10312,7 +10601,7 @@ async function runActiveJobControl(action) {
     setActiveFeedback("Another active job action is still in progress.", "error");
     return false;
   }
-  const machineState = String(state.machine?.state || "Unknown");
+  const machineState = machineActionState();
   const expectedState = action === "pause_job" ? "Run" : (action === "resume_job" ? "Pause" : "");
   if (!expectedState || machineState !== expectedState) {
     setActiveFeedback(action === "resume_job"
@@ -10346,6 +10635,14 @@ async function runActiveJobControl(action) {
     state.activeGcodePending = "";
     renderMachine();
   }
+}
+
+async function resumeActiveJob() {
+  const machineState = machineActionState();
+  if (machineState === "Pause") return runActiveJobControl("resume_job");
+  if (machineState === "Hold") return sendControl("resume");
+  setActiveFeedback(`Resume is unavailable while the machine is ${machineState}.`, "error");
+  return false;
 }
 
 async function runPausedJobCommand(action) {
@@ -10384,6 +10681,7 @@ async function setFeedOverride(percent) {
   percent = Math.max(50, Math.min(200, Math.round(Number(percent) / 10) * 10));
   if (!Number.isFinite(percent)) return;
   state.activeGcodePending = "feed_override";
+  state.feedOverridePendingPercent = percent;
   setActiveFeedback("Setting feed override to " + percent + "%...", "");
   renderActiveGcode();
   try {
@@ -10399,6 +10697,7 @@ async function setFeedOverride(percent) {
     setActiveFeedback("Feed override failed: " + error.message, "error");
   } finally {
     state.activeGcodePending = "";
+    state.feedOverridePendingPercent = null;
     renderActiveGcode();
   }
 }
@@ -10893,11 +11192,34 @@ function endFileAction(path) {
 	renderFiles();
 }
 
-function submitGcode(line) {
+function renderGcodeCommandState() {
+  const form = document.getElementById("gcode-form");
+  const input = document.getElementById("gcode-input");
+  const submit = form?.querySelector('button[type="submit"]');
+  form?.setAttribute("aria-busy", String(state.gcodePending));
+  if (input) input.disabled = state.gcodePending;
+  if (submit) submit.disabled = state.gcodePending;
+}
+
+async function submitGcode(line) {
   line = String(line || "").trim();
   if (!line) return;
+  if (state.gcodePending) {
+    setStatusMessage("gcode-command", "Another manual command is still in progress.", "error", { force: true });
+    return false;
+  }
   rememberCommand(line);
-  sendGcode(line);
+  state.gcodePending = true;
+  renderGcodeCommandState();
+  setStatusMessage("gcode-command", `Sending manual command: ${line}`, "", { force: true, timeoutMs: 0 });
+  try {
+    const sent = await sendGcode(line, { feedback: true });
+    if (sent) setStatusMessage("gcode-command", `Manual command sent: ${line}`, "ok", { force: true });
+    return sent;
+  } finally {
+    state.gcodePending = false;
+    renderGcodeCommandState();
+  }
 }
 
 function navigateCommandHistory(input, dir) {
@@ -11129,7 +11451,7 @@ function disarmTapMoveForCommand() {
   return promise;
 }
 
-async function sendGcode(line) {
+async function sendGcode(line, opts = {}) {
   try {
     await disarmTapMoveForCommand();
     await request("/api/gcode", {
@@ -11140,6 +11462,9 @@ async function sendGcode(line) {
     return true;
   } catch (e) {
     appendGcodeLine({ seq: "local-" + Date.now(), dir: "recv", source: "api", text: "error: " + e.message });
+    if (opts.feedback) {
+      setStatusMessage("gcode-command", `Manual command failed: ${e.message}`, "error", { force: true });
+    }
     return false;
   }
 }
@@ -14403,10 +14728,16 @@ function init() {
   document.getElementById("tool-change-select").onchange = (e) => handleToolSelect("change", e.target.value);
   bindButtonAction(document.getElementById("active-gcode-run"), runActiveGcode);
   bindButtonAction(document.getElementById("active-gcode-pause"), () => runActiveJobControl("pause_job"));
-  bindButtonAction(document.getElementById("active-gcode-resume"), () => runActiveJobControl("resume_job"));
+  bindButtonAction(document.getElementById("active-gcode-resume"), resumeActiveJob);
   bindButtonAction(document.getElementById("feed-override-decrease"), () => adjustFeedOverride(-10));
   bindButtonAction(document.getElementById("feed-override-increase"), () => adjustFeedOverride(10));
   bindButtonAction(document.getElementById("feed-override-reset"), () => setFeedOverride(100));
+  for (const button of document.querySelectorAll("[data-machine-feed-delta]")) {
+    bindButtonAction(button, () => adjustFeedOverride(Number(button.dataset.machineFeedDelta)));
+  }
+  for (const button of document.querySelectorAll("[data-machine-feed-reset]")) {
+    bindButtonAction(button, () => setFeedOverride(100));
+  }
   bindButtonAction(document.getElementById("paused-job-raise"), () => runPausedJobCommand("raise_z"));
   bindButtonAction(document.getElementById("paused-job-stop-spindle"), () => runPausedJobCommand("stop_spindle"));
   const gcodeSourceScroll = document.getElementById("active-gcode-source-scroll");
@@ -14485,8 +14816,7 @@ function init() {
   }
   bindButtonAction(document.getElementById("surface-footer-hold"), () => sendControl("hold"));
   bindButtonAction(document.getElementById("surface-footer-resume"), () => {
-    if (state.machine?.state === "Pause") runActiveJobControl("resume_job");
-    else if (state.machine?.state === "Hold") sendControl("resume");
+    resumeActiveJob();
   });
   bindDashboardCameraSwitches();
   bindDashboardToolpathShortcut();

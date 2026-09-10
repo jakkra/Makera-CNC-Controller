@@ -177,6 +177,11 @@
   .machine-metric strong, .machine-metric small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .machine-metric strong { color: var(--text); font-size: 14px; }
   .machine-metric small { color: var(--muted); font-size: 10px; }
+  .machine-feed-override { display: none; grid-template-columns: 40px minmax(52px,1fr) 40px; gap: 4px; margin-top: 6px; }
+  .dashboard-machine .machine-metric-grid { grid-template-columns: minmax(156px,1.6fr) repeat(2,minmax(0,1fr)); }
+  .dashboard-machine .machine-feed-override { display: grid; }
+  .machine-feed-override button { min-width: 0; min-height: 36px; padding: 0 5px; justify-content: center; font-size: 11px; font-weight: 750; white-space: nowrap; }
+  .machine-feed-override [data-machine-feed-reset] { color: var(--text); background: #151a1f; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; font-variant-numeric: tabular-nums; }
   .surface-position-summary { display: grid; gap: 8px; color: var(--muted); }
   .surface-position-summary strong { color: var(--text); }
   .surface-position-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-sm); }
@@ -1046,6 +1051,18 @@
   .dashboard-camera-stage.external-camera-live:not(.builtin-primary) .dashboard-camera-zoom { display: flex; }
   .dashboard-camera-zoom button { width: 40px; min-width: 40px; height: 40px; min-height: 40px; padding: 0; font-size: 18px; line-height: 1; }
   .dashboard-camera-zoom output { width: 48px; color: #dce7eb; font-size: 12px; font-weight: 750; text-align: center; font-variant-numeric: tabular-nums; }
+  .dashboard-camera-snapshot-modal { width: min(920px, calc(100vw - 24px)); }
+  .dashboard-camera-snapshot-body { display: grid; gap: 10px; padding: 12px; }
+  .dashboard-camera-snapshot-viewport { width: 100%; max-height: min(78dvh, 720px); overflow: hidden; background: #080e12; border: 1px solid var(--border); border-radius: 6px; }
+  .dashboard-camera-snapshot-image { display: block; width: 100%; height: 100%; object-fit: contain; transform-origin: 50% 50%; transition: transform 140ms ease-out; cursor: zoom-in; }
+  .dashboard-camera-snapshot-image.is-zoomed { cursor: zoom-out; }
+  .dashboard-camera-snapshot-meta { color: var(--muted); font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .dashboard-camera-focus-modal { width: min(440px, calc(100vw - 24px)); }
+  .dashboard-camera-focus-body { display: grid; gap: 14px; padding: 16px; }
+  .dashboard-camera-focus-field { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+  .dashboard-camera-focus-field select, .dashboard-camera-focus-field input { width: 100%; }
+  .dashboard-camera-focus-value { color: var(--text); font: 650 14px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .dashboard-camera-focus-actions { display: flex; justify-content: flex-end; gap: 8px; }
   .dashboard-camera-main { inset: 0; }
   .dashboard-camera-inset { z-index: 3; top: 16px; right: 16px; width: min(34%,310px); aspect-ratio: 4/3; border: 1px solid #586872; border-radius: 7px; box-shadow: 0 14px 34px rgba(0,0,0,.5); }
   .dashboard-camera-empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 7px; padding: 20px; color: var(--muted); text-align: center; }
@@ -1214,6 +1231,11 @@
     .dashboard-machine .machine-axis strong, body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-axis strong { font-size: clamp(13px, 3.6vw, 15px); }
     .dashboard-machine .machine-axis small, body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-axis small { font-size: clamp(10px, 2.8vw, 12px); }
     .dashboard-machine .machine-axis-unit, body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-axis-unit { display: none; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-metric-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-metric[data-machine-metric="feed"] { grid-column: 1 / -1; grid-template-columns: minmax(0,1fr) minmax(148px,auto); grid-template-rows: repeat(3,auto); column-gap: 12px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-metric[data-machine-metric="feed"] > span, body[data-active-tab="dashboard"] .dashboard-machine .machine-metric[data-machine-metric="feed"] > strong, body[data-active-tab="dashboard"] .dashboard-machine .machine-metric[data-machine-metric="feed"] > small { grid-column: 1; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-feed-override { grid-column: 2; grid-row: 1 / -1; align-self: center; margin-top: 0; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-feed-override button { min-height: 44px; }
     .dashboard-telemetry, .dashboard-gcode { min-height: auto; }
     .surface-jog { min-height: 0; grid-template-columns: 1fr; }
     .surface-jog-panel { min-height: 0; }
@@ -1430,7 +1452,7 @@
       <div class="machine-axis machine-axis-a" data-machine-axis="a"><span class="machine-axis-label">A</span><span class="machine-axis-value" data-machine-row="work"><i>W</i><strong data-machine-space="work">—</strong></span><span class="machine-axis-value" data-machine-row="machine"><i>M</i><small data-machine-space="machine">—</small></span><span class="machine-axis-unit">°</span></div>
     </div>
     <div class="machine-metric-grid">
-      <div class="machine-metric" data-machine-metric="feed"><span>Feed</span><strong data-machine-primary>—</strong><small data-machine-secondary>—</small></div>
+      <div class="machine-metric" data-machine-metric="feed"><span>Feed</span><strong data-machine-primary>—</strong><small data-machine-secondary>—</small><div class="machine-feed-override" data-machine-feed-override aria-label="Feed override"><button type="button" data-machine-feed-delta="-10" aria-label="Decrease feed override by 10 percent">−10%</button><button type="button" data-machine-feed-reset aria-label="Reset feed override to 100 percent">—</button><button type="button" data-machine-feed-delta="10" aria-label="Increase feed override by 10 percent">+10%</button></div></div>
       <div class="machine-metric" data-machine-metric="spindle"><span>Spindle</span><strong data-machine-primary>—</strong><small data-machine-secondary>—</small></div>
       <div class="machine-metric" data-machine-metric="tool"><span>Tool</span><strong data-machine-primary>—</strong><small data-machine-secondary>—</small></div>
     </div>
@@ -1672,6 +1694,8 @@
             <output id="dashboard-external-camera-zoom-value" aria-live="off">1×</output>
             <button type="button" id="dashboard-external-camera-zoom-in" aria-label="Zoom external camera in">+</button>
             <button type="button" id="dashboard-external-camera-zoom-center" aria-label="Center external camera view" title="Center view">⌖</button>
+            <button type="button" id="dashboard-external-camera-snapshot" aria-label="Capture external camera snapshot" title="Capture snapshot">▣</button>
+            <button type="button" id="dashboard-external-camera-focus-open" aria-label="Adjust external camera focus" title="Adjust focus">⚙</button>
           </div>
           <div id="dashboard-builtin-camera" class="dashboard-camera dashboard-camera-inset is-unconfigured" role="button" tabindex="-1" aria-pressed="false" aria-label="Make Z1 camera the main view">
             <img id="dashboard-builtin-camera-image" alt="Z1 camera" hidden>
@@ -2190,6 +2214,41 @@
   <button type="button" id="surface-footer-resume" class="surface-quick-button" hidden>▶&nbsp; Resume</button>
   <button type="button" id="surface-footer-job" class="surface-quick-button" hidden>▤&nbsp; Job details</button>
 </div>
+<dialog id="dashboard-camera-snapshot-modal" class="dashboard-camera-snapshot-modal" aria-labelledby="dashboard-camera-snapshot-title">
+  <div class="machine-settings-modal-head">
+    <h2 id="dashboard-camera-snapshot-title">External camera snapshot</h2>
+    <button type="button" id="dashboard-camera-snapshot-close" aria-label="Close camera snapshot">Close</button>
+  </div>
+  <div class="dashboard-camera-snapshot-body">
+    <div id="dashboard-camera-snapshot-viewport" class="dashboard-camera-snapshot-viewport">
+      <img id="dashboard-camera-snapshot-image" class="dashboard-camera-snapshot-image" alt="Captured external camera snapshot" role="button" tabindex="0" aria-pressed="false" aria-label="Zoom snapshot image 2.5 times">
+    </div>
+    <small id="dashboard-camera-snapshot-meta" class="dashboard-camera-snapshot-meta"></small>
+  </div>
+</dialog>
+<dialog id="dashboard-camera-focus-modal" class="dashboard-camera-focus-modal" aria-labelledby="dashboard-camera-focus-title">
+  <div class="machine-settings-modal-head">
+    <h2 id="dashboard-camera-focus-title">External camera focus</h2>
+    <button type="button" id="dashboard-camera-focus-close" aria-label="Close camera focus settings">Close</button>
+  </div>
+  <div class="dashboard-camera-focus-body">
+    <label class="dashboard-camera-focus-field" for="dashboard-camera-focus-mode">
+      <span>Focus mode</span>
+      <select id="dashboard-camera-focus-mode">
+        <option value="auto">Auto focus</option>
+        <option value="manual">Manual focus</option>
+      </select>
+    </label>
+    <label class="dashboard-camera-focus-field" for="dashboard-camera-focus-value">
+      <span>Manual focus <output id="dashboard-camera-focus-value-label" class="dashboard-camera-focus-value">5</output></span>
+      <input id="dashboard-camera-focus-value" type="range" min="0" max="250" step="5" value="5">
+    </label>
+    <div class="dashboard-camera-focus-actions">
+      <button type="button" id="dashboard-camera-focus-cancel">Cancel</button>
+      <button type="button" id="dashboard-camera-focus-apply" class="primary">Apply</button>
+    </div>
+  </div>
+</dialog>
 <dialog id="dashboard-settings-modal" aria-labelledby="dashboard-settings-title">
   <div class="machine-settings-modal-head">
     <h2 id="dashboard-settings-title">Dashboard layout</h2>
@@ -2378,6 +2437,6 @@
 <div id="status-bar" role="status" aria-live="polite" hidden>
   <div id="notice"></div>
 </div>
-<script type="module" src="/app.js?v=external-camera-zoom-1"></script>
+<script type="module" src="/app.js?v=overview-feed-override-1&camera-snapshot=1&camera-focus=1&pause-state=1"></script>
 </body>
 </html>

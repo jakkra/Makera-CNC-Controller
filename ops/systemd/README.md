@@ -26,3 +26,28 @@ It builds a candidate binary, retains one previous binary under
 `~/.local/share/sensei/releases/`, restarts only the proxy, checks the local
 API, and automatically restores the previous binary if that health check fails.
 The camera and kiosk stay running during a proxy update.
+
+## Camera resolution and focus
+
+The bundled C920 unit captures 1920×1080 MJPEG at 15 fps. It disables
+continuous autofocus at startup and uses a fixed focus value of 5. uStreamer
+exposes image controls, but not autofocus controls; the Overview camera toolbar
+provides Auto/Manual focus controls when the proxy can access the device.
+Because the proxy runs as the desktop user, that user must be a member of the
+`video` group for the controls to work (one-time setup: `sudo usermod -aG video
+jakkra`, then start a new login session).
+Inspect the camera's V4L2
+controls with:
+
+```sh
+v4l2-ctl -d /dev/v4l/by-id/usb-046d_HD_Pro_Webcam_C920_46EAAC8F-video-index0 --list-ctrls-menus
+```
+
+For this C920, `focus_automatic_continuous` is the autofocus switch and
+`focus_absolute` accepts values from 0 to 250 in steps of 5. Autofocus can be
+disabled and a fixed focus selected:
+
+```sh
+v4l2-ctl -d /dev/v4l/by-id/usb-046d_HD_Pro_Webcam_C920_46EAAC8F-video-index0 --set-ctrl=focus_automatic_continuous=0
+v4l2-ctl -d /dev/v4l/by-id/usb-046d_HD_Pro_Webcam_C920_46EAAC8F-video-index0 --set-ctrl=focus_absolute=<value>
+```
