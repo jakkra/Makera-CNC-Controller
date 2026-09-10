@@ -235,6 +235,85 @@ test("Overview feed override has stable state, limits, and pending value", () =>
   assert.equal(model({ state: "Run", connected: true, feed: { override: null } }).value, "—");
 });
 
+test("Overview and Active Job share server-owned job controls", () => {
+  for (const marker of [
+    'id="dashboard-job-controls"',
+    'id="active-job-controls"',
+    'data-job-control="pause"',
+    'data-job-control="resume"',
+    'data-job-control="stop-spindle"',
+    'data-job-control="start-spindle"',
+    'data-job-start-field',
+    'id="paused-job-spindle-speed"',
+    'id="paused-job-spindle-direction"',
+  ]) assert.match(htmlSource, new RegExp(marker));
+  assert.match(htmlSource, /dashboard-job-controls \{ margin-top: 2px; \}/);
+  assert.match(htmlSource, /active-job-controls \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); padding: 8px;/);
+  assert.match(htmlSource, /id="paused-job-spindle-speed" type="number" inputmode="numeric" min="1" max="13000"/);
+  assert.match(htmlSource, /<option value="" selected disabled>Choose…<\/option>/);
+  assert.match(source, /group\.hidden = !visibleAction;/, "empty action clusters do not reserve a blank card");
+  const ctx = buildContext(["machineActionState", "jobControlModel", "jobControlLabel"]);
+  const model = (machine, pending = "", readOnly = false) => JSON.parse(vm.runInContext(
+    `JSON.stringify(jobControlModel(${JSON.stringify(machine)}, ${JSON.stringify(pending)}, ${readOnly}))`,
+    ctx,
+  ));
+  const paused = model({
+    state: "Pause", connected: true, stale: false, age_ms: 0,
+    job_control: {
+      can_pause: false, can_resume: true, can_start_spindle: true, can_stop_spindle: true,
+      spindle: { speed_rpm: 10000, speed_known: true, stopped: true },
+    },
+  });
+  assert.equal(paused.speed, 10000);
+  assert.equal(paused.actions.pause.visible, false);
+  assert.equal(paused.actions.resume.visible, true);
+  assert.equal(paused.actions["stop-spindle"].visible, true);
+  assert.equal(paused.actions["start-spindle"].visible, true);
+  assert.equal(vm.runInContext(`jobControlLabel("start-spindle", ${JSON.stringify(paused)})`, ctx), "Start · 10,000 rpm");
+
+  const unknownSpeed = model({
+    state: "Pause", connected: true, stale: false, age_ms: 0,
+    job_control: { paused: true, can_start_spindle: false, spindle: { speed_known: false } },
+  });
+  assert.equal(unknownSpeed.actions["start-spindle"].visible, true, "Active Job can collect an explicit start value");
+  assert.equal(unknownSpeed.speed, null, "the browser never guesses an RPM");
+
+  const pending = model({
+    state: "Pause", connected: true, stale: false, age_ms: 0,
+    job_control: { can_resume: true, spindle: {} },
+  }, "resume_job");
+  assert.equal(pending.actions.resume.pending, true);
+  assert.equal(pending.actions.resume.disabled, true);
+});
+
+test("unknown paused spindle context requires an explicit RPM and direction", async () => {
+  const messages = [];
+  const commands = [];
+  const speed = { value: "12000" };
+  const direction = { value: "M4" };
+  const state = {
+    activeGcodePending: "",
+    readOnly: false,
+    machine: {
+      state: "Pause", connected: true, stale: false, age_ms: 0,
+      job_control: { paused: true, can_start_spindle: false, spindle: { speed_known: false } },
+    },
+  };
+  const ctx = buildContext(["machineActionState", "jobControlModel", "runJobControl"], [], {
+    state,
+    document: { getElementById: (id) => id === "paused-job-spindle-speed" ? speed : id === "paused-job-spindle-direction" ? direction : null },
+    setActiveFeedback: (text, kind) => messages.push([text, kind]),
+    runActiveJobControl: async () => false,
+    runPausedJobCommand: async (action, options) => { commands.push([action, options]); return true; },
+  });
+  assert.equal(await vm.runInContext('runJobControl("start-spindle")', ctx), true);
+  assert.deepEqual(JSON.parse(JSON.stringify(commands)), [["start_spindle", { speed_rpm: 12000, direction: "M4" }]]);
+
+  speed.value = "0";
+  assert.equal(await vm.runInContext('runJobControl("start-spindle")', ctx), false);
+  assert.deepEqual(messages.at(-1), ["Enter a spindle speed from 1 to 13,000 rpm before starting.", "error"]);
+});
+
 test("Surface footer only exposes safe job actions for the reported machine state", () => {
   const ctx = buildContext(["surfaceQuickActionState"]);
   const stateFor = (machineState) => vm.runInContext(`JSON.stringify(surfaceQuickActionState(${JSON.stringify(machineState)}))`, ctx);
@@ -603,7 +682,7 @@ test("summary dashboard uses the full Active job 3D scene and live cursor", () =
     orbit: { radius: 100 },
     canvas: { setAttribute: (name, value) => { attributes[name] = value; } },
   };
-  const ctx = buildContext(["drawDashboardGcodePreview"], [], {
+  const ctx = buildContext(["dashboardGcodeRenderStateKey", "drawDashboardGcodePreview"], [], {
     state: { outline: {}, activeGcode: { path: "/sd/gcodes/part.nc" } },
     activeGcodeGeometry: { signature: "full-geometry-signature" },
     activeGcodeSourceSignature: () => "full-geometry-signature",
@@ -1470,7 +1549,7 @@ test("jog disconnect clears every local continuous-motion intent", () => {
   assert.equal(state.jog.surfaceWheel.blocked, false);
   assert.equal(state.jog.pad, "");
   assert.equal(state.jog.deadman, false);
-  assert.deepEqual(JSON.parse(JSON.stringify(state.jog.axes)), { x: 0, y: 0, z: 0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(state.jog.axes)), { x: 0, y: 0, z: 0, a: 0 });
   assert.deepEqual(JSON.parse(JSON.stringify(state.jog.buttons)), []);
   assert.equal(state.jog.lastInput, null);
   assert.equal(state.jog.lastInputSentAt, 0);
@@ -4702,7 +4781,7 @@ test("jog motion keeps observed machine position distinct from its prediction", 
     },
     machine: { mpos: { x: 1, y: 2, z: 3 }, wpos: { x: 1, y: 2, z: 3 } },
   };
-  const ctx = buildContext(["applyJogEvent"], [], {
+  const ctx = buildContext(["surfaceMPGGestureActive", "deferSurfaceMPGMachineRender", "applyJogEvent"], [], {
     state,
     performance: { now: () => 100 },
     renderMachine: () => {},
@@ -4800,6 +4879,8 @@ test("lagging jog status does not pull an active prediction backward", () => {
     "shouldPreserveJogPrediction",
     "mergeMachineStatusForDisplay",
     "reconcileObservedMachineStatus",
+    "surfaceMPGGestureActive",
+    "deferSurfaceMPGMachineRender",
     "applyJogEvent",
   ], ["JOG_PREDICTION_TOLERANCE_MM"], {
     state,
@@ -4841,6 +4922,8 @@ test("jog status replaces a prediction once the machine catches up", () => {
     "shouldPreserveJogPrediction",
     "mergeMachineStatusForDisplay",
     "reconcileObservedMachineStatus",
+    "surfaceMPGGestureActive",
+    "deferSurfaceMPGMachineRender",
     "applyJogEvent",
   ], ["JOG_PREDICTION_TOLERANCE_MM"], {
     state,
@@ -4882,6 +4965,8 @@ test("an expired jog prediction yields to a position that never caught up", () =
     "shouldPreserveJogPrediction",
     "mergeMachineStatusForDisplay",
     "reconcileObservedMachineStatus",
+    "surfaceMPGGestureActive",
+    "deferSurfaceMPGMachineRender",
     "applyJogEvent",
   ], ["JOG_PREDICTION_TOLERANCE_MM"], {
     state,
@@ -5763,9 +5848,9 @@ test("Surface footer ignores transient Run while an armed MPG gesture is held", 
   const state = {
     activeTab: "jog",
     jog: { armed: true, surfaceWheel: { pointerId: 7 } },
-    machine: { state: "Run" },
+    machine: { state: "Run", connected: true, stale: false, age_ms: 0 },
   };
-  const ctx = buildContext(["surfaceMPGGestureActive", "surfaceJogDisplayState", "deferSurfaceMPGMachineRender"], [], { state });
+  const ctx = buildContext(["machineActionState", "surfaceMPGGestureActive", "surfaceJogDisplayState", "deferSurfaceMPGMachineRender"], [], { state });
   assert.equal(vm.runInContext("surfaceJogDisplayState()", ctx), "Idle");
   assert.equal(vm.runInContext("deferSurfaceMPGMachineRender()", ctx), true);
   state.jog.surfaceWheel.pointerId = null;

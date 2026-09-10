@@ -17,16 +17,17 @@ import (
 // dataset (a few hundred gcode files) is small enough that whole-file
 // persistence is simpler and safe; we can shard later if needed.
 type Store struct {
-	mu      sync.RWMutex
-	path    string
-	now     func() time.Time
-	entries map[string]*Entry // keyed by Path
-	jobs    []*Job
-	nextJob int64
-	ui      UISettings
-	active  string
-	subs    map[int]chan Event
-	nextSub int
+	mu        sync.RWMutex
+	path      string
+	now       func() time.Time
+	entries   map[string]*Entry // keyed by Path
+	jobs      []*Job
+	nextJob   int64
+	ui        UISettings
+	active    string
+	execution ExecutionContext
+	subs      map[int]chan Event
+	nextSub   int
 }
 
 // Event notifies subscribers of a change, for pushing to the web UI.
@@ -43,14 +44,16 @@ type persisted struct {
 	NextJob         int64             `json:"next_job"`
 	UI              *UISettings       `json:"ui,omitempty"`
 	ActiveGcodePath string            `json:"active_gcode_path,omitempty"`
+	Execution       ExecutionContext  `json:"execution_context,omitempty"`
 }
 
 type modelSnapshot struct {
-	entries map[string]*Entry
-	jobs    []*Job
-	nextJob int64
-	ui      UISettings
-	active  string
+	entries   map[string]*Entry
+	jobs      []*Job
+	nextJob   int64
+	ui        UISettings
+	active    string
+	execution ExecutionContext
 }
 
 // Batch groups catalog and queue mutations into one durable store flush.
@@ -68,6 +71,7 @@ type Snapshot struct {
 	NextJob         int64            `json:"next_job"`
 	UI              UISettings       `json:"ui"`
 	ActiveGcodePath string           `json:"active_gcode_path,omitempty"`
+	Execution       ExecutionContext `json:"execution_context,omitempty"`
 }
 
 // Open loads a store from path, creating an empty one if the file is absent.
@@ -105,6 +109,7 @@ func Open(path string) (*Store, error) {
 		s.ui = normalizeUISettings(*p.UI, s.now())
 	}
 	s.active = strings.TrimSpace(p.ActiveGcodePath)
+	s.execution = normalizeExecutionContext(p.Execution)
 	return s, nil
 }
 
@@ -118,6 +123,7 @@ func (s *Store) Snapshot() Snapshot {
 		NextJob:         s.nextJob,
 		UI:              copyUISettings(s.ui),
 		ActiveGcodePath: s.active,
+		Execution:       copyExecutionContext(s.execution),
 	}
 	for k, e := range s.entries {
 		out.Entries[k] = *e
@@ -153,8 +159,9 @@ func (s *Store) Restore(in Snapshot) error {
 	}
 	ui := normalizeUISettings(in.UI, s.now())
 	active := strings.TrimSpace(in.ActiveGcodePath)
+	execution := normalizeExecutionContext(in.Execution)
 	return s.Batch(func(b *Batch) error {
-		b.replaceModel(entries, jobs, nextJob, ui, active)
+		b.replaceModel(entries, jobs, nextJob, ui, active, execution)
 		return nil
 	})
 }
@@ -195,7 +202,7 @@ func (s *Store) flushLocked() error {
 	if s.path == "" {
 		return nil // in-memory only (tests)
 	}
-	p := persisted{Entries: s.entries, Jobs: s.jobs, NextJob: s.nextJob, UI: &s.ui, ActiveGcodePath: s.active}
+	p := persisted{Entries: s.entries, Jobs: s.jobs, NextJob: s.nextJob, UI: &s.ui, ActiveGcodePath: s.active, Execution: s.execution}
 	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return err
@@ -243,11 +250,12 @@ func (s *Store) publishLocked(ev Event) {
 
 func (s *Store) snapshotLocked() modelSnapshot {
 	snap := modelSnapshot{
-		entries: make(map[string]*Entry, len(s.entries)),
-		jobs:    make([]*Job, 0, len(s.jobs)),
-		nextJob: s.nextJob,
-		ui:      copyUISettings(s.ui),
-		active:  s.active,
+		entries:   make(map[string]*Entry, len(s.entries)),
+		jobs:      make([]*Job, 0, len(s.jobs)),
+		nextJob:   s.nextJob,
+		ui:        copyUISettings(s.ui),
+		active:    s.active,
+		execution: copyExecutionContext(s.execution),
 	}
 	for k, e := range s.entries {
 		cp := *e
@@ -266,6 +274,7 @@ func (s *Store) restoreLocked(snap modelSnapshot) {
 	s.nextJob = snap.nextJob
 	s.ui = snap.ui
 	s.active = snap.active
+	s.execution = snap.execution
 }
 
 // Batch runs fn while holding the store lock, flushing the full model once at
@@ -315,12 +324,13 @@ func (b *Batch) publishReset() {
 	b.events = append(b.events, Event{Kind: "reset"})
 }
 
-func (b *Batch) replaceModel(entries map[string]*Entry, jobs []*Job, nextJob int64, ui UISettings, active string) {
+func (b *Batch) replaceModel(entries map[string]*Entry, jobs []*Job, nextJob int64, ui UISettings, active string, execution ExecutionContext) {
 	b.s.entries = entries
 	b.s.jobs = jobs
 	b.s.nextJob = nextJob
 	b.s.ui = ui
 	b.s.active = active
+	b.s.execution = execution
 	b.markDirty()
 	b.publishReset()
 }
@@ -666,6 +676,19 @@ func (b *Batch) SetActiveGcodePath(path string) bool {
 	return true
 }
 
+// SetExecutionContext replaces the durable machine-observed execution
+// context. It never sends a machine command and intentionally publishes no
+// store event: machine status subscriptions already carry this live state.
+func (b *Batch) SetExecutionContext(context ExecutionContext) bool {
+	context = normalizeExecutionContext(context)
+	if b.s.execution == context {
+		return false
+	}
+	b.s.execution = context
+	b.markDirty()
+	return true
+}
+
 // Subscribe returns a channel of change events and an unsubscribe func.
 func (s *Store) Subscribe() (<-chan Event, func()) {
 	s.mu.Lock()
@@ -979,6 +1002,23 @@ func (s *Store) SetActiveGcodePath(path string) error {
 	})
 }
 
+// ExecutionContext returns the latest durable machine-observed execution
+// context. Restoring it is informational only; callers must always verify
+// current machine state before taking an action.
+func (s *Store) ExecutionContext() ExecutionContext {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return copyExecutionContext(s.execution)
+}
+
+// SetExecutionContext persists a machine-observed execution context.
+func (s *Store) SetExecutionContext(context ExecutionContext) error {
+	return s.Batch(func(b *Batch) error {
+		b.SetExecutionContext(context)
+		return nil
+	})
+}
+
 // CacheDir returns the directory where cached file contents should live,
 // alongside the store file.
 func (s *Store) CacheDir() string {
@@ -1058,6 +1098,24 @@ func defaultUISettings() UISettings {
 		Machine:      defaultMachineUI(),
 		Dashboard:    defaultDashboardSettings(),
 	}
+}
+
+func normalizeExecutionContext(in ExecutionContext) ExecutionContext {
+	in.Job.Path = strings.TrimSpace(in.Job.Path)
+	in.Job.Source = strings.TrimSpace(in.Job.Source)
+	if in.Job.CurrentLine < 0 {
+		in.Job.CurrentLine = 0
+	}
+	in.Spindle.Direction = strings.ToUpper(strings.TrimSpace(in.Spindle.Direction))
+	if in.Spindle.Direction != "M3" && in.Spindle.Direction != "M4" {
+		in.Spindle.Direction = ""
+	}
+	in.Spindle.Source = strings.TrimSpace(in.Spindle.Source)
+	if !in.Spindle.SpeedKnown || math.IsNaN(in.Spindle.SpeedRPM) || math.IsInf(in.Spindle.SpeedRPM, 0) || in.Spindle.SpeedRPM <= 0 {
+		in.Spindle.SpeedRPM = 0
+		in.Spindle.SpeedKnown = false
+	}
+	return in
 }
 
 func defaultDashboardSettings() DashboardSettings {
@@ -1636,6 +1694,8 @@ func copyUISettings(in UISettings) UISettings {
 	}
 	return out
 }
+
+func copyExecutionContext(in ExecutionContext) ExecutionContext { return in }
 
 func copyMachineLearnedProfiles(in map[string]MachineLearned) map[string]MachineLearned {
 	if len(in) == 0 {

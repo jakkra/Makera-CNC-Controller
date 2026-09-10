@@ -53,30 +53,31 @@ const (
 )
 
 const (
-	maxUIMacros          = 48
-	maxMacroLines        = 40
-	maxMacroLineLen      = 240
-	maxMacroNameLen      = 80
-	maxMacroDescLen      = 240
-	maxMacroButtons      = 96
-	maxMacroColorLen     = 32
-	maxDashboardProfiles = 16
-	maxDashboardIDLen    = 64
-	maxDashboardNameLen  = 80
-	maxGamepadAxis       = 31
-	maxGamepadButton     = 63
-	maxGamepadMacros     = 32
-	maxMachineSpanMM     = 5000
-	maxTapFeedMMMin      = 10000
-	maxSavedOrigins      = 48
-	maxOriginLabelLen    = 80
-	maxProbeDepthMM      = 200
-	maxProbeFeedMM       = 1000
-	maxTracePoints       = 4000
-	maxFailedJobsPerPath = 20
-	defaultSafeZMM       = -3.0
-	safeZLimitMarginMM   = 3.0
-	firmwareTravelMaxMM  = -1.0
+	maxUIMacros                 = 48
+	maxMacroLines               = 40
+	maxMacroLineLen             = 240
+	maxMacroNameLen             = 80
+	maxMacroDescLen             = 240
+	maxMacroButtons             = 96
+	maxMacroColorLen            = 32
+	maxDashboardProfiles        = 16
+	maxDashboardIDLen           = 64
+	maxDashboardNameLen         = 80
+	maxGamepadAxis              = 31
+	maxGamepadButton            = 63
+	maxGamepadMacros            = 32
+	maxMachineSpanMM            = 5000
+	maxTapFeedMMMin             = 10000
+	maxSavedOrigins             = 48
+	maxOriginLabelLen           = 80
+	maxProbeDepthMM             = 200
+	maxProbeFeedMM              = 1000
+	maxTracePoints              = 4000
+	maxFailedJobsPerPath        = 20
+	defaultSafeZMM              = -3.0
+	safeZLimitMarginMM          = 3.0
+	firmwareTravelMaxMM         = -1.0
+	executionCheckpointInterval = 30 * time.Second
 )
 
 // Service wires the store, arbiter (for machine state), and local cache.
@@ -118,6 +119,23 @@ type Service struct {
 	activeProbeLoaded      bool
 	activeProbeUnsupported bool
 
+	// execution is the latest machine-observed job/spindle context. It is kept
+	// independently of UI settings, and selectively checkpointed through the
+	// store so a proxy restart does not turn a known spindle setup into a guess.
+	executionMu           sync.RWMutex
+	executionPersistMu    sync.Mutex
+	execution             store.ExecutionContext
+	executionPersistedAt  time.Time
+	executionRecoveryMu   sync.Mutex
+	executionRecoveryPath string
+	executionRecoveryAt   time.Time
+
+	observerStop    chan struct{}
+	observerClose   sync.Once
+	observerMu      sync.Mutex
+	observerClosing bool
+	observerWG      sync.WaitGroup
+
 	autoLearnMu         sync.Mutex
 	autoLearnGeneration uint64
 	autoLearnRunning    bool
@@ -136,12 +154,14 @@ func New(st *store.Store, arb *session.Arbiter) (*Service, error) {
 		return nil, err
 	}
 	s := &Service{
-		store:      st,
-		arb:        arb,
-		cacheDir:   cacheDir,
-		gcodeLog:   gcodelog.New(500),
-		runHistory: runhistory.New(100),
-		attention:  attention.New(100),
+		store:        st,
+		arb:          arb,
+		cacheDir:     cacheDir,
+		gcodeLog:     gcodelog.New(500),
+		runHistory:   runhistory.New(100),
+		attention:    attention.New(100),
+		execution:    st.ExecutionContext(),
+		observerStop: make(chan struct{}),
 	}
 	s.startRunHistoryObservers()
 	return s, nil
@@ -160,24 +180,80 @@ func (s *Service) Attention() attention.Snapshot { return s.attention.Snapshot()
 // ClearRunHistory removes retained local run history. It never touches the machine.
 func (s *Service) ClearRunHistory() { s.runHistory.Clear() }
 
+// Close stops Service-owned observer goroutines and waits for them to finish.
+// It does not send any machine command. Call it before removing the store's
+// data directory (notably in tests and orderly process shutdown) so a late
+// tracker update cannot race a torn-down durable store.
+func (s *Service) Close() {
+	s.observerClose.Do(func() {
+		s.observerMu.Lock()
+		s.observerClosing = true
+		close(s.observerStop)
+		s.observerMu.Unlock()
+		s.observerWG.Wait()
+	})
+}
+
+// startObserverTask makes dynamically-created Service background work part of
+// the same lifetime as the fixed status/log observers. The mutex prevents a
+// positive WaitGroup Add from racing Close's Wait when the count is zero.
+func (s *Service) startObserverTask(fn func()) bool {
+	s.observerMu.Lock()
+	defer s.observerMu.Unlock()
+	if s.observerClosing {
+		return false
+	}
+	s.observerWG.Add(1)
+	go func() {
+		defer s.observerWG.Done()
+		fn()
+	}()
+	return true
+}
+
 func (s *Service) startRunHistoryObservers() {
 	if st, _ := s.arb.Tracker().Current(); !st.ObservedAt.IsZero() {
 		s.runHistory.ObserveStatus(st)
 		s.attention.ObserveStatus(st, s.attentionContext(st))
 		s.maybeLoadActiveGcodeFromMachine(st)
+		s.observeExecutionStatus(st)
 	}
-	statusCh, _ := s.arb.Tracker().Subscribe()
+	statusCh, unsubStatus := s.arb.Tracker().Subscribe()
+	s.observerWG.Add(1)
 	go func() {
-		for st := range statusCh {
-			s.runHistory.ObserveStatus(st)
-			s.attention.ObserveStatus(st, s.attentionContext(st))
-			s.maybeLoadActiveGcodeFromMachine(st)
+		defer s.observerWG.Done()
+		defer unsubStatus()
+		for {
+			select {
+			case <-s.observerStop:
+				return
+			case st, ok := <-statusCh:
+				if !ok {
+					return
+				}
+				s.runHistory.ObserveStatus(st)
+				s.attention.ObserveStatus(st, s.attentionContext(st))
+				s.maybeLoadActiveGcodeFromMachine(st)
+				s.observeExecutionStatus(st)
+			}
 		}
 	}()
-	gcodeCh, _ := s.gcodeLog.Subscribe()
+	gcodeCh, unsubGcode := s.gcodeLog.Subscribe()
+	s.observerWG.Add(1)
 	go func() {
-		for ln := range gcodeCh {
-			s.runHistory.ObserveLine(ln)
+		defer s.observerWG.Done()
+		defer unsubGcode()
+		for {
+			select {
+			case <-s.observerStop:
+				return
+			case ln, ok := <-gcodeCh:
+				if !ok {
+					return
+				}
+				s.runHistory.ObserveLine(ln)
+				s.observeExecutionLine(ln)
+			}
 		}
 	}()
 }
@@ -306,6 +382,20 @@ type MachineStatus struct {
 	Progress     []float64                 `json:"progress,omitempty"`
 	Machine      []float64                 `json:"machine,omitempty"`
 	ActiveJob    *MachineJobProgress       `json:"active_job,omitempty"`
+	JobControl   JobControlState           `json:"job_control"`
+}
+
+// JobControlState is the single backend contract for compact job controls in
+// both Overview and Active Job. Capabilities are derived from a fresh machine
+// state and never cause an action themselves.
+type JobControlState struct {
+	Paused          bool                          `json:"paused"`
+	CanPause        bool                          `json:"can_pause"`
+	CanResume       bool                          `json:"can_resume"`
+	CanStartSpindle bool                          `json:"can_start_spindle"`
+	CanStopSpindle  bool                          `json:"can_stop_spindle"`
+	Spindle         store.ExecutionSpindleContext `json:"spindle"`
+	Job             store.ExecutionJobContext     `json:"job"`
 }
 
 // MachineJobProgress is the normalized player progress reported by the
@@ -434,7 +524,236 @@ func (s *Service) Status() MachineStatus {
 		Progress:     st.Progress,
 		Machine:      st.Machine,
 		ActiveJob:    machineJobProgress(st, s.store.ActiveGcodePath()),
+		JobControl:   jobControlState(st, s.ExecutionContext()),
 	}
+}
+
+// ExecutionContext returns the current in-memory view. Unlike the store's
+// checkpoint, it includes the newest observed status even when it has not yet
+// crossed the durable-write cadence.
+func (s *Service) ExecutionContext() store.ExecutionContext {
+	s.executionMu.RLock()
+	defer s.executionMu.RUnlock()
+	return s.execution
+}
+
+func jobControlState(st machine.Status, context store.ExecutionContext) JobControlState {
+	paused := st.State == machine.Pause
+	spindleRunning := st.Spindle != nil && (st.Spindle.CurrentRPM > 1 || st.Spindle.TargetRPM > 1)
+	canStart := paused && !spindleRunning && context.Spindle.SpeedKnown &&
+		(context.Spindle.Direction == "M3" || context.Spindle.Direction == "M4")
+	return JobControlState{
+		Paused:          paused,
+		CanPause:        st.State == machine.Run,
+		CanResume:       paused,
+		CanStartSpindle: canStart,
+		CanStopSpindle:  paused && (spindleRunning || !context.Spindle.Stopped),
+		Spindle:         context.Spindle,
+		Job:             context.Job,
+	}
+}
+
+func (s *Service) observeExecutionStatus(st machine.Status) {
+	if st.ObservedAt.IsZero() {
+		return
+	}
+	path := ""
+	if stateMayReportActiveGcode(st.State) {
+		path = strings.TrimSpace(s.store.ActiveGcodePath())
+	}
+	// A newly identified job is high-value context and should survive a
+	// restart immediately. Per-line progress is deliberately checkpointed much
+	// less often below, so a long program does not fsync state.json on every
+	// status tick.
+	forcePathCheckpoint := path != "" && path != s.ExecutionContext().Job.Path
+	s.updateExecutionContext(st.ObservedAt, forcePathCheckpoint, func(context *store.ExecutionContext) bool {
+		changed := false
+		if stateMayReportActiveGcode(st.State) {
+			if path != "" && context.Job.Path != path {
+				context.Job.Path = path
+				context.Job.Source = "active_gcode"
+				context.Job.UpdatedAt = st.ObservedAt
+				changed = true
+			}
+			if len(st.Progress) > 0 && finite(st.Progress[0]) {
+				line := int64(st.Progress[0])
+				if line > 0 && context.Job.CurrentLine != line {
+					context.Job.CurrentLine = line
+					if context.Job.Path == "" {
+						context.Job.Source = "status"
+					}
+					context.Job.UpdatedAt = st.ObservedAt
+					changed = true
+				}
+			}
+		}
+		if spindle := st.Spindle; spindle != nil && finite(spindle.TargetRPM) && spindle.TargetRPM > 0 &&
+			(context.Spindle.Direction == "M3" || context.Spindle.Direction == "M4") {
+			if !context.Spindle.SpeedKnown || math.Abs(context.Spindle.SpeedRPM-spindle.TargetRPM) > 0.5 {
+				context.Spindle.SpeedRPM = spindle.TargetRPM
+				context.Spindle.SpeedKnown = true
+				context.Spindle.Source = "status"
+				context.Spindle.UpdatedAt = st.ObservedAt
+				changed = true
+			}
+			if context.Spindle.Stopped {
+				context.Spindle.Stopped = false
+				context.Spindle.UpdatedAt = st.ObservedAt
+				changed = true
+			}
+		}
+		return changed
+	})
+	if path != "" && len(st.Progress) > 0 && finite(st.Progress[0]) {
+		s.maybeRecoverSpindleContextFromActiveGcode(path, int64(st.Progress[0]), st.ObservedAt)
+	}
+}
+
+func (s *Service) observeExecutionLine(line gcodelog.Line) {
+	// Controller lines have already crossed the transparent relay and are safe
+	// to treat as observed machine traffic. API lines are logged before their
+	// write for operator feedback, so API callers record them only after their
+	// serialized write succeeds (see recordExecutionCommand).
+	if line.Dir != gcodelog.DirSend || line.Source != gcodelog.SourceController {
+		return
+	}
+	s.recordExecutionCommand(line.Text, line.Source, line.Time)
+}
+
+func (s *Service) recordExecutionCommand(text, source string, observedAt time.Time) {
+	words := parseSpindleWords(text)
+	if len(words.commands) == 0 && !words.hasSpeed {
+		return
+	}
+	if observedAt.IsZero() {
+		observedAt = time.Now()
+	}
+	s.updateExecutionContext(observedAt, true, func(context *store.ExecutionContext) bool {
+		changed := false
+		if words.hasSpeed {
+			known := finite(words.speed) && words.speed > 0
+			if context.Spindle.SpeedKnown != known || (known && math.Abs(context.Spindle.SpeedRPM-words.speed) > 0.0001) {
+				context.Spindle.SpeedKnown = known
+				if known {
+					context.Spindle.SpeedRPM = words.speed
+				} else {
+					context.Spindle.SpeedRPM = 0
+				}
+				context.Spindle.Source = source
+				context.Spindle.UpdatedAt = observedAt
+				changed = true
+			}
+		}
+		for _, code := range words.commands {
+			switch code {
+			case 5:
+				if !context.Spindle.Stopped || context.Spindle.Source != source {
+					context.Spindle.Stopped = true
+					context.Spindle.Source = source
+					context.Spindle.UpdatedAt = observedAt
+					changed = true
+				}
+			case 3, 4:
+				direction := fmt.Sprintf("M%d", code)
+				if context.Spindle.Direction != direction || context.Spindle.Stopped || context.Spindle.Source != source {
+					context.Spindle.Direction = direction
+					context.Spindle.Stopped = false
+					context.Spindle.Source = source
+					context.Spindle.UpdatedAt = observedAt
+					changed = true
+				}
+			}
+		}
+		return changed
+	})
+}
+
+type spindleWords struct {
+	commands []int
+	speed    float64
+	hasSpeed bool
+}
+
+// parseSpindleWords recognizes ordinary compact and spaced G-code spellings
+// (M3S12000 as well as separate S12000 / M3 lines) without treating comments
+// as commands. The caller owns the modal relationship between successive
+// lines.
+func parseSpindleWords(line string) spindleWords {
+	if i := strings.IndexAny(line, ";("); i >= 0 {
+		line = line[:i]
+	}
+	line = strings.ToUpper(line)
+	var speed float64
+	hasSpeed := false
+	var words spindleWords
+	for i := 0; i < len(line); {
+		letter := line[i]
+		if letter != 'M' && letter != 'S' {
+			i++
+			continue
+		}
+		start := i + 1
+		i = start
+		if i < len(line) && (line[i] == '+' || line[i] == '-') {
+			i++
+		}
+		for i < len(line) && ((line[i] >= '0' && line[i] <= '9') || line[i] == '.') {
+			i++
+		}
+		if start == i {
+			continue
+		}
+		value, err := strconv.ParseFloat(line[start:i], 64)
+		if err != nil || !finite(value) {
+			continue
+		}
+		if letter == 'S' {
+			speed, hasSpeed = value, true
+			continue
+		}
+		if value == 3 || value == 4 || value == 5 {
+			words.commands = append(words.commands, int(value))
+		}
+	}
+	words.speed = speed
+	words.hasSpeed = hasSpeed
+	return words
+}
+
+func (s *Service) updateExecutionContext(observedAt time.Time, forceCheckpoint bool, update func(*store.ExecutionContext) bool) {
+	s.executionMu.Lock()
+	if !update(&s.execution) {
+		s.executionMu.Unlock()
+		return
+	}
+	checkpoint := forceCheckpoint || s.executionPersistedAt.IsZero() || observedAt.Sub(s.executionPersistedAt) >= executionCheckpointInterval
+	s.executionMu.Unlock()
+	if !checkpoint {
+		return
+	}
+
+	// Serialize only the rare durable writes, not every status observation.
+	// Taking a fresh snapshot after acquiring this mutex prevents an older
+	// status callback from overwriting a newer spindle command checkpoint.
+	s.executionPersistMu.Lock()
+	defer s.executionPersistMu.Unlock()
+	s.executionMu.RLock()
+	context := s.execution
+	lastPersisted := s.executionPersistedAt
+	s.executionMu.RUnlock()
+	if !forceCheckpoint && !lastPersisted.IsZero() && observedAt.Sub(lastPersisted) < executionCheckpointInterval {
+		return
+	}
+	if err := s.store.SetExecutionContext(context); err != nil {
+		// Keep executionPersistedAt unchanged so the next meaningful status or
+		// command retries persistence. The live context remains available.
+		return
+	}
+	s.executionMu.Lock()
+	if observedAt.After(s.executionPersistedAt) {
+		s.executionPersistedAt = observedAt
+	}
+	s.executionMu.Unlock()
 }
 
 func machineJobProgress(st machine.Status, activePath string) *MachineJobProgress {
@@ -1118,7 +1437,7 @@ func (s *Service) maybeLearnConnectedMachine(ctx context.Context) {
 	}
 	s.autoLearnRunning = true
 	s.autoLearnMu.Unlock()
-	go func() {
+	if !s.startObserverTask(func() {
 		_, _ = s.LearnMachineParameters()
 		s.autoLearnMu.Lock()
 		defer s.autoLearnMu.Unlock()
@@ -1126,7 +1445,11 @@ func (s *Service) maybeLearnConnectedMachine(ctx context.Context) {
 		if s.arb.ConnectionGeneration() == generation {
 			s.autoLearnGeneration = generation
 		}
-	}()
+	}) {
+		s.autoLearnMu.Lock()
+		s.autoLearnRunning = false
+		s.autoLearnMu.Unlock()
+	}
 }
 
 const machineConfigDownloadTimeout = 30 * time.Second
@@ -2205,6 +2528,9 @@ func (s *Service) SendGcode(line string) (string, error) {
 	} else if out == "" {
 		s.gcodeLog.Append(gcodelog.DirRecv, gcodelog.SourceAPI, "ok")
 	}
+	if err == nil {
+		s.recordExecutionCommand(line, gcodelog.SourceAPI, time.Now())
+	}
 	return out, err
 }
 
@@ -2221,18 +2547,22 @@ type JobControlResult struct {
 // PausedJobCommandRequest describes a bounded manual action that is only valid
 // while the firmware player is suspended.
 type PausedJobCommandRequest struct {
-	Action     string  `json:"action"`
-	DistanceMM float64 `json:"distance_mm,omitempty"`
+	Action     string   `json:"action"`
+	DistanceMM float64  `json:"distance_mm,omitempty"`
+	SpeedRPM   *float64 `json:"speed_rpm,omitempty"`
+	Direction  string   `json:"direction,omitempty"`
 }
 
 // PausedJobCommandResult reports the observed result of a paused-job action.
 type PausedJobCommandResult struct {
-	Action   string             `json:"action"`
-	Command  string             `json:"command"`
-	State    machine.State      `json:"state"`
-	MPos     machine.AxisValues `json:"mpos,omitempty"`
-	Verified bool               `json:"verified"`
-	Message  string             `json:"message"`
+	Action   string                        `json:"action"`
+	Command  string                        `json:"command"`
+	State    machine.State                 `json:"state"`
+	MPos     machine.AxisValues            `json:"mpos,omitempty"`
+	Spindle  *machine.Spindle              `json:"spindle,omitempty"`
+	Context  store.ExecutionSpindleContext `json:"spindle_context"`
+	Verified bool                          `json:"verified"`
+	Message  string                        `json:"message"`
 }
 
 // PauseJob uses the firmware player's suspend command. Unlike realtime feed
@@ -2308,6 +2638,7 @@ func (s *Service) ResumeJob() (JobControlResult, error) {
 func (s *Service) RunPausedJobCommand(req PausedJobCommandRequest) (PausedJobCommandResult, error) {
 	req.Action = strings.ToLower(strings.TrimSpace(req.Action))
 	res := PausedJobCommandResult{Action: req.Action}
+	var startedRPM float64
 	err := s.arb.WithMachine(false, func(c *client.Conn) error {
 		st, err := s.queryRecoveryStatus(c)
 		if err != nil {
@@ -2324,6 +2655,28 @@ func (s *Service) RunPausedJobCommand(req PausedJobCommandRequest) (PausedJobCom
 			verified = func(status machine.Status) bool {
 				return status.State == machine.Pause && status.Spindle != nil &&
 					math.Abs(status.Spindle.CurrentRPM) < 1 && math.Abs(status.Spindle.TargetRPM) < 1
+			}
+		case "start_spindle":
+			context := s.ExecutionContext().Spindle
+			direction := strings.ToUpper(strings.TrimSpace(req.Direction))
+			if direction == "" {
+				direction = context.Direction
+			}
+			if direction != "M3" && direction != "M4" {
+				return fmt.Errorf("%w: spindle direction is unknown; choose M3 or M4 explicitly", ErrInvalidArgument)
+			}
+			if req.SpeedRPM != nil {
+				startedRPM = *req.SpeedRPM
+			} else if context.SpeedKnown {
+				startedRPM = context.SpeedRPM
+			}
+			if !finite(startedRPM) || startedRPM <= 0 || startedRPM > 13000 {
+				return fmt.Errorf("%w: spindle speed is unknown or outside 1-13000 rpm", ErrInvalidArgument)
+			}
+			res.Command = fmt.Sprintf("%s S%.0f", direction, startedRPM)
+			verified = func(status machine.Status) bool {
+				return status.State == machine.Pause && status.Spindle != nil &&
+					math.Abs(status.Spindle.TargetRPM-startedRPM) <= math.Max(1, startedRPM*0.01)
 			}
 		case "raise_z":
 			if !finite(req.DistanceMM) || req.DistanceMM <= 0 || req.DistanceMM > 50 {
@@ -2343,19 +2696,21 @@ func (s *Service) RunPausedJobCommand(req PausedJobCommandRequest) (PausedJobCom
 				return ok && status.State == machine.Pause && math.Abs(actual-target) <= 0.05
 			}
 		default:
-			return fmt.Errorf("%w: paused command action must be one of: raise_z, stop_spindle", ErrInvalidArgument)
+			return fmt.Errorf("%w: paused command action must be one of: raise_z, start_spindle, stop_spindle", ErrInvalidArgument)
 		}
 
 		s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, res.Command)
 		if _, err := c.SendGcodeLine(res.Command, client.GcodeOpts{ExpectReply: false, Cap: gcodeReplyCap}); err != nil {
 			return err
 		}
+		s.recordExecutionCommand(res.Command, gcodelog.SourceAPI, time.Now())
 		deadline := time.Now().Add(jobControlVerifyTimeout)
 		for {
 			st, err = s.queryRecoveryStatus(c)
 			if err == nil && verified(st) {
 				res.State = st.State
 				res.MPos = st.MPos
+				res.Spindle = st.Spindle
 				return nil
 			}
 			if !time.Now().Before(deadline) {
@@ -2374,9 +2729,12 @@ func (s *Service) RunPausedJobCommand(req PausedJobCommandRequest) (PausedJobCom
 	res.Verified = true
 	if req.Action == "raise_z" {
 		res.Message = fmt.Sprintf("Z raised to %.3f mm while the job remains paused.", res.MPos["z"])
+	} else if req.Action == "start_spindle" {
+		res.Message = fmt.Sprintf("Spindle started at %.0f rpm while the job remains paused.", startedRPM)
 	} else {
 		res.Message = "Spindle stopped while the job remains paused."
 	}
+	res.Context = s.ExecutionContext().Spindle
 	s.gcodeLog.Append(gcodelog.DirRecv, gcodelog.SourceAPI, res.Message)
 	return res, nil
 }

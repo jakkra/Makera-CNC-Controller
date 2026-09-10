@@ -379,6 +379,7 @@ func main() {
 		<-sig
 		log.Print("shutting down")
 		cancel()
+		svc.Close()
 		close(stop)
 		shutdownCtx, c := context.WithTimeout(context.Background(), 3*time.Second)
 		defer c()

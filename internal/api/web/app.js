@@ -1890,6 +1890,89 @@ function machineActionState(machine = state.machine) {
   return String(machine?.state || "Unknown");
 }
 
+// Job controls intentionally take spindle authority from the server-side job
+// context. The browser may use the observed state as a compatibility fallback
+// for existing Pause/Resume/Stop endpoints, but it never guesses a spindle
+// speed or direction for Start.
+function jobControlModel(machine = state.machine, pendingAction = "", readOnly = state.readOnly) {
+  const actionState = machineActionState(machine);
+  const control = machine?.job_control;
+  const hasContract = !!control && typeof control === "object";
+  const spindle = control?.spindle && typeof control.spindle === "object" ? control.spindle : {};
+  const speed = Number(spindle.speed_rpm);
+  const speedKnown = spindle.speed_known === true && Number.isFinite(speed) && speed > 0;
+  const pending = String(pendingAction || "");
+  const usable = !readOnly && actionState !== "Unknown";
+  const available = {
+    pause: hasContract ? control.can_pause === true : actionState === "Run",
+    resume: hasContract ? control.can_resume === true : actionState === "Pause",
+    "stop-spindle": hasContract ? control.can_stop_spindle === true : actionState === "Pause",
+    // An explicitly supplied speed/direction is safe to expose only after the
+    // server has confirmed a paused job. The request remains server-validated;
+    // the browser does not manufacture a value from telemetry.
+    "start-spindle": hasContract && (control.can_start_spindle === true || (control.paused === true && !speedKnown)),
+  };
+  const actions = {};
+  for (const [action, visible] of Object.entries(available)) {
+    const actionPending = pending === action ||
+      (action === "pause" && pending === "pause_job") ||
+      (action === "resume" && pending === "resume_job") ||
+      (action === "stop-spindle" && pending === "stop_spindle") ||
+      (action === "start-spindle" && pending === "start_spindle");
+    actions[action] = {
+      visible: !!visible && usable,
+      disabled: !!pending || !usable,
+      pending: actionPending,
+    };
+  }
+  return { actions, speed: speedKnown ? Math.round(speed) : null };
+}
+
+function jobControlLabel(action, model, compact = false) {
+  switch (action) {
+  case "pause":
+    return compact ? "Pause" : "Pause job";
+  case "resume":
+    return compact ? "Resume" : "Resume job";
+  case "stop-spindle":
+    return "Stop spindle";
+  case "start-spindle":
+    return model.speed === null ? "Start spindle" : `Start · ${model.speed.toLocaleString("en-US")} rpm`;
+  default:
+    return action;
+  }
+}
+
+function renderJobControls(machine = state.machine || {}) {
+  const model = jobControlModel(machine, state.activeGcodePending, state.readOnly);
+  for (const group of document.querySelectorAll("[data-job-controls]")) {
+    const compact = group.classList.contains("dashboard-job-controls");
+    group.setAttribute("aria-busy", String(!!state.activeGcodePending));
+    let visibleAction = false;
+    for (const button of group.querySelectorAll("[data-job-control]")) {
+      const action = button.dataset.jobControl;
+      const control = model.actions[action];
+      if (!control) continue;
+      // Overview is deliberately shortcut-only: an unknown speed belongs in
+      // Active Job, where its explicit direction/speed fields are visible.
+      const visible = control.visible && !(compact && action === "start-spindle" && model.speed === null);
+      button.hidden = !visible;
+      button.disabled = control.disabled;
+      button.setAttribute("aria-busy", String(control.pending));
+      setTextIfChanged(button, jobControlLabel(action, model, compact));
+      visibleAction ||= visible;
+    }
+    const explicitStart = !compact && model.actions["start-spindle"].visible && model.speed === null;
+    for (const field of group.querySelectorAll("[data-job-start-field]")) {
+      field.hidden = !explicitStart;
+      const input = field.querySelector("input, select");
+      if (input) input.disabled = model.actions["start-spindle"].disabled;
+    }
+    group.hidden = !visibleAction;
+    group.classList.toggle("has-explicit-start", explicitStart);
+  }
+}
+
 function renderMachine() {
   const m = state.machine || {};
   document.getElementById("mode").textContent = m.mode || "owner";
@@ -1917,6 +2000,7 @@ function renderMachine() {
   }
   renderAlarmPanel(m);
   renderAttention(m);
+  renderJobControls(m);
   renderActiveGcode();
   syncJogAvailabilityFromMachine(m);
   checkOriginVerification();
@@ -7843,27 +7927,21 @@ function renderActiveGcodeControls(active) {
   const machineState = machineActionState();
   const pending = !!state.activeGcodePending;
   const run = document.getElementById("active-gcode-run");
-  const pause = document.getElementById("active-gcode-pause");
   const paused = document.getElementById("paused-job-controls");
   const raise = document.getElementById("paused-job-raise");
-  const stopSpindle = document.getElementById("paused-job-stop-spindle");
-  const resume = document.getElementById("active-gcode-resume");
   const feedControls = document.getElementById("feed-override-controls");
   const feedDecrease = document.getElementById("feed-override-decrease");
   const feedIncrease = document.getElementById("feed-override-increase");
   const feedReset = document.getElementById("feed-override-reset");
   const feedValue = document.getElementById("feed-override-value");
-  if (!run || !pause || !paused || !raise || !stopSpindle || !resume || !feedControls || !feedDecrease || !feedIncrease || !feedReset || !feedValue) return;
+  if (!run || !paused || !raise || !feedControls || !feedDecrease || !feedIncrease || !feedReset || !feedValue) return;
 
   const running = machineState === "Run";
   const suspended = machineState === "Pause";
   const held = machineState === "Hold";
   run.hidden = running || suspended || held;
-  pause.hidden = !running;
-  paused.hidden = !suspended && !held;
+  paused.hidden = !suspended;
   raise.hidden = !suspended;
-  stopSpindle.hidden = !suspended;
-  setTextIfChanged(resume, held ? "Resume motion" : "Resume job");
   feedControls.hidden = !running && !suspended && !held;
   const feedOverride = Number(state.machine?.feed?.override);
   const hasFeedOverride = Number.isFinite(feedOverride);
@@ -7877,12 +7955,10 @@ function renderActiveGcodeControls(active) {
   feedDecrease.disabled = pending || !hasFeedOverride || roundedFeedOverride <= 50;
   feedIncrease.disabled = pending || !hasFeedOverride || roundedFeedOverride >= 200;
   feedReset.disabled = pending || roundedFeedOverride === 100;
-  pause.disabled = pending;
   raise.disabled = pending;
-  stopSpindle.disabled = pending;
-  resume.disabled = pending;
   run.disabled = pending;
   if (!pending) setSoftDisabled(run, !active?.runnable || machineState !== "Idle");
+  renderJobControls();
 }
 
 function activeGcodeDisplaySegments(active) {
@@ -10610,11 +10686,6 @@ async function runActiveJobControl(action) {
     return false;
   }
   if (action === "pause_job" && !confirm("Pause the running job and enable manual paused controls?")) return;
-  if (action === "resume_job") {
-    const spindle = state.machine?.spindle;
-    if (spindle && Number(spindle.target_rpm || 0) === 0 && Number(spindle.current_rpm || 0) === 0 &&
-        !confirm("The spindle is stopped. Resume will restore the saved job state; continue?")) return;
-  }
   state.activeGcodePending = action;
   setActiveFeedback(action === "pause_job" ? "Pausing job..." : "Restoring the paused job...", "");
   renderMachine();
@@ -10645,9 +10716,36 @@ async function resumeActiveJob() {
   return false;
 }
 
-async function runPausedJobCommand(action) {
+async function runJobControl(action) {
+  const model = jobControlModel();
+  const control = model.actions[action];
+  if (!control?.visible || control.disabled) {
+    setActiveFeedback("This job control is unavailable for the current machine state.", "error");
+    return false;
+  }
+  if (action === "pause") return runActiveJobControl("pause_job");
+  if (action === "resume") return runActiveJobControl("resume_job");
+  if (action === "stop-spindle") return runPausedJobCommand("stop_spindle");
+  if (action === "start-spindle") {
+    if (model.speed !== null) return runPausedJobCommand("start_spindle");
+    const speed = Number(document.getElementById("paused-job-spindle-speed")?.value);
+    const direction = String(document.getElementById("paused-job-spindle-direction")?.value || "");
+    if (!Number.isFinite(speed) || speed <= 0 || speed > 13000) {
+      setActiveFeedback("Enter a spindle speed from 1 to 13,000 rpm before starting.", "error");
+      return false;
+    }
+    if (direction !== "M3" && direction !== "M4") {
+      setActiveFeedback("Choose clockwise or counterclockwise spindle direction before starting.", "error");
+      return false;
+    }
+    return runPausedJobCommand("start_spindle", { speed_rpm: speed, direction });
+  }
+  return false;
+}
+
+async function runPausedJobCommand(action, options = {}) {
   if (state.activeGcodePending) return;
-  const body = { action };
+  const body = { action, ...options };
   if (action === "raise_z") {
     const distance = Number(document.getElementById("paused-job-raise-distance")?.value);
     if (!Number.isFinite(distance) || distance <= 0 || distance > 50) {
@@ -10657,7 +10755,12 @@ async function runPausedJobCommand(action) {
     body.distance_mm = distance;
   }
   state.activeGcodePending = action;
-  setActiveFeedback(action === "raise_z" ? "Raising Z while the job is paused..." : "Stopping spindle while the job is paused...", "");
+  const pendingText = {
+    raise_z: "Raising Z while the job is paused...",
+    stop_spindle: "Stopping spindle while the job is paused...",
+    start_spindle: "Starting spindle from the paused job context...",
+  };
+  setActiveFeedback(pendingText[action] || "Sending paused job command...", "");
   renderActiveGcode();
   try {
     const response = await request("/api/gcode/active/paused-command", {
@@ -14727,8 +14830,9 @@ function init() {
   document.getElementById("tool-set-select").onchange = (e) => handleToolSelect("set", e.target.value);
   document.getElementById("tool-change-select").onchange = (e) => handleToolSelect("change", e.target.value);
   bindButtonAction(document.getElementById("active-gcode-run"), runActiveGcode);
-  bindButtonAction(document.getElementById("active-gcode-pause"), () => runActiveJobControl("pause_job"));
-  bindButtonAction(document.getElementById("active-gcode-resume"), resumeActiveJob);
+  for (const button of document.querySelectorAll("[data-job-control]")) {
+    bindButtonAction(button, () => runJobControl(button.dataset.jobControl));
+  }
   bindButtonAction(document.getElementById("feed-override-decrease"), () => adjustFeedOverride(-10));
   bindButtonAction(document.getElementById("feed-override-increase"), () => adjustFeedOverride(10));
   bindButtonAction(document.getElementById("feed-override-reset"), () => setFeedOverride(100));
@@ -14739,7 +14843,6 @@ function init() {
     bindButtonAction(button, () => setFeedOverride(100));
   }
   bindButtonAction(document.getElementById("paused-job-raise"), () => runPausedJobCommand("raise_z"));
-  bindButtonAction(document.getElementById("paused-job-stop-spindle"), () => runPausedJobCommand("stop_spindle"));
   const gcodeSourceScroll = document.getElementById("active-gcode-source-scroll");
   const markGcodeSourceInteraction = () => {
     activeGcodeSource.userScrollingUntil = Date.now() + 2000;

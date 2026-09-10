@@ -182,6 +182,12 @@
   .dashboard-machine .machine-feed-override { display: grid; }
   .machine-feed-override button { min-width: 0; min-height: 36px; padding: 0 5px; justify-content: center; font-size: 11px; font-weight: 750; white-space: nowrap; }
   .machine-feed-override [data-machine-feed-reset] { color: var(--text); background: #151a1f; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .job-control-strip { min-width: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; min-height: 38px; }
+  .job-control-strip button { min-width: 0; min-height: 38px; padding: 0 8px; justify-content: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 750; }
+  .job-control-strip button[data-job-control="pause"] { color: var(--warn); border-color: rgba(217,154,58,.55); }
+  .job-control-strip button[data-job-control="resume"] { color: var(--ok); border-color: rgba(77,202,136,.55); }
+  .job-control-strip button[data-job-control="stop-spindle"] { color: #ff9b9b; border-color: rgba(240,68,68,.55); }
+  .dashboard-job-controls { margin-top: 2px; }
   .surface-position-summary { display: grid; gap: 8px; color: var(--muted); }
   .surface-position-summary strong { color: var(--text); }
   .surface-position-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-sm); }
@@ -387,11 +393,15 @@
   .feed-override-controls button, .feed-override-controls output { min-width: 0; height: 36px; }
   .feed-override-controls button { justify-content: center; padding: 0 8px; }
   #feed-override-value { display: flex; align-items: center; justify-content: center; border-block: 1px solid var(--border); color: var(--text); background: #151a1f; font: 650 13px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  .paused-job-controls { display: grid; grid-template-columns: minmax(88px, 1fr) repeat(2, auto); gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: #252b2d; }
+  .active-job-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: #252b2d; }
+  .active-job-controls button { min-height: 36px; }
+  .active-job-controls label { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px; align-items: center; color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
+  .active-job-controls input, .active-job-controls select { min-width: 0; width: 100%; height: 36px; border: 1px solid var(--border); border-radius: 6px; background: #151a1f; color: var(--text); padding: 0 7px; }
+  .active-job-controls.has-explicit-start #paused-job-start-speed { grid-column: 1 / span 2; }
+  .paused-job-controls { display: grid; grid-template-columns: minmax(88px, 1fr) auto; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: #252b2d; }
   .paused-job-controls label { min-width: 0; display: grid; gap: 3px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
   .paused-job-controls input, .paused-job-controls button { height: 36px; min-height: 36px; }
   .paused-job-controls input { min-width: 0; width: 100%; border: 1px solid var(--border); border-radius: 6px; background: #151a1f; color: var(--text); padding: 0 8px; }
-  #active-gcode-resume { grid-column: 1 / -1; }
   .active-gcode-workspace { --active-gcode-left-width: 32%; display: grid; grid-template-columns: minmax(260px, var(--active-gcode-left-width)) 16px minmax(320px, 1fr); gap: 0; height: clamp(320px, 42vh, 560px); min-height: 320px; }
   .active-gcode-workspace.is-empty { grid-template-columns: minmax(0, 1fr); }
   .active-gcode-workspace.is-empty #active-gcode-splitter, .active-gcode-workspace.is-empty #gcode-preview-wrap { display: none; }
@@ -923,6 +933,8 @@
     .active-gcode-actions > button { min-height: 48px; }
     .feed-override-controls { grid-template-columns: 44px minmax(64px, 1fr) 44px 64px; }
     .feed-override-controls button, .feed-override-controls output { min-height: 44px; height: 44px; }
+    .active-job-controls button { min-height: 44px; }
+    .active-job-controls input, .active-job-controls select { height: 44px; }
     .paused-job-controls { grid-template-columns: 1fr 1fr; }
     .paused-job-controls label { grid-column: 1 / -1; }
     .paused-job-controls input, .paused-job-controls button { min-height: 44px; height: 44px; }
@@ -1675,6 +1687,12 @@
       <section class="dashboard-panel dashboard-machine" data-dashboard-panel="machine">
         <div class="dashboard-heading dashboard-machine-heading"><div><span class="dashboard-eyebrow">Machine</span><h2>Position</h2></div><span id="dashboard-state" class="badge state-Unknown">Unknown</span></div>
         <div class="machine-readout-host" data-machine-readout-host></div>
+        <div id="dashboard-job-controls" class="job-control-strip dashboard-job-controls" data-job-controls aria-label="Current job controls">
+          <button type="button" id="dashboard-job-pause" data-job-control="pause" hidden>Pause</button>
+          <button type="button" id="dashboard-job-resume" data-job-control="resume" hidden>Resume</button>
+          <button type="button" id="dashboard-job-stop-spindle" data-job-control="stop-spindle" hidden>Stop spindle</button>
+          <button type="button" id="dashboard-job-start-spindle" data-job-control="start-spindle" hidden>Start spindle</button>
+        </div>
       </section>
       <section class="dashboard-panel dashboard-job" data-dashboard-panel="job">
         <div class="dashboard-heading dashboard-job-heading"><div><span class="dashboard-eyebrow">Current job</span><h2 id="dashboard-job-title">No active job</h2></div></div>
@@ -1752,7 +1770,14 @@
             </div>
             <div class="active-gcode-actions">
               <button type="button" id="active-gcode-run" class="primary">Run Active Gcode</button>
-              <button type="button" id="active-gcode-pause" class="primary" hidden>Pause job</button>
+              <div id="active-job-controls" class="job-control-strip active-job-controls" data-job-controls aria-label="Active job controls">
+                <button type="button" id="active-gcode-pause" class="primary" data-job-control="pause" hidden>Pause job</button>
+                <button type="button" id="active-gcode-resume" class="primary" data-job-control="resume" hidden>Resume job</button>
+                <button type="button" id="paused-job-stop-spindle" data-job-control="stop-spindle" hidden>Stop spindle</button>
+                <button type="button" id="paused-job-start-spindle" data-job-control="start-spindle" hidden>Start spindle</button>
+                <label id="paused-job-start-speed" data-job-start-field hidden><span>RPM</span><input id="paused-job-spindle-speed" type="number" inputmode="numeric" min="1" max="13000" step="100" aria-label="Spindle speed in RPM"></label>
+                <label id="paused-job-start-direction" data-job-start-field hidden><span>Direction</span><select id="paused-job-spindle-direction" aria-label="Spindle direction"><option value="" selected disabled>Choose…</option><option value="M3">Clockwise</option><option value="M4">Counterclockwise</option></select></label>
+              </div>
               <div id="feed-override-controls" class="feed-override-controls" aria-label="Feed override" hidden>
                 <span>Feed override</span>
                 <button type="button" id="feed-override-decrease" aria-label="Decrease feed override by 10 percent">−</button>
@@ -1763,8 +1788,6 @@
               <div id="paused-job-controls" class="paused-job-controls" hidden>
                 <label for="paused-job-raise-distance">Raise Z (mm)<input id="paused-job-raise-distance" type="number" min="0.1" max="50" step="0.5" value="5"></label>
                 <button type="button" id="paused-job-raise">Raise Z</button>
-                <button type="button" id="paused-job-stop-spindle">Stop spindle</button>
-                <button type="button" id="active-gcode-resume" class="primary">Resume job</button>
               </div>
             </div>
           </div>
@@ -2437,6 +2460,6 @@
 <div id="status-bar" role="status" aria-live="polite" hidden>
   <div id="notice"></div>
 </div>
-<script type="module" src="/app.js?v=overview-feed-override-1&camera-snapshot=1&camera-focus=1&pause-state=1"></script>
+<script type="module" src="/app.js?v=overview-feed-override-1&camera-snapshot=1&camera-focus=1&pause-state=1&job-controls=1"></script>
 </body>
 </html>

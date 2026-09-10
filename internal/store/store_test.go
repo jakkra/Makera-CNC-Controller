@@ -24,6 +24,13 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	if err := s.SetActiveGcodePath("/sd/gcodes/a.nc"); err != nil {
 		t.Fatal(err)
 	}
+	context := ExecutionContext{
+		Job:     ExecutionJobContext{Path: "/sd/gcodes/a.nc", CurrentLine: 42, Source: "status", UpdatedAt: time.Unix(100, 0)},
+		Spindle: ExecutionSpindleContext{Direction: "M4", SpeedRPM: 12000, SpeedKnown: true, Stopped: true, Source: "controller", UpdatedAt: time.Unix(101, 0)},
+	}
+	if err := s.SetExecutionContext(context); err != nil {
+		t.Fatal(err)
+	}
 
 	// Reopen and verify state survived.
 	s2, err := Open(path)
@@ -40,6 +47,9 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	}
 	if got := s2.ActiveGcodePath(); got != "/sd/gcodes/a.nc" {
 		t.Errorf("reloaded active gcode path = %q", got)
+	}
+	if got := s2.ExecutionContext(); got != context {
+		t.Errorf("reloaded execution context = %+v, want %+v", got, context)
 	}
 	// Next enqueued ID continues from persisted counter.
 	j2, _ := s2.Enqueue(Job{Kind: JobDelete, Path: "/sd/gcodes/b.nc"})

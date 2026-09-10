@@ -21,6 +21,7 @@ import (
 	"github.com/uwin/cnc-proxy/internal/attention"
 	"github.com/uwin/cnc-proxy/internal/carveratest"
 	"github.com/uwin/cnc-proxy/internal/client"
+	"github.com/uwin/cnc-proxy/internal/gcodelog"
 	"github.com/uwin/cnc-proxy/internal/machine"
 	"github.com/uwin/cnc-proxy/internal/protocol"
 	"github.com/uwin/cnc-proxy/internal/relay"
@@ -60,6 +61,7 @@ func newServiceWithStatePath(t *testing.T) (*Service, *store.Store, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(svc.Close)
 	return svc, st, statePath
 }
 
@@ -1030,6 +1032,7 @@ func serviceWithMachine(t *testing.T) (*Service, *carveratest.FakeMachine, *mach
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(svc.Close)
 	return svc, m, tr
 }
 
@@ -2490,6 +2493,147 @@ func TestPausedJobAllowsVerifiedManualCommandsBeforeResume(t *testing.T) {
 	want := []string{"suspend", "G53 G0 X1", "G53 G0 Z-5.0000", "M5", "resume"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("machine commands = %v, want %v", got, want)
+	}
+}
+
+func TestPausedStartSpindleUsesOnlyKnownDirectionAndSpeed(t *testing.T) {
+	svc, m, tr := serviceWithMachine(t)
+	m.SetStatus("<Pause|MPos:0,0,-10|WPos:0,0,-10|S:10000,10000,100|P:10,25,5>")
+	tr.Observe(machine.Pause)
+
+	if _, err := svc.RunPausedJobCommand(PausedJobCommandRequest{Action: "start_spindle"}); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("start without observed direction = %v, want ErrInvalidArgument", err)
+	}
+	if got := m.Gcodes(); len(got) != 0 {
+		t.Fatalf("unknown-direction start reached machine: %v", got)
+	}
+
+	// This represents an M4 S command observed through the controller relay.
+	// A status target alone is deliberately not sufficient to reconstruct it.
+	svc.recordExecutionCommand("M4 S10000", gcodelog.SourceController, time.Now())
+	started, err := svc.RunPausedJobCommand(PausedJobCommandRequest{Action: "start_spindle"})
+	if err != nil {
+		t.Fatalf("start paused spindle: %v", err)
+	}
+	if !started.Verified || started.Command != "M4 S10000" || started.Context.Direction != "M4" || !started.Context.SpeedKnown {
+		t.Fatalf("start result = %+v", started)
+	}
+	if got := m.Gcodes(); !slices.Contains(got, "M4 S10000") {
+		t.Fatalf("machine commands = %v, want M4 S10000", got)
+	}
+	aboveZ1Max := 13001.0
+	if _, err := svc.RunPausedJobCommand(PausedJobCommandRequest{Action: "start_spindle", Direction: "M3", SpeedRPM: &aboveZ1Max}); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("start above Z1 maximum = %v, want ErrInvalidArgument", err)
+	}
+}
+
+func TestExecutionContextStatusDoesNotInventSpindleDirection(t *testing.T) {
+	svc, st := newService(t)
+	if err := st.SetActiveGcodePath("/sd/gcodes/part.nc"); err != nil {
+		t.Fatal(err)
+	}
+	observed, ok := machine.ParseStatusPayload("<Pause|S:12000,12000,100|P:42,50,60>")
+	if !ok {
+		t.Fatal("status should parse")
+	}
+	observed.ObservedAt = time.Now()
+	svc.observeExecutionStatus(observed)
+
+	context := svc.ExecutionContext()
+	if context.Spindle.Direction != "" || context.Spindle.SpeedKnown {
+		t.Fatalf("status-only spindle context = %+v, must not reconstruct a start command", context.Spindle)
+	}
+	if controls := jobControlState(observed, context); controls.CanStartSpindle {
+		t.Fatalf("status-only controls = %+v, start must remain unavailable", controls)
+	}
+	if context.Job.Path != "/sd/gcodes/part.nc" || context.Job.CurrentLine != 42 {
+		t.Fatalf("job context = %+v", context.Job)
+	}
+
+	svc.recordExecutionCommand("S12000", gcodelog.SourceController, time.Now())
+	svc.recordExecutionCommand("M3", gcodelog.SourceController, time.Now())
+	context = svc.ExecutionContext()
+	if context.Spindle.Direction != "M3" || !context.Spindle.SpeedKnown || context.Spindle.SpeedRPM != 12000 {
+		t.Fatalf("observed spindle command context = %+v", context.Spindle)
+	}
+}
+
+func TestExecutionContextRecoversModalSpindleFromActiveGcode(t *testing.T) {
+	svc, st := newService(t)
+	if _, err := svc.Upload("modal-spindle.nc", strings.NewReader("S9000\nM4\nG1 X1\nM5\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetActiveGcodePath("/sd/gcodes/modal-spindle.nc"); err != nil {
+		t.Fatal(err)
+	}
+	observed, ok := machine.ParseStatusPayload("<Pause|S:0,0,100|P:3,75,10>")
+	if !ok {
+		t.Fatal("status should parse")
+	}
+	observed.ObservedAt = time.Now()
+	svc.observeExecutionStatus(observed)
+
+	context := svc.ExecutionContext()
+	if context.Spindle.Direction != "M4" || !context.Spindle.SpeedKnown || context.Spindle.SpeedRPM != 9000 || context.Spindle.Stopped {
+		t.Fatalf("recovered modal spindle context = %+v", context.Spindle)
+	}
+	if context.Spindle.Source != "active_gcode" {
+		t.Fatalf("recovered source = %q", context.Spindle.Source)
+	}
+}
+
+func TestExecutionContextRetriesCheckpointAfterStoreFailure(t *testing.T) {
+	svc, st, statePath := newServiceWithStatePath(t)
+	forceStoreFlushFailure(t, statePath)
+	svc.recordExecutionCommand("M3 S10000", gcodelog.SourceController, time.Now())
+
+	svc.executionMu.RLock()
+	failedAt := svc.executionPersistedAt
+	svc.executionMu.RUnlock()
+	if !failedAt.IsZero() {
+		t.Fatalf("failed checkpoint advanced persisted time to %s", failedAt)
+	}
+	if err := os.Remove(statePath); err != nil {
+		t.Fatal(err)
+	}
+	svc.recordExecutionCommand("M3 S10001", gcodelog.SourceController, time.Now().Add(time.Millisecond))
+
+	svc.executionMu.RLock()
+	persistedAt := svc.executionPersistedAt
+	svc.executionMu.RUnlock()
+	if persistedAt.IsZero() {
+		t.Fatal("successful retry did not record a durable checkpoint")
+	}
+	if got := st.ExecutionContext().Spindle; got.SpeedRPM != 10001 || !got.SpeedKnown || got.Direction != "M3" {
+		t.Fatalf("durably retried spindle context = %+v", got)
+	}
+}
+
+func TestServiceCloseStopsExecutionObserversBeforeStoreTeardown(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	st, err := store.Open(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := machine.NewTracker()
+	arb := session.New(session.Config{Tracker: tr, Dial: func() (*client.Conn, error) { return nil, io.EOF }})
+	svc, err := New(st, arb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.Close()
+
+	if !tr.ObserveStatusPayload("<Pause|S:10000,10000,100|P:42,50,60>") {
+		t.Fatal("status should parse")
+	}
+	// Close waits for unsubscription. A post-close status may not mutate the
+	// in-memory context or recreate state.json after its owner tears down.
+	time.Sleep(25 * time.Millisecond)
+	if context := svc.ExecutionContext(); context != (store.ExecutionContext{}) {
+		t.Fatalf("post-close observer mutated execution context: %+v", context)
+	}
+	if _, err := os.Stat(statePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("post-close observer wrote state.json: %v", err)
 	}
 }
 

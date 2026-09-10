@@ -116,6 +116,42 @@ type UISettings struct {
 	Dashboard    DashboardSettings `json:"dashboard"`
 }
 
+// ExecutionContext is the small, durable part of the currently observed job
+// execution state that an operator may need after the proxy restarts. It is
+// deliberately separate from UISettings: browser settings saves must never
+// overwrite machine-observed execution state.
+//
+// The fields are observations, not a command queue. In particular, a restored
+// context never causes a spindle or job action on its own.
+type ExecutionContext struct {
+	Job     ExecutionJobContext     `json:"job"`
+	Spindle ExecutionSpindleContext `json:"spindle"`
+}
+
+// ExecutionJobContext records the latest player identity/progress that was
+// actually observable. Source says where Path/CurrentLine came from, rather
+// than implying that the proxy knows more than the firmware reported.
+type ExecutionJobContext struct {
+	Path        string    `json:"path,omitempty"`
+	CurrentLine int64     `json:"current_line,omitempty"`
+	Source      string    `json:"source,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at,omitempty"`
+}
+
+// ExecutionSpindleContext caches a commanded spindle direction/speed only
+// after it was observed in gcode traffic or explicitly issued by this proxy.
+// SpeedKnown remains false when a status report has RPM but no safe start
+// command can be reconstructed. Stopped means an M5 command was observed; it
+// is intentionally distinct from a momentary zero-RPM status reading.
+type ExecutionSpindleContext struct {
+	Direction  string    `json:"direction,omitempty"`
+	SpeedRPM   float64   `json:"speed_rpm,omitempty"`
+	SpeedKnown bool      `json:"speed_known"`
+	Stopped    bool      `json:"stopped"`
+	Source     string    `json:"source,omitempty"`
+	UpdatedAt  time.Time `json:"updated_at,omitempty"`
+}
+
 // DashboardSettings stores named recording/dashboard layouts. A profile ID is
 // stable so /dashboard?profile=<id> URLs survive display-name edits.
 type DashboardSettings struct {

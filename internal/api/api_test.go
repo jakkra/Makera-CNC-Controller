@@ -85,6 +85,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *service.Service) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(svc.Close)
 	srv := httptest.NewServer(New(svc).Handler())
 	t.Cleanup(srv.Close)
 	return srv, svc
@@ -671,6 +672,7 @@ func TestFileRetryAndDiscardEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(svc.Close)
 	srv := httptest.NewServer(New(svc).Handler())
 	defer srv.Close()
 
@@ -1673,6 +1675,7 @@ func serverWithMachineState(t *testing.T) (*httptest.Server, *carveratest.FakeMa
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(svc.Close)
 	srv := httptest.NewServer(New(svc).Handler())
 	t.Cleanup(srv.Close)
 	return srv, m, tr, svc, st
@@ -1709,6 +1712,7 @@ func serverWithJogState(t *testing.T, auth bool) (*httptest.Server, *carveratest
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(svc.Close)
 	cfg := jog.DefaultConfig()
 	cfg.Tick = 20 * time.Millisecond
 	cfg.StatusInterval = 40 * time.Millisecond

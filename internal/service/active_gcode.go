@@ -248,7 +248,11 @@ func (s *Service) maybeLoadActiveGcodeFromMachine(st machine.Status) {
 	s.activeProbeLast = now
 	s.activeProbeMu.Unlock()
 
-	go s.loadActiveGcodeFromMachine(playStatus)
+	if !s.startObserverTask(func() { s.loadActiveGcodeFromMachine(playStatus) }) {
+		s.activeProbeMu.Lock()
+		s.activeProbeInFlight = false
+		s.activeProbeMu.Unlock()
+	}
 }
 
 func stateMayReportActiveGcode(st machine.State) bool {
@@ -258,6 +262,75 @@ func stateMayReportActiveGcode(st machine.State) bool {
 	default:
 		return false
 	}
+}
+
+// maybeRecoverSpindleContextFromActiveGcode reconstructs the modal spindle
+// command at the firmware-reported line when Sensei attaches or restarts in
+// the middle of a job. This is the only safe recovery path when status reports
+// an RPM but cannot report whether the player used M3 or M4. The scan is local
+// cache I/O only, is throttled after an unavailable cache, and never overwrites
+// a newer command observed directly from controller/API traffic.
+func (s *Service) maybeRecoverSpindleContextFromActiveGcode(remotePath string, currentLine int64, observedAt time.Time) {
+	if currentLine <= 0 {
+		return
+	}
+	context := s.ExecutionContext()
+	if context.Spindle.SpeedKnown && (context.Spindle.Direction == "M3" || context.Spindle.Direction == "M4") {
+		return
+	}
+
+	now := time.Now()
+	s.executionRecoveryMu.Lock()
+	if s.executionRecoveryPath == remotePath && now.Sub(s.executionRecoveryAt) < executionCheckpointInterval {
+		s.executionRecoveryMu.Unlock()
+		return
+	}
+	s.executionRecoveryPath = remotePath
+	s.executionRecoveryAt = now
+	s.executionRecoveryMu.Unlock()
+
+	rc, _, err := s.ReadCache(remotePath)
+	if err != nil {
+		return
+	}
+	defer rc.Close()
+
+	recovered := store.ExecutionSpindleContext{}
+	scanner := bufio.NewScanner(rc)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for lineNumber := int64(1); lineNumber <= currentLine && scanner.Scan(); lineNumber++ {
+		words := parseSpindleWords(scanner.Text())
+		if words.hasSpeed {
+			if finite(words.speed) && words.speed > 0 {
+				recovered.SpeedRPM = words.speed
+				recovered.SpeedKnown = true
+			} else {
+				recovered.SpeedRPM = 0
+				recovered.SpeedKnown = false
+			}
+		}
+		for _, code := range words.commands {
+			switch code {
+			case 3, 4:
+				recovered.Direction = fmt.Sprintf("M%d", code)
+				recovered.Stopped = false
+			case 5:
+				recovered.Stopped = true
+			}
+		}
+	}
+	if scanner.Err() != nil || !recovered.SpeedKnown || (recovered.Direction != "M3" && recovered.Direction != "M4") {
+		return
+	}
+	recovered.Source = "active_gcode"
+	recovered.UpdatedAt = observedAt
+	s.updateExecutionContext(observedAt, true, func(current *store.ExecutionContext) bool {
+		if current.Job.Path != remotePath || (current.Spindle.SpeedKnown && (current.Spindle.Direction == "M3" || current.Spindle.Direction == "M4")) {
+			return false
+		}
+		current.Spindle = recovered
+		return true
+	})
 }
 
 // supportsMachineProgressCommand is deliberately a whitelist. The Z1 reports
