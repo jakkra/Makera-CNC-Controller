@@ -74,8 +74,9 @@ func TestHistoryDoesNotTreatNormalFeedAndRPMSamplesAsOverrides(t *testing.T) {
 	observe := func(when time.Time, feedCurrent, spindleCurrent, spindleTarget float64) {
 		h.ObserveStatus(machine.Status{
 			State: machine.Run, ObservedAt: when,
-			Feed:    &machine.Triple{Current: feedCurrent, Target: 500, Override: 100},
-			Spindle: &machine.Spindle{CurrentRPM: spindleCurrent, TargetRPM: spindleTarget, Override: 100},
+			Feed:     &machine.Triple{Current: feedCurrent, Target: 500, Override: 100},
+			Spindle:  &machine.Spindle{CurrentRPM: spindleCurrent, TargetRPM: spindleTarget, Override: 100},
+			Progress: []float64{1, 5, 1},
 		})
 	}
 	observe(start, 420, 11800, 12000)
@@ -85,6 +86,16 @@ func TestHistoryDoesNotTreatNormalFeedAndRPMSamplesAsOverrides(t *testing.T) {
 	runs := h.Recent()
 	if len(runs) != 1 || len(runs[0].FeedOverrides) != 1 || len(runs[0].SpindleOverrides) != 2 {
 		t.Fatalf("run history = %+v", runs)
+	}
+}
+
+func TestHistoryIgnoresUnattributedShortRunTransitions(t *testing.T) {
+	h := New(10)
+	start := time.Unix(5000, 0)
+	h.ObserveStatus(machine.Status{State: machine.Run, ObservedAt: start})
+	h.ObserveStatus(machine.Status{State: machine.Idle, ObservedAt: start.Add(time.Second)})
+	if runs := h.Recent(); len(runs) != 0 {
+		t.Fatalf("unattributed motion became a run: %+v", runs)
 	}
 }
 
@@ -116,10 +127,7 @@ func TestHistoryExpiresStaleFileHint(t *testing.T) {
 	})
 
 	runs := h.Recent()
-	if len(runs) != 1 {
-		t.Fatalf("runs = %d, want 1", len(runs))
-	}
-	if runs[0].File != "" || runs[0].Source != gcodelog.SourceController {
-		t.Fatalf("stale hint used: %+v", runs[0])
+	if len(runs) != 0 {
+		t.Fatalf("stale file hint started a run: %+v", runs)
 	}
 }

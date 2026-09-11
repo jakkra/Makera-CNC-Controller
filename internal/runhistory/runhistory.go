@@ -121,7 +121,7 @@ func (h *History) ObserveStatus(st machine.Status) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if h.active == nil && startsRun(st) {
+	if h.active == nil && h.startsRunLocked(st, when) {
 		h.startLocked(st, when)
 	}
 	if h.active != nil {
@@ -282,11 +282,18 @@ func (h *History) endLocked(st machine.Status, when time.Time) {
 	h.pending = pendingFile{}
 }
 
-func startsRun(st machine.Status) bool {
-	if st.State == machine.Run {
+func (h *History) startsRunLocked(st machine.Status, when time.Time) bool {
+	if st.State == machine.Idle || st.State == machine.Unknown {
+		return false
+	}
+	// The Z1 also reports short Run → Idle transitions for controller motion
+	// such as rotary positioning. A player progress record is the authoritative
+	// indication of a program. A recent explicit play command is the fallback
+	// for controllers that do not expose player progress.
+	if len(st.Progress) > 0 {
 		return true
 	}
-	return len(st.Progress) > 0 && st.State != machine.Idle && st.State != machine.Unknown
+	return h.pending.file != "" && !h.pending.at.IsZero() && when.Sub(h.pending.at) <= pendingFileHintMaxAge
 }
 
 func endsRun(st machine.Status) bool {
