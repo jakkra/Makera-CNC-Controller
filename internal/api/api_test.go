@@ -952,7 +952,7 @@ func TestNotificationEndpointsDisabledAndConfigured(t *testing.T) {
 
 func TestWebUIServed(t *testing.T) {
 	srv, _ := newTestServer(t)
-	for _, route := range []string{"/dashboard", "/active-job", "/jog", "/control", "/files"} {
+	for _, route := range []string{"/dashboard", "/active-job", "/jog", "/control", "/files", "/maintenance"} {
 		routed := get(t, srv.URL+route)
 		routedBody, _ := io.ReadAll(routed.Body)
 		routed.Body.Close()
