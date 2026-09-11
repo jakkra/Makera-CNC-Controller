@@ -14249,6 +14249,45 @@ function runOutcome(run) {
   }
 }
 
+function runHistoryEvents(run) {
+  const events = [];
+  for (const item of Array.isArray(run?.state_transitions) ? run.state_transitions : []) events.push({ time: item.time, text: `Machine state · ${item.state}` });
+  for (const item of Array.isArray(run?.alarms) ? run.alarms : []) events.push({ time: item.time, text: `Alarm${item.halt_reason?.code ? ` · ${item.halt_reason.code}` : ""}` });
+  for (const item of Array.isArray(run?.feed_overrides) ? run.feed_overrides : []) events.push({ time: item.time, text: `Feed override · ${Math.round(Number(item.override) || 0)}%` });
+  for (const item of Array.isArray(run?.spindle_overrides) ? run.spindle_overrides : []) events.push({ time: item.time, text: `Spindle override · ${Math.round(Number(item.override) || 0)}%` });
+  for (const item of Array.isArray(run?.commands) ? run.commands : []) events.push({ time: item.time, text: `${item.source || "controller"} · ${item.text || "command"}` });
+  return events.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+}
+
+function openRunHistoryDetail(run) {
+  const dialog = document.getElementById("run-history-dialog");
+  const title = document.getElementById("run-history-detail-title");
+  const summary = document.getElementById("run-history-detail-summary");
+  const eventsRoot = document.getElementById("run-history-detail-events");
+  if (!dialog || !title || !summary || !eventsRoot) return;
+  title.textContent = run.file || "Observed controller job";
+  summary.textContent = `${runOutcome(run)} · ${fmtDuration(Number(run.duration_ms))} · ${fmtTime(run.started_at)}`;
+  const fragment = document.createDocumentFragment();
+  for (const event of runHistoryEvents(run)) {
+    const row = document.createElement("div");
+    row.className = "run-history-event";
+    const time = document.createElement("time");
+    time.textContent = fmtTime(event.time);
+    const text = document.createElement("span");
+    text.textContent = event.text;
+    row.append(time, text);
+    fragment.appendChild(row);
+  }
+  if (!fragment.children.length) {
+    const empty = document.createElement("div");
+    empty.className = "maintenance-empty";
+    empty.textContent = "No observed events for this job.";
+    fragment.appendChild(empty);
+  }
+  eventsRoot.replaceChildren(fragment);
+  dialog.showModal();
+}
+
 function renderMaintenance() {
   const runs = document.getElementById("maintenance-runs");
   const notifications = document.getElementById("maintenance-notifications");
@@ -14264,6 +14303,7 @@ function renderMaintenance() {
       detail.textContent = `${runOutcome(run)} · ${fmtDuration(Number(run.duration_ms))} · ${fmtTime(run.started_at)}`;
       row.append(title, detail);
       row.title = `${title.textContent} · ${detail.textContent}`;
+      row.onclick = () => openRunHistoryDetail(run);
       fragment.appendChild(row);
     }
     if (!fragment.children.length) {
@@ -15189,6 +15229,7 @@ function init() {
     button.onclick = () => runSurfaceShellAction(button.dataset.surfaceAction);
   }
   bindButtonAction(document.getElementById("maintenance-notification-test"), testMaintenanceNotification);
+  document.getElementById("run-history-detail-close").onclick = () => document.getElementById("run-history-dialog")?.close();
   bindButtonAction(document.getElementById("surface-footer-hold"), () => sendControl("hold"));
   bindButtonAction(document.getElementById("surface-footer-resume"), () => {
     resumeActiveJob();

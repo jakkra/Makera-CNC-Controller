@@ -475,6 +475,15 @@
   .maintenance-row strong, .maintenance-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .maintenance-row span { color: var(--muted); font-size: 12px; }
   .maintenance-empty { padding: 18px; color: var(--muted); }
+  .run-history-dialog { width: min(720px, calc(100vw - 28px)); max-height: min(760px, calc(100dvh - 28px)); padding: 0; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+  .run-history-dialog > div { display: grid; gap: 12px; padding: 16px; }
+  .run-history-dialog-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+  .run-history-dialog-head h2 { color: var(--text); font-size: 16px; text-transform: none; letter-spacing: 0; }
+  #run-history-detail-summary { color: var(--muted); font-size: 12px; }
+  #run-history-detail-events { max-height: min(480px, calc(100dvh - 240px)); display: grid; align-content: start; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+  .run-history-event { display: grid; grid-template-columns: 150px minmax(0,1fr); gap: 8px; padding: 8px 10px; font-size: 12px; }
+  .run-history-event + .run-history-event { border-top: 1px solid var(--border); }
+  .run-history-event time { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   @media (max-width: 760px) { .maintenance-grid { grid-template-columns: minmax(0, 1fr); } }
   #active-gcode-console { min-height: 0; height: 100%; }
   #console { min-height: 0; height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--panel); overflow: hidden; }
@@ -1991,6 +2000,13 @@
     </section>
   </section>
 
+  <dialog id="run-history-dialog" class="run-history-dialog" aria-labelledby="run-history-detail-title">
+    <div>
+      <div class="run-history-dialog-head"><div><h2 id="run-history-detail-title">Job history</h2><div id="run-history-detail-summary"></div></div><button type="button" id="run-history-detail-close">Close</button></div>
+      <div id="run-history-detail-events"></div>
+    </div>
+  </dialog>
+
   <section id="control-view" class="view" role="tabpanel" aria-labelledby="tab-control" hidden>
     <section class="page-section">
       <div id="jog">
@@ -2511,6 +2527,6 @@
 <div id="status-bar" role="status" aria-live="polite" hidden>
   <div id="notice"></div>
 </div>
-<script type="module" src="/app.js?v=overview-feed-override-1&camera-snapshot=1&camera-focus=1&pause-state=1&job-controls=1&tool-metadata=1&tool-change-metadata=1&event-timeline=1&timeline-markers=1&event-list=1&maintenance=1&notification-test=1"></script>
+<script type="module" src="/app.js?v=overview-feed-override-1&camera-snapshot=1&camera-focus=1&pause-state=1&job-controls=1&tool-metadata=1&tool-change-metadata=1&event-timeline=1&timeline-markers=1&event-list=1&maintenance=1&notification-test=1&run-detail=1"></script>
 </body>
 </html>

@@ -156,6 +156,16 @@ test("timeline event labels use Fusion tool metadata and preserve CNC meaning", 
   assert.equal(vm.runInContext(`gcodeTimelineMarkerLabel(${JSON.stringify(markers[1])})`, ctx), "A");
 });
 
+test("run history detail orders observed events by time", () => {
+  const ctx = buildContext(["runHistoryEvents"], [], { Date });
+  const events = JSON.parse(vm.runInContext(`JSON.stringify(runHistoryEvents({
+    state_transitions:[{time:"2026-01-01T10:02:00Z",state:"Hold"}],
+    commands:[{time:"2026-01-01T10:01:00Z",source:"controller",text:"M3 S12000"}],
+    feed_overrides:[{time:"2026-01-01T10:03:00Z",override:90}]
+  }))`, ctx));
+  assert.deepEqual(events.map((event) => event.text), ["controller · M3 S12000", "Machine state · Hold", "Feed override · 90%"]);
+});
+
 test("external camera snapshot captures the decoded frame and preserves its orientation", () => {
   assert.match(htmlSource, /id="dashboard-external-camera-snapshot"/);
   assert.match(htmlSource, /id="dashboard-camera-snapshot-modal"/);
