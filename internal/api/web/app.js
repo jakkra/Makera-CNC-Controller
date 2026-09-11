@@ -10579,9 +10579,46 @@ function setGcodeTimelineEventDetail(label, line = 0) {
   detail.title = text;
 }
 
+function selectGcodeTimelineEvent(event, label = "") {
+  const line = Math.trunc(Number(event?.line) || 0);
+  if (line <= 0) return;
+  gcodeView.followLive = false;
+  gcodeView.timelineEventLine = line;
+  gcodeView.cursor = gcodeCursorForPlayedLine(gcodeView.segments, line);
+  setGcodeTimelineEventDetail(label, line);
+  updateGcodeProgress();
+}
+
+function renderGcodeTimelineEventList(events, toolMetadata) {
+  const root = document.getElementById("gcode-timeline-event-list");
+  if (!root) return;
+  const fragment = document.createDocumentFragment();
+  for (const event of Array.isArray(events) ? events : []) {
+    const line = Math.trunc(Number(event?.line) || 0);
+    if (line <= 0) continue;
+    const label = gcodeTimelineEventLabel(event, toolMetadata);
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "gcode-timeline-event-row";
+    row.title = `${label} · line ${line}`;
+    row.setAttribute("aria-label", `${label}, line ${line}`);
+    const lineCell = document.createElement("span");
+    lineCell.className = "gcode-timeline-event-line";
+    lineCell.textContent = `Ln ${line}`;
+    const text = document.createElement("span");
+    text.className = "gcode-timeline-event-text";
+    text.textContent = label;
+    row.append(lineCell, text);
+    row.onclick = () => selectGcodeTimelineEvent(event, label);
+    fragment.appendChild(row);
+  }
+  root.replaceChildren(fragment);
+}
+
 function renderGcodeTimelineEvents(events, toolMetadata, totalLines) {
   const root = document.getElementById("gcode-timeline-events");
-  if (!root) return;
+  const listRoot = document.getElementById("gcode-timeline-event-list");
+  if (!root || !listRoot) return;
   const markers = gcodeTimelineEventMarkers(events, totalLines);
   const key = JSON.stringify([totalLines, markers]);
   if (gcodeView.timelineEventsKey === key) return;
@@ -10603,16 +10640,11 @@ function renderGcodeTimelineEvents(events, toolMetadata, totalLines) {
     const lineText = firstLine === lastLine ? `line ${firstLine}` : `lines ${firstLine}–${lastLine}`;
     button.title = `${label} · ${lineText}`;
     button.setAttribute("aria-label", `${label}, ${lineText}`);
-    button.onclick = () => {
-      gcodeView.followLive = false;
-      gcodeView.timelineEventLine = Math.trunc(Number(event.line) || 0);
-      gcodeView.cursor = gcodeCursorForPlayedLine(gcodeView.segments, gcodeView.timelineEventLine);
-      setGcodeTimelineEventDetail(label, firstLine);
-      updateGcodeProgress();
-    };
+    button.onclick = () => selectGcodeTimelineEvent(event, label);
     fragment.appendChild(button);
   }
   root.replaceChildren(fragment);
+  renderGcodeTimelineEventList(events, toolMetadata);
   setGcodeTimelineEventDetail(markers.length ? `${markers.length} event markers` : "", 0);
 }
 

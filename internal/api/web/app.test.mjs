@@ -133,6 +133,8 @@ test("tool-change attention identifies the Fusion tool requested by the machine"
 });
 
 test("timeline event labels use Fusion tool metadata and preserve CNC meaning", () => {
+  assert.match(htmlSource, /id="gcode-timeline-event-list"/);
+  assert.match(source, /function renderGcodeTimelineEventList/);
   const ctx = buildContext([
     "gcodeToolMetadata", "gcodeToolLabel", "gcodeTimelineEventLabel", "gcodeTimelineEventMarkers", "gcodeTimelineMarkerLabel",
   ], [], {
