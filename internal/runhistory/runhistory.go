@@ -14,6 +14,7 @@ import (
 
 const maxCommandsPerRun = 40
 const pendingFileHintMaxAge = 10 * time.Minute
+const unattributedMotionMaxDuration = 5 * time.Second
 
 // Run is one observed machine run.
 type Run struct {
@@ -179,6 +180,9 @@ func (h *History) Replace(runs []Run) {
 		start = len(runs) - h.cap
 	}
 	for _, r := range runs[start:] {
+		if isUnattributedShortMotion(r) {
+			continue
+		}
 		cp := copyRun(r)
 		if cp.ID > maxID {
 			maxID = cp.ID
@@ -195,6 +199,13 @@ func (h *History) Replace(runs []Run) {
 			h.active = &h.runs[i]
 		}
 	}
+}
+
+// isUnattributedShortMotion recognizes old history records created before
+// Run-state-only transitions were excluded. These were controller motions
+// (most visibly A-axis indexing), never player executions.
+func isUnattributedShortMotion(r Run) bool {
+	return !r.Active && r.File == "" && len(r.Progress) == 0 && r.DurationMs <= unattributedMotionMaxDuration.Milliseconds()
 }
 
 func (h *History) startLocked(st machine.Status, when time.Time) {

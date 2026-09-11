@@ -112,6 +112,19 @@ func TestHistoryReplacePreservesImportedRuns(t *testing.T) {
 	}
 }
 
+func TestHistoryReplaceDropsLegacyUnattributedShortMotions(t *testing.T) {
+	h := New(10)
+	end := time.Unix(2000, 0)
+	h.Replace([]Run{
+		{ID: 1, StartedAt: end.Add(-time.Second), EndedAt: &end, DurationMs: 1000, EndState: machine.Idle},
+		{ID: 2, File: "part.nc", StartedAt: end.Add(-time.Minute), EndedAt: &end, DurationMs: 60_000, EndState: machine.Idle},
+	})
+	runs := h.Recent()
+	if len(runs) != 1 || runs[0].ID != 2 {
+		t.Fatalf("legacy motion was retained: %+v", runs)
+	}
+}
+
 func TestHistoryExpiresStaleFileHint(t *testing.T) {
 	h := New(10)
 	start := time.Unix(3000, 0)
