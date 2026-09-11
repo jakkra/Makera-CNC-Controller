@@ -56,16 +56,26 @@ type ActiveGcode struct {
 // and is exposed through bounded windows; OverviewSegments is a small complete
 // path used by the recording dashboard.
 type GcodePreview struct {
-	LineCount        int            `json:"line_count"`
-	MoveCount        int            `json:"move_count"`
-	PlottedSegments  int            `json:"plotted_segments"`
-	Truncated        bool           `json:"truncated"`
-	TotalDistance    float64        `json:"total_distance"`
-	Has4Axis         bool           `json:"has_4axis"`
-	Bounds           *GcodeBounds   `json:"bounds,omitempty"`
-	Tools            []int          `json:"tools,omitempty"`
-	Segments         []GcodeSegment `json:"segments,omitempty"`
-	OverviewSegments []GcodeSegment `json:"overview_segments,omitempty"`
+	LineCount           int            `json:"line_count"`
+	MoveCount           int            `json:"move_count"`
+	PlottedSegments     int            `json:"plotted_segments"`
+	Truncated           bool           `json:"truncated"`
+	TotalDistance       float64        `json:"total_distance"`
+	EstimatedDurationMs int64          `json:"estimated_duration_ms,omitempty"`
+	Has4Axis            bool           `json:"has_4axis"`
+	Bounds              *GcodeBounds   `json:"bounds,omitempty"`
+	Tools               []int          `json:"tools,omitempty"`
+	Segments            []GcodeSegment `json:"segments,omitempty"`
+	OverviewSegments    []GcodeSegment `json:"overview_segments,omitempty"`
+	timing              []gcodeTimingPoint
+}
+
+// gcodeTimingPoint remains server-side. It maps a completed source line to
+// planned elapsed time without exposing a potentially large per-line table in
+// the preview API.
+type gcodeTimingPoint struct {
+	Line      int
+	ElapsedMs int64
 }
 
 type GcodeSegmentWindow struct {
@@ -95,6 +105,7 @@ type GcodeSegment struct {
 	To            [4]float64 `json:"to"`
 	DistanceStart float64    `json:"distance_start"`
 	DistanceEnd   float64    `json:"distance_end"`
+	FeedMMMin     float64    `json:"feed_mm_min,omitempty"`
 }
 
 // MachineActionResult is returned by synchronous machine-action endpoints.
@@ -142,7 +153,7 @@ func (s *Service) activeGcodeFromStoredPath(remotePath string) ActiveGcode {
 		rc, cacheEntry, err := s.ReadCache(remotePath)
 		if err == nil {
 			defer rc.Close()
-			preview, offsets, err := parseGcodePreview(rc)
+			preview, offsets, err := parseGcodePreviewWithFeed(rc, s.machineFeedProfile())
 			if err == nil {
 				active := activeGcodeState{Path: cacheEntry.Path, Preview: preview, SourceOffsets: offsets, SelectedAt: time.Now()}
 				s.activeMu.Lock()
@@ -191,7 +202,7 @@ func (s *Service) SelectActiveGcode(remotePath string) (ActiveGcode, error) {
 	if entry.IsDir {
 		return ActiveGcode{}, fmt.Errorf("%w: active gcode must be a file", ErrInvalidArgument)
 	}
-	preview, offsets, err := parseGcodePreview(rc)
+	preview, offsets, err := parseGcodePreviewWithFeed(rc, s.machineFeedProfile())
 	if err != nil {
 		return ActiveGcode{}, err
 	}
@@ -1197,6 +1208,7 @@ type previewParser struct {
 	pos                   [4]float64
 	axisKnown             [3]bool
 	currentTool           int
+	feedMMMin             float64
 	tools                 map[int]bool
 	preview               GcodePreview
 	bounds                GcodeBounds
@@ -1231,11 +1243,15 @@ const (
 // G90.1/G91.1 arc centers, inch/mm units, A-axis moves, G92 coordinate resets,
 // and firmware-supported G80-G83/G98/G99 drilling cycles.
 func ParseGcodePreview(r io.Reader) (GcodePreview, error) {
-	preview, _, err := parseGcodePreview(r)
+	preview, _, err := parseGcodePreviewWithFeed(r, store.MachineFeedProfile{})
 	return preview, err
 }
 
 func parseGcodePreview(r io.Reader) (GcodePreview, []int64, error) {
+	return parseGcodePreviewWithFeed(r, store.MachineFeedProfile{})
+}
+
+func parseGcodePreviewWithFeed(r io.Reader, feedProfile store.MachineFeedProfile) (GcodePreview, []int64, error) {
 	p := previewParser{
 		unit:     1,
 		absolute: true,
@@ -1268,6 +1284,7 @@ func parseGcodePreview(r io.Reader) (GcodePreview, []int64, error) {
 		p.preview.Tools = append(p.preview.Tools, tool)
 	}
 	sort.Ints(p.preview.Tools)
+	estimateGcodePreview(&p.preview, feedProfile)
 	return p.preview, offsets, nil
 }
 
@@ -1351,6 +1368,9 @@ func (p *previewParser) parseLine(line string, lineNo int) {
 			values[w.letter] = w.value
 			hasValue[w.letter] = true
 		}
+	}
+	if hasValue['F'] && values['F'] > 0 {
+		p.feedMMMin = values['F']
 	}
 	if setPosition {
 		p.setPosition(values, hasValue)
@@ -1565,7 +1585,7 @@ func (p *previewParser) addLinearMove(kind string, lineNo int, target [4]float64
 		// so the plotted path starts at the first anchored position.
 		return
 	}
-	p.addSegment(GcodeSegment{Kind: kind, Line: lineNo, Tool: p.currentTool, From: p.pos, To: target})
+	p.addSegment(GcodeSegment{Kind: kind, Line: lineNo, Tool: p.currentTool, From: p.pos, To: target, FeedMMMin: p.feedMMMin})
 }
 
 func (p *previewParser) addArcMove(clockwise bool, lineNo int, target [4]float64, values map[byte]float64, hasValue map[byte]bool) {
@@ -1641,7 +1661,7 @@ func (p *previewParser) addArcMove(clockwise bool, lineNo int, target [4]float64
 			next = target
 		}
 		if !samePreviewPoint(prev, next) {
-			p.addSegment(GcodeSegment{Kind: "arc", Line: lineNo, Tool: p.currentTool, From: prev, To: next})
+			p.addSegment(GcodeSegment{Kind: "arc", Line: lineNo, Tool: p.currentTool, From: prev, To: next, FeedMMMin: p.feedMMMin})
 		}
 		prev = next
 	}
@@ -1753,6 +1773,79 @@ func (p *previewParser) addSegment(seg GcodeSegment) {
 	p.includeBounds(seg.To)
 	p.preview.Segments = append(p.preview.Segments, seg)
 	p.preview.PlottedSegments = len(p.preview.Segments)
+}
+
+const (
+	defaultEstimateFeedMMMin = 1000.0
+	defaultEstimateSeekMMMin = 2000.0
+	defaultEstimateAMax      = 3600.0
+)
+
+// estimateGcodePreview derives a bounded, deterministic motion-time model
+// from the same parsed geometry used by the viewer. It deliberately has no
+// wall-clock inputs: pauses and tool-change waits therefore cannot inflate a
+// job estimate. Unknown machine settings use the Z1 defaults until Learn
+// Machine Parameters supplies the actual values.
+func estimateGcodePreview(preview *GcodePreview, profile store.MachineFeedProfile) {
+	if preview == nil {
+		return
+	}
+	feedDefault := positiveOr(profile.DefaultMMMin, defaultEstimateFeedMMMin)
+	seek := positiveOr(profile.SeekMMMin, defaultEstimateSeekMMMin)
+	aMax := positiveOr(profile.AMax, defaultEstimateAMax)
+	var elapsed int64
+	preview.timing = preview.timing[:0]
+	for i := range preview.Segments {
+		seg := &preview.Segments[i]
+		segDuration := estimatedSegmentDurationMs(*seg, feedDefault, seek, aMax)
+		elapsed += segDuration
+		preview.timing = append(preview.timing, gcodeTimingPoint{Line: seg.Line, ElapsedMs: elapsed})
+	}
+	preview.EstimatedDurationMs = elapsed
+}
+
+func positiveOr(value, fallback float64) float64 {
+	if finite(value) && value > 0 {
+		return value
+	}
+	return fallback
+}
+
+func estimatedSegmentDurationMs(seg GcodeSegment, defaultFeed, seekFeed, aMax float64) int64 {
+	feed := seg.FeedMMMin
+	if seg.Kind == "rapid" {
+		feed = seekFeed
+	} else {
+		feed = positiveOr(feed, defaultFeed)
+	}
+	dx := seg.To[0] - seg.From[0]
+	dy := seg.To[1] - seg.From[1]
+	dz := seg.To[2] - seg.From[2]
+	linearMinutes := math.Sqrt(dx*dx+dy*dy+dz*dz) / feed
+	angularMinutes := math.Abs(seg.To[3]-seg.From[3]) / aMax
+	minutes := math.Max(linearMinutes, angularMinutes)
+	if !finite(minutes) || minutes <= 0 {
+		return 0
+	}
+	return int64(math.Round(minutes * float64(time.Minute/time.Millisecond)))
+}
+
+func (preview GcodePreview) estimatedRemainingMs(line int64, feedOverride float64) *int64 {
+	if line <= 0 || preview.EstimatedDurationMs <= 0 || len(preview.timing) == 0 {
+		return nil
+	}
+	idx := sort.Search(len(preview.timing), func(i int) bool { return preview.timing[i].Line > int(line) })
+	elapsed := int64(0)
+	if idx > 0 {
+		elapsed = preview.timing[idx-1].ElapsedMs
+	}
+	remaining := preview.EstimatedDurationMs - elapsed
+	if remaining < 0 {
+		remaining = 0
+	}
+	override := positiveOr(feedOverride, 100)
+	remaining = int64(math.Round(float64(remaining) * 100 / override))
+	return &remaining
 }
 
 func (p *previewParser) includeBounds(pos [4]float64) {

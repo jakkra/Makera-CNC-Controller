@@ -1306,6 +1306,31 @@ func TestSelectActiveGcodeParsesPreview(t *testing.T) {
 	}
 }
 
+func TestGcodePreviewEstimatesMotionTimeFromModalFeedAndA(t *testing.T) {
+	preview, err := ParseGcodePreview(strings.NewReader(strings.Join([]string{
+		"G21 G90",
+		"G92 X0 Y0 Z0",
+		"G0 X20",     // 0.6 s at the Z1 default seek rate (2000 mm/min)
+		"G1 X80 F60", // 60 s
+		"G1 Y60",     // modal 60 mm/min: another 60 s
+		"G1 A360",    // 6 s at the Z1 default A max (3600 deg/min)
+	}, "\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := preview.EstimatedDurationMs, int64(126600); got != want {
+		t.Fatalf("estimated duration = %dms, want %dms", got, want)
+	}
+	remaining := preview.estimatedRemainingMs(4, 100)
+	if remaining == nil || *remaining != 66000 {
+		t.Fatalf("remaining after line 4 = %v, want 66000ms", remaining)
+	}
+	halfSpeed := preview.estimatedRemainingMs(4, 50)
+	if halfSpeed == nil || *halfSpeed != 132000 {
+		t.Fatalf("remaining at 50%% feed override = %v, want 132000ms", halfSpeed)
+	}
+}
+
 func TestMachineStatusNormalizesActiveJobProgress(t *testing.T) {
 	svc, st := newService(t)
 	if err := st.SetActiveGcodePath("/sd/gcodes/part.nc"); err != nil {

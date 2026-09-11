@@ -523,7 +523,7 @@ func (s *Service) Status() MachineStatus {
 		HaltReason:   st.HaltReason,
 		Progress:     st.Progress,
 		Machine:      st.Machine,
-		ActiveJob:    machineJobProgress(st, s.store.ActiveGcodePath()),
+		ActiveJob:    s.machineJobProgress(st),
 		JobControl:   jobControlState(st, s.ExecutionContext()),
 	}
 }
@@ -791,6 +791,36 @@ func machineJobProgress(st machine.Status, activePath string) *MachineJobProgres
 		progress.RemainingMs = &remainingMs
 	}
 	return progress
+}
+
+// machineJobProgress starts with the firmware's stable progress fields, then
+// replaces its elapsed/percent extrapolation with a local feed-based estimate
+// when the active source has been parsed. Falling back preserves useful status
+// for externally started jobs or files that are not yet cached.
+func (s *Service) machineJobProgress(st machine.Status) *MachineJobProgress {
+	path := s.store.ActiveGcodePath()
+	progress := machineJobProgress(st, path)
+	if progress == nil || path == "" {
+		return progress
+	}
+	s.activeMu.Lock()
+	active := s.activeGcode
+	s.activeMu.Unlock()
+	if active.Path != path {
+		return progress
+	}
+	override := 100.0
+	if st.Feed != nil {
+		override = st.Feed.Override
+	}
+	if remaining := active.Preview.estimatedRemainingMs(progress.PlayedLines, override); remaining != nil {
+		progress.RemainingMs = remaining
+	}
+	return progress
+}
+
+func (s *Service) machineFeedProfile() store.MachineFeedProfile {
+	return s.store.UISettings().Machine.Learned.Feed
 }
 
 func (s *Service) pendingJobCount() int {
