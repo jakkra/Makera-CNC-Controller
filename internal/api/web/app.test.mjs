@@ -109,6 +109,29 @@ test("external camera framing clamps persisted zoom and focus", () => {
   );
 });
 
+test("tool-change attention identifies the Fusion tool requested by the machine", () => {
+  const ctx = buildContext([
+    "gcodeToolMetadata", "gcodeToolLabel", "toolChangeTargetLabel", "toolChangeAttentionDetail",
+  ], [], {
+    toolDisplayName: (number) => `Tool ${number}`,
+  });
+  const machine = { tool: { target: 2 } };
+  const preview = { tool_metadata: [{
+    number: 2,
+    name: "Makera Metal - 3.175*10mm",
+    diameter_mm: 3.175,
+    kind: "ball end mill",
+  }] };
+  assert.equal(
+    vm.runInContext(`toolChangeAttentionDetail(${JSON.stringify(machine)}, ${JSON.stringify(preview)})`, ctx),
+    "Tool change requested for T2 · 3.175 mm ball end mill · Makera Metal - 3.175*10mm. Confirm the physical change, then continue.",
+  );
+  assert.equal(
+    vm.runInContext(`toolChangeAttentionDetail({tool:{target:4}}, {})`, ctx),
+    "Tool change requested for Tool 4. Confirm the physical change, then continue.",
+  );
+});
+
 test("external camera snapshot captures the decoded frame and preserves its orientation", () => {
   assert.match(htmlSource, /id="dashboard-external-camera-snapshot"/);
   assert.match(htmlSource, /id="dashboard-camera-snapshot-modal"/);

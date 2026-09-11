@@ -500,6 +500,20 @@ function gcodeToolLabel(tool) {
   return descriptor ? `T${tool.number} · ${descriptor}` : `T${tool.number}`;
 }
 
+function toolChangeTargetLabel(machine = state.machine, preview = state.activeGcode?.preview) {
+  const target = Number(machine?.tool?.target);
+  if (!Number.isFinite(target)) return "";
+  const tool = gcodeToolMetadata(preview?.tool_metadata, target);
+  if (!tool) return toolDisplayName(target);
+  return [gcodeToolLabel(tool), String(tool.name || "").trim()].filter(Boolean).join(" · ");
+}
+
+function toolChangeAttentionDetail(machine = state.machine, preview = state.activeGcode?.preview) {
+  const target = toolChangeTargetLabel(machine, preview);
+  const subject = target ? `Tool change requested for ${target}.` : "Tool change requested.";
+  return `${subject} Confirm the physical change, then continue.`;
+}
+
 function machineReadoutModel(machine, positions = {}, toolMetadata = []) {
   const wpos = positions.wpos || machine?.wpos || {};
   const mpos = positions.mpos || machine?.mpos || {};
@@ -2026,14 +2040,16 @@ function renderMachine() {
 function renderAttention(m) {
   const machineState = machineActionState(m);
   const details = {
-    Tool: "Tool change requested. Open Tool actions to confirm the tool and continue only when the physical change is complete.",
     Pause: "The job is paused. Review the job before resuming motion.",
     Wait: "The controller is waiting for an operator decision. Review the active job before resuming.",
     Hold: "Motion is on hold. Make sure the work area is clear before resuming.",
     Alarm: "The machine reported an alarm. Clear the physical cause before attempting recovery.",
   };
   setTextIfChanged(document.getElementById("attention-state"), "Machine state: " + machineState);
-  setTextIfChanged(document.getElementById("attention-detail"), details[machineState] || "No operator action is currently requested.");
+  const detail = machineState === "Tool"
+    ? toolChangeAttentionDetail(m, state.activeGcode?.preview)
+    : (details[machineState] || "No operator action is currently requested.");
+  setTextIfChanged(document.getElementById("attention-detail"), detail);
   const resume = document.getElementById("attention-resume");
   const recover = document.getElementById("attention-recover");
   const tool = document.getElementById("attention-open-tool");
@@ -10617,6 +10633,7 @@ async function loadActiveGcode() {
     state.activeGcode = await r.json();
     clearConnectivityIssue("active-gcode");
     renderActiveGcode();
+    renderAttention(state.machine || {});
   } catch (e) {
     setConnectivityIssue("active-gcode", "Active gcode unavailable: " + e.message);
   } finally {
