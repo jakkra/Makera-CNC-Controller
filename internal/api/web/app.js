@@ -63,6 +63,7 @@ const state = {
   runs: [],
   notificationSnapshot: { enabled: false, deliveries: [] },
   maintenanceLoading: false,
+  notificationTestPending: false,
   readOnly: false,
   machine: { state: "", mode: "owner", age_ms: 0, connected: false },
   gcodeSeqs: new Set(),
@@ -14295,6 +14296,12 @@ function renderMaintenance() {
     }
     notifications.replaceChildren(fragment);
   }
+  const test = document.getElementById("maintenance-notification-test");
+  if (test) {
+    test.disabled = !state.notificationSnapshot?.enabled || state.notificationTestPending || state.readOnly;
+    test.setAttribute("aria-busy", String(state.notificationTestPending));
+    setTextIfChanged(test, state.notificationTestPending ? "Sending test…" : "Test notification");
+  }
 }
 
 async function loadMaintenance() {
@@ -14309,6 +14316,23 @@ async function loadMaintenance() {
     setStatusMessage("maintenance", "Maintenance history could not be loaded: " + error.message, "error", { force: true });
   } finally {
     state.maintenanceLoading = false;
+  }
+}
+
+async function testMaintenanceNotification() {
+  if (!state.notificationSnapshot?.enabled || state.notificationTestPending || state.readOnly) return;
+  state.notificationTestPending = true;
+  renderMaintenance();
+  setStatusMessage("maintenance-notification", "Sending notification test…", "", { force: true });
+  try {
+    await request("/api/notifications/test", { method: "POST" });
+    setStatusMessage("maintenance-notification", "Notification test sent.", "ok", { force: true });
+    await loadMaintenance();
+  } catch (error) {
+    setStatusMessage("maintenance-notification", "Notification test failed: " + error.message, "error", { force: true });
+  } finally {
+    state.notificationTestPending = false;
+    renderMaintenance();
   }
 }
 
@@ -15164,6 +15188,7 @@ function init() {
   for (const button of document.querySelectorAll("[data-surface-action]")) {
     button.onclick = () => runSurfaceShellAction(button.dataset.surfaceAction);
   }
+  bindButtonAction(document.getElementById("maintenance-notification-test"), testMaintenanceNotification);
   bindButtonAction(document.getElementById("surface-footer-hold"), () => sendControl("hold"));
   bindButtonAction(document.getElementById("surface-footer-resume"), () => {
     resumeActiveJob();

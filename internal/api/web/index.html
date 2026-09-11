@@ -465,7 +465,9 @@
   #maintenance-view { max-width: 1120px; margin-inline: auto; }
   .maintenance-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .maintenance-panel { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+  .maintenance-panel-head { min-height: var(--control-h); display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
   .maintenance-panel h2 { margin: 0 0 12px; font-size: 18px; }
+  .maintenance-panel-head h2 { margin: 0; }
   .maintenance-list { max-height: 520px; display: grid; align-content: start; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
   .maintenance-row { min-width: 0; display: grid; gap: 3px; padding: 10px 12px; border: 0; border-radius: 0; background: transparent; color: var(--text); text-align: left; }
   .maintenance-row + .maintenance-row { border-top: 1px solid var(--border); }
@@ -1983,7 +1985,7 @@
         <div id="maintenance-runs" class="maintenance-list"></div>
       </section>
       <section class="maintenance-panel" aria-labelledby="maintenance-notifications-title">
-        <h2 id="maintenance-notifications-title">Notification history</h2>
+        <div class="maintenance-panel-head"><h2 id="maintenance-notifications-title">Notification history</h2><button type="button" id="maintenance-notification-test">Test notification</button></div>
         <div id="maintenance-notifications" class="maintenance-list"></div>
       </section>
     </section>
@@ -2509,6 +2511,6 @@
 <div id="status-bar" role="status" aria-live="polite" hidden>
   <div id="notice"></div>
 </div>
-<script type="module" src="/app.js?v=overview-feed-override-1&camera-snapshot=1&camera-focus=1&pause-state=1&job-controls=1&tool-metadata=1&tool-change-metadata=1&event-timeline=1&timeline-markers=1&event-list=1&maintenance=1"></script>
+<script type="module" src="/app.js?v=overview-feed-override-1&camera-snapshot=1&camera-focus=1&pause-state=1&job-controls=1&tool-metadata=1&tool-change-metadata=1&event-timeline=1&timeline-markers=1&event-list=1&maintenance=1&notification-test=1"></script>
 </body>
 </html>
