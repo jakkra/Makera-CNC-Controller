@@ -9539,7 +9539,7 @@ function previewBoundsText(bounds) {
 
 function drawGcodePreview(preview, live = null) {
   const segments = Array.isArray(preview?.segments) ? preview.segments : [];
-  renderGcodeTimelineEvents(preview?.events, preview?.tool_metadata);
+  renderGcodeTimelineEvents(preview?.events, preview?.tool_metadata, preview?.line_count);
   const hasToolpath = segments.length > 0 && !!preview?.bounds;
   const hasContextCandidate = !!state.outline?.active && !!state.outline?.points?.length;
   if (!hasToolpath && !hasContextCandidate) {
@@ -10547,26 +10547,28 @@ function gcodeTimelineEventLabel(event, toolMetadata = []) {
   }
 }
 
-function gcodeTimelineEventShortLabel(event, toolMetadata = []) {
-  const kind = String(event?.kind || "");
-  const tool = gcodeToolMetadata(toolMetadata, event?.tool);
-  const value = Number(event?.value);
-  switch (kind) {
-  case "tool_change":
-    return tool ? `T${tool.number} · ${Number.isFinite(Number(tool.diameter_mm)) ? `${tool.diameter_mm} mm` : "Tool"}` : toolDisplayName(event?.tool);
-  case "spindle":
-    return String(event?.code || "") === "M5" ? "Spindle stop" : `Spindle · ${Number.isFinite(value) && value > 0 ? `${Math.round(value / 100) / 10}k` : "on"}`;
-  case "a_index":
-    return `A · ${Number.isFinite(value) ? `${-value}°` : "index"}`;
-  case "dwell":
-    return "Dwell";
-  case "attention":
-    return "Program pause";
-  case "coolant":
-    return "Coolant";
-  default:
-    return "Event";
+function gcodeTimelineEventMarkers(events, totalLines, bucketCount = 48) {
+  const lines = Math.max(1, Number(totalLines) || 1);
+  const buckets = Math.max(1, Math.trunc(Number(bucketCount) || 48));
+  const groups = new Map();
+  for (const event of Array.isArray(events) ? events : []) {
+    const line = Math.trunc(Number(event?.line) || 0);
+    if (line <= 0) continue;
+    const fraction = Math.max(0, Math.min(1, (line - 1) / Math.max(1, lines - 1)));
+    const bucket = Math.min(buckets - 1, Math.floor(fraction * buckets));
+    const marker = groups.get(bucket) || { bucket, fraction: (bucket + 0.5) / buckets, events: [] };
+    marker.events.push(event);
+    groups.set(bucket, marker);
   }
+  return [...groups.values()].sort((a, b) => a.bucket - b.bucket);
+}
+
+function gcodeTimelineMarkerLabel(marker, toolMetadata = []) {
+  const events = Array.isArray(marker?.events) ? marker.events : [];
+  const primary = events.find((event) => event.kind === "tool_change") || events[0];
+  const base = primary?.kind === "tool_change" ? `T${primary.tool || "?"}` :
+    ({ spindle: "S", a_index: "A", attention: "!", coolant: "C", dwell: "D" }[primary?.kind] || "•");
+  return events.length > 1 ? `${base}+` : base;
 }
 
 function setGcodeTimelineEventDetail(label, line = 0) {
@@ -10577,35 +10579,41 @@ function setGcodeTimelineEventDetail(label, line = 0) {
   detail.title = text;
 }
 
-function renderGcodeTimelineEvents(events, toolMetadata) {
+function renderGcodeTimelineEvents(events, toolMetadata, totalLines) {
   const root = document.getElementById("gcode-timeline-events");
   if (!root) return;
-  const list = Array.isArray(events) ? events.filter((event) => Number(event?.line) > 0) : [];
-  const key = JSON.stringify(list);
+  const markers = gcodeTimelineEventMarkers(events, totalLines);
+  const key = JSON.stringify([totalLines, markers]);
   if (gcodeView.timelineEventsKey === key) return;
   gcodeView.timelineEventsKey = key;
   const fragment = document.createDocumentFragment();
-  for (const event of list) {
-    const label = gcodeTimelineEventLabel(event, toolMetadata);
-    const shortLabel = gcodeTimelineEventShortLabel(event, toolMetadata);
+  for (const marker of markers) {
+    const eventsAtMarker = marker.events;
+    const event = eventsAtMarker.find((candidate) => candidate.kind === "tool_change") || eventsAtMarker[0];
+    const details = eventsAtMarker.map((candidate) => gcodeTimelineEventLabel(candidate, toolMetadata));
+    const label = details.join(" · ");
     const button = document.createElement("button");
     button.type = "button";
     button.className = "gcode-timeline-event";
-    button.dataset.eventKind = String(event.kind || "");
-    button.textContent = shortLabel;
-    button.title = `${label} · line ${event.line}`;
-    button.setAttribute("aria-label", `${label}, line ${event.line}`);
+    button.dataset.eventKind = String(event?.kind || "");
+    button.style.left = `${marker.fraction * 100}%`;
+    button.textContent = gcodeTimelineMarkerLabel(marker, toolMetadata);
+    const firstLine = Math.trunc(Number(eventsAtMarker[0]?.line) || 0);
+    const lastLine = Math.trunc(Number(eventsAtMarker.at(-1)?.line) || firstLine);
+    const lineText = firstLine === lastLine ? `line ${firstLine}` : `lines ${firstLine}–${lastLine}`;
+    button.title = `${label} · ${lineText}`;
+    button.setAttribute("aria-label", `${label}, ${lineText}`);
     button.onclick = () => {
       gcodeView.followLive = false;
       gcodeView.timelineEventLine = Math.trunc(Number(event.line) || 0);
       gcodeView.cursor = gcodeCursorForPlayedLine(gcodeView.segments, gcodeView.timelineEventLine);
-      setGcodeTimelineEventDetail(label, gcodeView.timelineEventLine);
+      setGcodeTimelineEventDetail(label, firstLine);
       updateGcodeProgress();
     };
     fragment.appendChild(button);
   }
   root.replaceChildren(fragment);
-  setGcodeTimelineEventDetail("", 0);
+  setGcodeTimelineEventDetail(markers.length ? `${markers.length} event markers` : "", 0);
 }
 
 function updateGcodeTimeline(total) {

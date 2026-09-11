@@ -134,7 +134,7 @@ test("tool-change attention identifies the Fusion tool requested by the machine"
 
 test("timeline event labels use Fusion tool metadata and preserve CNC meaning", () => {
   const ctx = buildContext([
-    "gcodeToolMetadata", "gcodeToolLabel", "gcodeTimelineEventLabel", "gcodeTimelineEventShortLabel",
+    "gcodeToolMetadata", "gcodeToolLabel", "gcodeTimelineEventLabel", "gcodeTimelineEventMarkers", "gcodeTimelineMarkerLabel",
   ], [], {
     toolDisplayName: (number) => `Tool ${number}`,
   });
@@ -146,11 +146,12 @@ test("timeline event labels use Fusion tool metadata and preserve CNC meaning", 
   assert.equal(label({ kind: "spindle", code: "M3", value: 12000 }), "Spindle CW · 12000 rpm");
   assert.equal(label({ kind: "a_index", value: -90 }), "A index · 90°");
   assert.equal(label({ kind: "attention", code: "M0" }), "Program pause · M0");
-  assert.equal(
-    vm.runInContext(`gcodeTimelineEventShortLabel({kind:"tool_change",tool:2}, ${JSON.stringify(metadata)})`, ctx),
-    "T2 · 3.175 mm",
-  );
-  assert.equal(vm.runInContext(`gcodeTimelineEventShortLabel({kind:"a_index",value:-90}, [])`, ctx), "A · 90°");
+  const markers = JSON.parse(vm.runInContext(`JSON.stringify(gcodeTimelineEventMarkers([
+    {kind:"tool_change", line:2, tool:2}, {kind:"spindle", line:3, code:"M3"}, {kind:"a_index", line:100, value:-90}
+  ], 100, 4))`, ctx));
+  assert.equal(markers.length, 2);
+  assert.equal(vm.runInContext(`gcodeTimelineMarkerLabel(${JSON.stringify(markers[0])})`, ctx), "T2+");
+  assert.equal(vm.runInContext(`gcodeTimelineMarkerLabel(${JSON.stringify(markers[1])})`, ctx), "A");
 });
 
 test("external camera snapshot captures the decoded frame and preserves its orientation", () => {
