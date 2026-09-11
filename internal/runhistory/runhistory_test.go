@@ -68,6 +68,26 @@ func TestHistoryDerivesRunFromPlayCommandAndStatus(t *testing.T) {
 	}
 }
 
+func TestHistoryDoesNotTreatNormalFeedAndRPMSamplesAsOverrides(t *testing.T) {
+	h := New(10)
+	start := time.Unix(4000, 0)
+	observe := func(when time.Time, feedCurrent, spindleCurrent, spindleTarget float64) {
+		h.ObserveStatus(machine.Status{
+			State: machine.Run, ObservedAt: when,
+			Feed:    &machine.Triple{Current: feedCurrent, Target: 500, Override: 100},
+			Spindle: &machine.Spindle{CurrentRPM: spindleCurrent, TargetRPM: spindleTarget, Override: 100},
+		})
+	}
+	observe(start, 420, 11800, 12000)
+	observe(start.Add(time.Second), 480, 12120, 12000)
+	observe(start.Add(2*time.Second), 300, 11750, 12000)
+	observe(start.Add(3*time.Second), 300, 11750, 9000)
+	runs := h.Recent()
+	if len(runs) != 1 || len(runs[0].FeedOverrides) != 1 || len(runs[0].SpindleOverrides) != 2 {
+		t.Fatalf("run history = %+v", runs)
+	}
+}
+
 func TestHistoryReplacePreservesImportedRuns(t *testing.T) {
 	h := New(2)
 	end := time.Unix(2000, 0)

@@ -327,14 +327,18 @@ func tripleChanged(a, b *machine.Triple) bool {
 	if a == nil || b == nil {
 		return a != b
 	}
-	return a.Current != b.Current || a.Target != b.Target || a.Override != b.Override
+	// Current feed continuously follows the toolpath and is not an operator
+	// override. Retaining it here would turn every status poll into history.
+	return a.Target != b.Target || a.Override != b.Override
 }
 
 func spindleChanged(a, b *machine.Spindle) bool {
 	if a == nil || b == nil {
 		return a != b
 	}
-	return a.CurrentRPM != b.CurrentRPM || a.TargetRPM != b.TargetRPM || a.Override != b.Override
+	// Actual RPM naturally drifts around the requested value. The timeline
+	// records only a programmed target or override change.
+	return a.TargetRPM != b.TargetRPM || a.Override != b.Override
 }
 
 func copyRun(in Run) Run {
