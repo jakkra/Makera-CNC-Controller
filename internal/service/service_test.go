@@ -1354,6 +1354,37 @@ func TestGcodePreviewParsesMakeraFusionToolComment(t *testing.T) {
 	}
 }
 
+func TestGcodePreviewParsesMultipleMakeraFusionTools(t *testing.T) {
+	preview, err := ParseGcodePreview(strings.NewReader(strings.Join([]string{
+		"(T1  Spiral O Metal 3.175*12mm  Makera    D=3.175 SD=3.175 TD=0. FL=12. SL=12. BL=19. - ZMIN=-3. - flat end mill)",
+		"(T2  Makera Metal - 3.175*10mm      D=3.175 CR=1.587 SD=3.175 TD=0. FL=10. SL=10. BL=19. - ZMIN=2. - ball end mill)",
+		"(T3  Spiral O Metal 2*8mm  Makera    D=2. SD=3.175 TD=2. FL=8. SL=8. BL=18.49 - ZMIN=2. - flat end mill)",
+		"(T4  Makera Metal - 2*6mm      D=2. CR=1. SD=3.175 TD=0. FL=6. SL=6. BL=19. - ZMIN=2. - ball end mill)",
+		"T1M6", "T2M6", "T3M6", "T4M6",
+	}, "\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(preview.ToolMetadata); got != 4 {
+		t.Fatalf("tool metadata count = %d, want 4: %+v", got, preview.ToolMetadata)
+	}
+	for i, want := range []struct {
+		number int
+		kind   string
+		diam   float64
+	}{
+		{1, "flat end mill", 3.175},
+		{2, "ball end mill", 3.175},
+		{3, "flat end mill", 2},
+		{4, "ball end mill", 2},
+	} {
+		got := preview.ToolMetadata[i]
+		if got.Number != want.number || got.Kind != want.kind || got.DiameterMM != want.diam {
+			t.Fatalf("tool %d = %+v, want number=%d kind=%q diameter=%v", i, got, want.number, want.kind, want.diam)
+		}
+	}
+}
+
 func TestMachineStatusNormalizesActiveJobProgress(t *testing.T) {
 	svc, st := newService(t)
 	if err := st.SetActiveGcodePath("/sd/gcodes/part.nc"); err != nil {
