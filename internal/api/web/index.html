@@ -462,6 +462,18 @@
   .gcode-timeline-event[data-event-kind="a_index"] { color: #8cb8ff; border-color: rgba(140,184,255,.42); }
   .gcode-timeline-event[data-event-kind="attention"] { color: #ffb0a8; border-color: rgba(255,176,168,.46); }
   #gcode-timeline-label { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap; }
+  #maintenance-view { max-width: 1120px; margin-inline: auto; }
+  .maintenance-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .maintenance-panel { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+  .maintenance-panel h2 { margin: 0 0 12px; font-size: 18px; }
+  .maintenance-list { max-height: 520px; display: grid; align-content: start; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+  .maintenance-row { min-width: 0; display: grid; gap: 3px; padding: 10px 12px; border: 0; border-radius: 0; background: transparent; color: var(--text); text-align: left; }
+  .maintenance-row + .maintenance-row { border-top: 1px solid var(--border); }
+  button.maintenance-row:hover, button.maintenance-row:focus-visible { background: rgba(87,166,214,.14); }
+  .maintenance-row strong, .maintenance-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .maintenance-row span { color: var(--muted); font-size: 12px; }
+  .maintenance-empty { padding: 18px; color: var(--muted); }
+  @media (max-width: 760px) { .maintenance-grid { grid-template-columns: minmax(0, 1fr); } }
   #active-gcode-console { min-height: 0; height: 100%; }
   #console { min-height: 0; height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--panel); overflow: hidden; }
   #machine-controls, #macro-toolbar, #log-tools, #macro-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 6px; align-items: center; min-width: 0; }
@@ -1684,7 +1696,7 @@
   <button type="button" class="surface-nav-button" data-surface-view="active-job"><span class="surface-nav-icon" aria-hidden="true">▤</span><span>Active job</span></button>
   <button type="button" class="surface-nav-button" data-surface-view="files"><span class="surface-nav-icon" aria-hidden="true">▱</span><span>Files</span></button>
   <button type="button" class="surface-nav-button" data-surface-action="camera" title="Open camera monitoring"><span class="surface-nav-icon" aria-hidden="true">▣</span><span>Camera</span></button>
-  <button type="button" class="surface-nav-button" data-surface-action="actions"><span class="surface-nav-icon" aria-hidden="true">⌕</span><span>Maintenance</span></button>
+  <button type="button" class="surface-nav-button" data-surface-action="maintenance"><span class="surface-nav-icon" aria-hidden="true">⌕</span><span>Maintenance</span></button>
 </nav>
 <main>
   <section class="page-section">
@@ -1961,6 +1973,19 @@
         <button type="button" id="attention-open-tool" hidden>Open Tool actions</button>
         <button type="button" id="attention-open-active-job">Open active job</button>
       </div>
+    </section>
+  </section>
+
+  <section id="maintenance-view" class="view" role="tabpanel" aria-label="Maintenance" hidden>
+    <section class="page-section maintenance-grid">
+      <section class="maintenance-panel" aria-labelledby="maintenance-runs-title">
+        <h2 id="maintenance-runs-title">Job history</h2>
+        <div id="maintenance-runs" class="maintenance-list"></div>
+      </section>
+      <section class="maintenance-panel" aria-labelledby="maintenance-notifications-title">
+        <h2 id="maintenance-notifications-title">Notification history</h2>
+        <div id="maintenance-notifications" class="maintenance-list"></div>
+      </section>
     </section>
   </section>
 
@@ -2484,6 +2509,6 @@
 <div id="status-bar" role="status" aria-live="polite" hidden>
   <div id="notice"></div>
 </div>
-<script type="module" src="/app.js?v=overview-feed-override-1&camera-snapshot=1&camera-focus=1&pause-state=1&job-controls=1&tool-metadata=1&tool-change-metadata=1&event-timeline=1&timeline-markers=1&event-list=1"></script>
+<script type="module" src="/app.js?v=overview-feed-override-1&camera-snapshot=1&camera-focus=1&pause-state=1&job-controls=1&tool-metadata=1&tool-change-metadata=1&event-timeline=1&timeline-markers=1&event-list=1&maintenance=1"></script>
 </body>
 </html>

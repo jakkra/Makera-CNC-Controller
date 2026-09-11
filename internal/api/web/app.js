@@ -32,7 +32,7 @@ const ACTIVE_JOB_SPLIT_STEP_PERCENT = 2;
 const ACTIVE_JOB_SPLIT_MIN_LEFT_PX = 260;
 const ACTIVE_JOB_SPLIT_MIN_PREVIEW_PX = 320;
 const ACTIVE_JOB_SPLITTER_PX = 16;
-const VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files", "attention"];
+const VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files", "maintenance", "attention"];
 const NAV_VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files"];
 const SURFACE_VIEW_PREFERENCES_KEY = "cnc-proxy.surface-view-preferences.v1";
 const EXTERNAL_CAMERA_VIEW_KEY = "cnc-proxy.external-camera-view.v1";
@@ -60,6 +60,9 @@ const MACRO_EDITOR_IDS = ["macro-name", "macro-description", "macro-color", "mac
 const state = {
   files: new Map(),
   jobs: new Map(),
+  runs: [],
+  notificationSnapshot: { enabled: false, deliveries: [] },
+  maintenanceLoading: false,
   readOnly: false,
   machine: { state: "", mode: "owner", age_ms: 0, connected: false },
   gcodeSeqs: new Set(),
@@ -14229,9 +14232,84 @@ function showTab(name, urlMode = "push") {
   if (name === "active-job") renderActiveGcode();
   if (name === "dashboard") renderDashboard();
   if (name === "control" || name === "jog") renderJog();
+  if (name === "maintenance") loadMaintenance();
   else clearNotice("jog-availability");
   syncDashboardCameras();
   syncViewTabURL(name, urlMode);
+}
+
+function runOutcome(run) {
+  if (run?.active) return "Running";
+  if (Array.isArray(run?.alarms) && run.alarms.length) return "Alarm";
+  switch (String(run?.end_state || "")) {
+  case "Idle": return "Completed";
+  case "Unknown": return "Unknown";
+  default: return String(run?.end_state || "Ended");
+  }
+}
+
+function renderMaintenance() {
+  const runs = document.getElementById("maintenance-runs");
+  const notifications = document.getElementById("maintenance-notifications");
+  if (runs) {
+    const fragment = document.createDocumentFragment();
+    for (const run of state.runs) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "maintenance-row";
+      const title = document.createElement("strong");
+      title.textContent = run.file || "Observed controller job";
+      const detail = document.createElement("span");
+      detail.textContent = `${runOutcome(run)} · ${fmtDuration(Number(run.duration_ms))} · ${fmtTime(run.started_at)}`;
+      row.append(title, detail);
+      row.title = `${title.textContent} · ${detail.textContent}`;
+      fragment.appendChild(row);
+    }
+    if (!fragment.children.length) {
+      const empty = document.createElement("div");
+      empty.className = "maintenance-empty";
+      empty.textContent = "No observed jobs yet.";
+      fragment.appendChild(empty);
+    }
+    runs.replaceChildren(fragment);
+  }
+  if (notifications) {
+    const fragment = document.createDocumentFragment();
+    const deliveries = Array.isArray(state.notificationSnapshot?.deliveries) ? state.notificationSnapshot.deliveries : [];
+    for (const delivery of deliveries) {
+      const row = document.createElement("div");
+      row.className = "maintenance-row";
+      const title = document.createElement("strong");
+      title.textContent = delivery.title || "Notification";
+      const detail = document.createElement("span");
+      detail.textContent = `${delivery.state || "unknown"} · ${delivery.body || delivery.error || ""} · ${fmtTime(delivery.created_at)}`;
+      row.append(title, detail);
+      row.title = `${title.textContent} · ${detail.textContent}`;
+      fragment.appendChild(row);
+    }
+    if (!fragment.children.length) {
+      const empty = document.createElement("div");
+      empty.className = "maintenance-empty";
+      empty.textContent = state.notificationSnapshot?.enabled ? "No notification deliveries yet." : "Mobile notifications are not configured.";
+      fragment.appendChild(empty);
+    }
+    notifications.replaceChildren(fragment);
+  }
+}
+
+async function loadMaintenance() {
+  if (state.maintenanceLoading) return;
+  state.maintenanceLoading = true;
+  try {
+    const [runsResponse, notificationResponse] = await Promise.all([request("/api/runs"), request("/api/notifications")]);
+    state.runs = await runsResponse.json();
+    state.notificationSnapshot = await notificationResponse.json();
+    renderMaintenance();
+  } catch (error) {
+    setStatusMessage("maintenance", "Maintenance history could not be loaded: " + error.message, "error", { force: true });
+  } finally {
+    state.maintenanceLoading = false;
+  }
 }
 
 function runSurfaceShellAction(action) {
@@ -14257,6 +14335,9 @@ function runSurfaceShellAction(action) {
   case "camera":
     showTab("dashboard");
     document.querySelector(".dashboard-camera-stage")?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    break;
+  case "maintenance":
+    showTab("maintenance");
     break;
   case "actions": {
     const actions = document.getElementById("command-actions");
