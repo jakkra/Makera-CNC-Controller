@@ -10547,6 +10547,36 @@ function gcodeTimelineEventLabel(event, toolMetadata = []) {
   }
 }
 
+function gcodeTimelineEventShortLabel(event, toolMetadata = []) {
+  const kind = String(event?.kind || "");
+  const tool = gcodeToolMetadata(toolMetadata, event?.tool);
+  const value = Number(event?.value);
+  switch (kind) {
+  case "tool_change":
+    return tool ? `T${tool.number} · ${Number.isFinite(Number(tool.diameter_mm)) ? `${tool.diameter_mm} mm` : "Tool"}` : toolDisplayName(event?.tool);
+  case "spindle":
+    return String(event?.code || "") === "M5" ? "Spindle stop" : `Spindle · ${Number.isFinite(value) && value > 0 ? `${Math.round(value / 100) / 10}k` : "on"}`;
+  case "a_index":
+    return `A · ${Number.isFinite(value) ? `${-value}°` : "index"}`;
+  case "dwell":
+    return "Dwell";
+  case "attention":
+    return "Program pause";
+  case "coolant":
+    return "Coolant";
+  default:
+    return "Event";
+  }
+}
+
+function setGcodeTimelineEventDetail(label, line = 0) {
+  const detail = document.getElementById("gcode-timeline-event-detail");
+  if (!detail) return;
+  const text = line > 0 ? `${label} · line ${line}` : "Program events";
+  setTextIfChanged(detail, text);
+  detail.title = text;
+}
+
 function renderGcodeTimelineEvents(events, toolMetadata) {
   const root = document.getElementById("gcode-timeline-events");
   if (!root) return;
@@ -10557,22 +10587,25 @@ function renderGcodeTimelineEvents(events, toolMetadata) {
   const fragment = document.createDocumentFragment();
   for (const event of list) {
     const label = gcodeTimelineEventLabel(event, toolMetadata);
+    const shortLabel = gcodeTimelineEventShortLabel(event, toolMetadata);
     const button = document.createElement("button");
     button.type = "button";
     button.className = "gcode-timeline-event";
     button.dataset.eventKind = String(event.kind || "");
-    button.textContent = label;
+    button.textContent = shortLabel;
     button.title = `${label} · line ${event.line}`;
     button.setAttribute("aria-label", `${label}, line ${event.line}`);
     button.onclick = () => {
       gcodeView.followLive = false;
       gcodeView.timelineEventLine = Math.trunc(Number(event.line) || 0);
       gcodeView.cursor = gcodeCursorForPlayedLine(gcodeView.segments, gcodeView.timelineEventLine);
+      setGcodeTimelineEventDetail(label, gcodeView.timelineEventLine);
       updateGcodeProgress();
     };
     fragment.appendChild(button);
   }
   root.replaceChildren(fragment);
+  setGcodeTimelineEventDetail("", 0);
 }
 
 function updateGcodeTimeline(total) {
@@ -14975,8 +15008,9 @@ function init() {
   gcodeTimeline.onchange = releaseGcodeTimeline;
   gcodeTimeline.oninput = (e) => {
     gcodeView.followLive = false;
-    gcodeView.timelineEventLine = 0;
-    gcodeView.cursor = Number(e.target.value) || 0;
+  gcodeView.timelineEventLine = 0;
+  setGcodeTimelineEventDetail("", 0);
+  gcodeView.cursor = Number(e.target.value) || 0;
     updateGcodeProgress();
   };
   bindDataControlButtons();

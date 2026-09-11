@@ -444,10 +444,13 @@
   #gcode-projection-toggle button + button { border-left: 1px solid var(--border); }
   #gcode-projection-toggle button[aria-pressed="true"] { background: rgba(87,166,214,.18); color: var(--text); }
   #gcode-timeline-row { grid-area: 2 / 1; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; margin: 0; padding: 8px; border-top: 1px solid var(--border); background: rgba(25,31,37,.92); }
-  #gcode-timeline-track { display: grid; grid-template-rows: 20px 24px; gap: 4px; min-width: 0; }
+  #gcode-timeline-track { display: grid; grid-template-rows: 20px 28px 30px; gap: 4px; min-width: 0; }
   #gcode-timeline { min-width: 0; }
-  #gcode-timeline-events { display: flex; gap: 4px; min-width: 0; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; }
-  .gcode-timeline-event { flex: 0 0 auto; min-height: 24px; padding: 2px 7px; color: var(--muted); font-size: 11px; line-height: 1; border-color: var(--border); background: rgba(18,23,28,.75); }
+  #gcode-timeline-events { display: flex; gap: 4px; min-width: 0; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; scrollbar-color: var(--muted) transparent; }
+  #gcode-timeline-events::-webkit-scrollbar { height: 6px; }
+  #gcode-timeline-events::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 999px; }
+  .gcode-timeline-event { flex: 0 0 auto; min-height: 28px; padding: 2px 8px; color: var(--muted); font-size: 12px; line-height: 1; border-color: var(--border); background: rgba(18,23,28,.75); }
+  #gcode-timeline-event-detail { min-width: 0; min-height: 30px; display: -webkit-box; overflow: hidden; color: var(--text); font-size: 12px; line-height: 15px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
   .gcode-timeline-event[data-event-kind="tool_change"] { color: #f1bf70; border-color: rgba(241,191,112,.48); }
   .gcode-timeline-event[data-event-kind="spindle"] { color: #6ed5a0; border-color: rgba(110,213,160,.42); }
   .gcode-timeline-event[data-event-kind="a_index"] { color: #8cb8ff; border-color: rgba(140,184,255,.42); }
@@ -1860,6 +1863,7 @@
                 <div id="gcode-timeline-track">
                   <input id="gcode-timeline" type="range" min="0" max="0" step="1" value="0" aria-label="Preview timeline" disabled>
                   <div id="gcode-timeline-events" aria-label="Program events"></div>
+                  <div id="gcode-timeline-event-detail">Program events</div>
                 </div>
                 <span id="gcode-timeline-label">0 / 0</span>
               </div>

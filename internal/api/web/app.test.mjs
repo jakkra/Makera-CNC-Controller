@@ -134,7 +134,7 @@ test("tool-change attention identifies the Fusion tool requested by the machine"
 
 test("timeline event labels use Fusion tool metadata and preserve CNC meaning", () => {
   const ctx = buildContext([
-    "gcodeToolMetadata", "gcodeToolLabel", "gcodeTimelineEventLabel",
+    "gcodeToolMetadata", "gcodeToolLabel", "gcodeTimelineEventLabel", "gcodeTimelineEventShortLabel",
   ], [], {
     toolDisplayName: (number) => `Tool ${number}`,
   });
@@ -146,6 +146,11 @@ test("timeline event labels use Fusion tool metadata and preserve CNC meaning", 
   assert.equal(label({ kind: "spindle", code: "M3", value: 12000 }), "Spindle CW · 12000 rpm");
   assert.equal(label({ kind: "a_index", value: -90 }), "A index · 90°");
   assert.equal(label({ kind: "attention", code: "M0" }), "Program pause · M0");
+  assert.equal(
+    vm.runInContext(`gcodeTimelineEventShortLabel({kind:"tool_change",tool:2}, ${JSON.stringify(metadata)})`, ctx),
+    "T2 · 3.175 mm",
+  );
+  assert.equal(vm.runInContext(`gcodeTimelineEventShortLabel({kind:"a_index",value:-90}, [])`, ctx), "A · 90°");
 });
 
 test("external camera snapshot captures the decoded frame and preserves its orientation", () => {
