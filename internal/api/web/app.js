@@ -235,6 +235,8 @@ const gcodeView = {
   orbit: { ...gcodeOrbitAnglesForDirection({ x: 1, y: 1, z: 1 }), radius: 120 },
   segments: [],
   cursor: 0,
+  timelineEventLine: 0,
+  timelineEventsKey: "",
   has4Axis: false,
   dragging: false,
   timelineDragging: false,
@@ -9121,11 +9123,11 @@ function gcodeSourceLineForCursor(segments, cursor) {
   return Math.max(0, Math.trunc(Number(segments[index]?.line) || 0));
 }
 
-function syncActiveGcodeSourceLine(live = null) {
+function syncActiveGcodeSourceLine(live = null, selectedLine = 0) {
   const liveLine = gcodeView.followLive ? Math.trunc(Number(live?.playedLines) || 0) : 0;
   const line = liveLine > 0
     ? liveLine
-    : gcodeSourceLineForCursor(gcodeView.segments, gcodeView.cursor);
+    : (selectedLine > 0 ? selectedLine : gcodeSourceLineForCursor(gcodeView.segments, gcodeView.cursor));
   const changed = activeGcodeSource.currentLine !== line;
   activeGcodeSource.currentLine = line;
   if (changed) renderActiveGcodeSource();
@@ -9537,6 +9539,7 @@ function previewBoundsText(bounds) {
 
 function drawGcodePreview(preview, live = null) {
   const segments = Array.isArray(preview?.segments) ? preview.segments : [];
+  renderGcodeTimelineEvents(preview?.events, preview?.tool_metadata);
   const hasToolpath = segments.length > 0 && !!preview?.bounds;
   const hasContextCandidate = !!state.outline?.active && !!state.outline?.points?.length;
   if (!hasToolpath && !hasContextCandidate) {
@@ -10068,6 +10071,8 @@ function clearGcodeScene() {
   gcodeView.contextVisible = false;
   gcodeView.segments = [];
   gcodeView.cursor = 0;
+  gcodeView.timelineEventLine = 0;
+  gcodeView.timelineEventsKey = "";
   scheduleGcodeRender();
 }
 
@@ -10511,11 +10516,63 @@ function gcodeOrbitAnglesForDirection(direction) {
 
 function gcodeTimelineLocallyOwned() {
   const slider = document.getElementById("gcode-timeline");
-  return !!slider && (
+  return gcodeView.timelineEventLine > 0 || (!!slider && (
     gcodeView.timelineDragging ||
     slider === document.activeElement ||
     slider.dataset.dragging === "1"
-  );
+  ));
+}
+
+function gcodeTimelineEventLabel(event, toolMetadata = []) {
+  const kind = String(event?.kind || "");
+  const tool = gcodeToolMetadata(toolMetadata, event?.tool);
+  const code = String(event?.code || "");
+  const value = Number(event?.value);
+  switch (kind) {
+  case "tool_change":
+    return tool ? [gcodeToolLabel(tool), tool.name].filter(Boolean).join(" · ") : toolDisplayName(event?.tool);
+  case "spindle":
+    if (code === "M5") return "Spindle stop";
+    return [code === "M4" ? "Spindle CCW" : "Spindle CW", Number.isFinite(value) && value > 0 ? `${Math.round(value)} rpm` : ""].filter(Boolean).join(" · ");
+  case "a_index":
+    return `A index · ${Number.isFinite(value) ? `${-value}°` : "—"}`;
+  case "dwell":
+    return `Dwell${Number.isFinite(value) && value > 0 ? ` · P${value}` : ""}`;
+  case "attention":
+    return `Program pause · ${code || "M0"}`;
+  case "coolant":
+    return `Coolant · ${code}`;
+  default:
+    return "Program event";
+  }
+}
+
+function renderGcodeTimelineEvents(events, toolMetadata) {
+  const root = document.getElementById("gcode-timeline-events");
+  if (!root) return;
+  const list = Array.isArray(events) ? events.filter((event) => Number(event?.line) > 0) : [];
+  const key = JSON.stringify(list);
+  if (gcodeView.timelineEventsKey === key) return;
+  gcodeView.timelineEventsKey = key;
+  const fragment = document.createDocumentFragment();
+  for (const event of list) {
+    const label = gcodeTimelineEventLabel(event, toolMetadata);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "gcode-timeline-event";
+    button.dataset.eventKind = String(event.kind || "");
+    button.textContent = label;
+    button.title = `${label} · line ${event.line}`;
+    button.setAttribute("aria-label", `${label}, line ${event.line}`);
+    button.onclick = () => {
+      gcodeView.followLive = false;
+      gcodeView.timelineEventLine = Math.trunc(Number(event.line) || 0);
+      gcodeView.cursor = gcodeCursorForPlayedLine(gcodeView.segments, gcodeView.timelineEventLine);
+      updateGcodeProgress();
+    };
+    fragment.appendChild(button);
+  }
+  root.replaceChildren(fragment);
 }
 
 function updateGcodeTimeline(total) {
@@ -10560,7 +10617,7 @@ function updateGcodeProgress() {
     gcodeView.canvas.setAttribute("aria-label", label);
   }
   updateGcodeTimeline(total);
-  syncActiveGcodeSourceLine(gcodeView.live);
+  syncActiveGcodeSourceLine(gcodeView.live, gcodeView.timelineEventLine);
   scheduleGcodeRender();
 }
 
@@ -14918,6 +14975,7 @@ function init() {
   gcodeTimeline.onchange = releaseGcodeTimeline;
   gcodeTimeline.oninput = (e) => {
     gcodeView.followLive = false;
+    gcodeView.timelineEventLine = 0;
     gcodeView.cursor = Number(e.target.value) || 0;
     updateGcodeProgress();
   };

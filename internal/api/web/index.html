@@ -444,6 +444,14 @@
   #gcode-projection-toggle button + button { border-left: 1px solid var(--border); }
   #gcode-projection-toggle button[aria-pressed="true"] { background: rgba(87,166,214,.18); color: var(--text); }
   #gcode-timeline-row { grid-area: 2 / 1; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; margin: 0; padding: 8px; border-top: 1px solid var(--border); background: rgba(25,31,37,.92); }
+  #gcode-timeline-track { display: grid; grid-template-rows: 20px 24px; gap: 4px; min-width: 0; }
+  #gcode-timeline { min-width: 0; }
+  #gcode-timeline-events { display: flex; gap: 4px; min-width: 0; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; }
+  .gcode-timeline-event { flex: 0 0 auto; min-height: 24px; padding: 2px 7px; color: var(--muted); font-size: 11px; line-height: 1; border-color: var(--border); background: rgba(18,23,28,.75); }
+  .gcode-timeline-event[data-event-kind="tool_change"] { color: #f1bf70; border-color: rgba(241,191,112,.48); }
+  .gcode-timeline-event[data-event-kind="spindle"] { color: #6ed5a0; border-color: rgba(110,213,160,.42); }
+  .gcode-timeline-event[data-event-kind="a_index"] { color: #8cb8ff; border-color: rgba(140,184,255,.42); }
+  .gcode-timeline-event[data-event-kind="attention"] { color: #ffb0a8; border-color: rgba(255,176,168,.46); }
   #gcode-timeline-label { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap; }
   #active-gcode-console { min-height: 0; height: 100%; }
   #console { min-height: 0; height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--panel); overflow: hidden; }
@@ -1849,7 +1857,10 @@
               </div>
               <div id="gcode-preview-empty">No plotted moves</div>
               <div id="gcode-timeline-row">
-                <input id="gcode-timeline" type="range" min="0" max="0" step="1" value="0" aria-label="Preview timeline" disabled>
+                <div id="gcode-timeline-track">
+                  <input id="gcode-timeline" type="range" min="0" max="0" step="1" value="0" aria-label="Preview timeline" disabled>
+                  <div id="gcode-timeline-events" aria-label="Program events"></div>
+                </div>
                 <span id="gcode-timeline-label">0 / 0</span>
               </div>
             </div>
@@ -2460,6 +2471,6 @@
 <div id="status-bar" role="status" aria-live="polite" hidden>
   <div id="notice"></div>
 </div>
-<script type="module" src="/app.js?v=overview-feed-override-1&camera-snapshot=1&camera-focus=1&pause-state=1&job-controls=1&tool-metadata=1&tool-change-metadata=1"></script>
+<script type="module" src="/app.js?v=overview-feed-override-1&camera-snapshot=1&camera-focus=1&pause-state=1&job-controls=1&tool-metadata=1&tool-change-metadata=1&event-timeline=1"></script>
 </body>
 </html>

@@ -1385,6 +1385,34 @@ func TestGcodePreviewParsesMultipleMakeraFusionTools(t *testing.T) {
 	}
 }
 
+func TestGcodePreviewParsesTimelineEvents(t *testing.T) {
+	preview, err := ParseGcodePreview(strings.NewReader(strings.Join([]string{
+		"T2 M6", "M3 S12000", "G4 P0.5", "G1 A90 F360", "M0", "M8", "M5", "M9",
+	}, "\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := preview.Events
+	if len(got) != 8 {
+		t.Fatalf("events = %+v, want 8", got)
+	}
+	for i, want := range []struct {
+		kind string
+		line int
+		code string
+	}{
+		{"tool_change", 1, ""}, {"spindle", 2, "M3"}, {"dwell", 3, ""}, {"a_index", 4, ""},
+		{"attention", 5, "M0"}, {"coolant", 6, "M8"}, {"spindle", 7, "M5"}, {"coolant", 8, "M9"},
+	} {
+		if got[i].Kind != want.kind || got[i].Line != want.line || got[i].Code != want.code {
+			t.Fatalf("event %d = %+v, want kind=%q line=%d code=%q", i, got[i], want.kind, want.line, want.code)
+		}
+	}
+	if got[0].Tool != 2 || got[1].Value != 12000 || got[2].Value != 0.5 || got[3].Value != -90 {
+		t.Fatalf("event details = %+v", got)
+	}
+}
+
 func TestMachineStatusNormalizesActiveJobProgress(t *testing.T) {
 	svc, st := newService(t)
 	if err := st.SetActiveGcodePath("/sd/gcodes/part.nc"); err != nil {

@@ -132,6 +132,22 @@ test("tool-change attention identifies the Fusion tool requested by the machine"
   );
 });
 
+test("timeline event labels use Fusion tool metadata and preserve CNC meaning", () => {
+  const ctx = buildContext([
+    "gcodeToolMetadata", "gcodeToolLabel", "gcodeTimelineEventLabel",
+  ], [], {
+    toolDisplayName: (number) => `Tool ${number}`,
+  });
+  const metadata = [{ number: 2, name: "Makera Metal - 3.175*10mm", diameter_mm: 3.175, kind: "ball end mill" }];
+  const label = (event) => vm.runInContext(
+    `gcodeTimelineEventLabel(${JSON.stringify(event)}, ${JSON.stringify(metadata)})`, ctx,
+  );
+  assert.equal(label({ kind: "tool_change", tool: 2 }), "T2 · 3.175 mm ball end mill · Makera Metal - 3.175*10mm");
+  assert.equal(label({ kind: "spindle", code: "M3", value: 12000 }), "Spindle CW · 12000 rpm");
+  assert.equal(label({ kind: "a_index", value: -90 }), "A index · 90°");
+  assert.equal(label({ kind: "attention", code: "M0" }), "Program pause · M0");
+});
+
 test("external camera snapshot captures the decoded frame and preserves its orientation", () => {
   assert.match(htmlSource, /id="dashboard-external-camera-snapshot"/);
   assert.match(htmlSource, /id="dashboard-camera-snapshot-modal"/);

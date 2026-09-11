@@ -67,6 +67,7 @@ type GcodePreview struct {
 	Bounds              *GcodeBounds   `json:"bounds,omitempty"`
 	Tools               []int          `json:"tools,omitempty"`
 	ToolMetadata        []GcodeTool    `json:"tool_metadata,omitempty"`
+	Events              []GcodeEvent   `json:"events,omitempty"`
 	Segments            []GcodeSegment `json:"segments,omitempty"`
 	OverviewSegments    []GcodeSegment `json:"overview_segments,omitempty"`
 	timing              []gcodeTimingPoint
@@ -85,6 +86,16 @@ type GcodeTool struct {
 	StickoutMM      float64 `json:"stickout_mm,omitempty"`
 	BodyLengthMM    float64 `json:"body_length_mm,omitempty"`
 	Line            int     `json:"line"`
+}
+
+// GcodeEvent is a non-motion program milestone for the active-job timeline.
+// It is descriptive only; these events never affect machine control.
+type GcodeEvent struct {
+	Kind  string  `json:"kind"`
+	Line  int     `json:"line"`
+	Tool  int     `json:"tool,omitempty"`
+	Code  string  `json:"code,omitempty"`
+	Value float64 `json:"value,omitempty"`
 }
 
 var (
@@ -562,6 +573,7 @@ func copyPreviewSummary(in GcodePreview) GcodePreview {
 	}
 	out.Tools = append([]int(nil), in.Tools...)
 	out.ToolMetadata = append([]GcodeTool(nil), in.ToolMetadata...)
+	out.Events = append([]GcodeEvent(nil), in.Events...)
 	out.Segments = nil
 	out.OverviewSegments = previewOverview(in.Segments, maxPreviewOverviewSegments)
 	return out
@@ -1331,6 +1343,8 @@ func (p *previewParser) parseLine(line string, lineNo int) {
 	lineMotion := -1
 	cycleCode := 0
 	setPosition := false
+	dwell := false
+	mCodes := make([]int, 0, 2)
 	for _, w := range words {
 		switch w.letter {
 		case 'G':
@@ -1339,6 +1353,8 @@ func (p *previewParser) parseLine(line string, lineNo int) {
 			case 0, 1, 2, 3:
 				lineMotion = code
 				p.motion = code
+			case 4:
+				dwell = true
 			case 17:
 				p.plane = previewPlaneXY
 			case 18:
@@ -1381,7 +1397,9 @@ func (p *previewParser) parseLine(line string, lineNo int) {
 			p.currentTool = tool
 			p.tools[tool] = true
 		case 'M':
-			if int(math.Round(w.value)) == 321 {
+			code := int(math.Round(w.value))
+			mCodes = append(mCodes, code)
+			if code == 321 {
 				p.currentTool = 7
 				p.tools[7] = true
 			}
@@ -1404,6 +1422,7 @@ func (p *previewParser) parseLine(line string, lineNo int) {
 	if hasValue['F'] && values['F'] > 0 {
 		p.feedMMMin = values['F']
 	}
+	p.recordEvents(lineNo, mCodes, dwell, values, hasValue)
 	if setPosition {
 		p.setPosition(values, hasValue)
 		return
@@ -1435,6 +1454,35 @@ func (p *previewParser) parseLine(line string, lineNo int) {
 	}
 	p.pos = target
 	p.markAxesKnown(hasValue)
+}
+
+func (p *previewParser) recordEvents(lineNo int, mCodes []int, dwell bool, values map[byte]float64, hasValue map[byte]bool) {
+	for _, code := range mCodes {
+		switch code {
+		case 6:
+			p.addEvent(GcodeEvent{Kind: "tool_change", Line: lineNo, Tool: p.currentTool})
+		case 3, 4:
+			p.addEvent(GcodeEvent{Kind: "spindle", Line: lineNo, Code: fmt.Sprintf("M%d", code), Value: values['S']})
+		case 5:
+			p.addEvent(GcodeEvent{Kind: "spindle", Line: lineNo, Code: "M5"})
+		case 0, 1:
+			p.addEvent(GcodeEvent{Kind: "attention", Line: lineNo, Code: fmt.Sprintf("M%d", code)})
+		case 7, 8, 9:
+			p.addEvent(GcodeEvent{Kind: "coolant", Line: lineNo, Code: fmt.Sprintf("M%d", code)})
+		}
+	}
+	if dwell {
+		p.addEvent(GcodeEvent{Kind: "dwell", Line: lineNo, Value: values['P']})
+	}
+	// A-only moves are deliberate rotary indexing. Continuous wrapped moves
+	// include linear axes and remain represented by their plotted segments.
+	if hasValue['A'] && !hasValue['X'] && !hasValue['Y'] && !hasValue['Z'] {
+		p.addEvent(GcodeEvent{Kind: "a_index", Line: lineNo, Value: values['A']})
+	}
+}
+
+func (p *previewParser) addEvent(event GcodeEvent) {
+	p.preview.Events = append(p.preview.Events, event)
 }
 
 func (p *previewParser) parseToolComment(line string, lineNo int) {
