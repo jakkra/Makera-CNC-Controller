@@ -486,12 +486,27 @@ function fmtActiveTool(t) {
   return Number.isFinite(t?.active) ? toolDisplayName(t.active) : "-";
 }
 
-function machineReadoutModel(machine, positions = {}) {
+function gcodeToolMetadata(toolMetadata, toolID) {
+  const number = Number(toolID);
+  if (!Number.isFinite(number) || !Array.isArray(toolMetadata)) return null;
+  return toolMetadata.find((tool) => Number(tool?.number) === number) || null;
+}
+
+function gcodeToolLabel(tool) {
+  if (!tool) return "";
+  const diameter = Number(tool.diameter_mm);
+  const kind = String(tool.kind || "").trim();
+  const descriptor = [Number.isFinite(diameter) && diameter > 0 ? `${diameter} mm` : "", kind].filter(Boolean).join(" ");
+  return descriptor ? `T${tool.number} · ${descriptor}` : `T${tool.number}`;
+}
+
+function machineReadoutModel(machine, positions = {}, toolMetadata = []) {
   const wpos = positions.wpos || machine?.wpos || {};
   const mpos = positions.mpos || machine?.mpos || {};
   const feed = fmtDashboardFeed(machine?.feed);
   const spindle = fmtDashboardSpindle(machine?.spindle);
   const offset = Number(machine?.tool?.offset);
+  const toolInfo = gcodeToolMetadata(toolMetadata, machine?.tool?.active);
   return {
     axes: ["x", "y", "z", "a"].map((axis) => ({
       axis,
@@ -503,8 +518,8 @@ function machineReadoutModel(machine, positions = {}) {
       feed,
       spindle,
       tool: {
-        current: fmtActiveTool(machine?.tool),
-        detail: Number.isFinite(offset) ? `TLO ${offset.toFixed(3)}` : "TLO -",
+        current: toolInfo ? gcodeToolLabel(toolInfo) : fmtActiveTool(machine?.tool),
+        detail: toolInfo?.name || (Number.isFinite(offset) ? `TLO ${offset.toFixed(3)}` : "TLO -"),
       },
     },
   };
@@ -539,7 +554,7 @@ function machineFeedOverrideControlModel(machine, pendingAction = "", pendingPer
 function renderMachineReadouts(machine = state.machine || {}) {
   for (const host of document.querySelectorAll("[data-machine-readout-host]")) {
     const jogHost = !!host.closest("#jog-view");
-    const model = machineReadoutModel(machine, jogHost ? currentAxisValues() : { wpos: machine.wpos, mpos: machine.mpos });
+    const model = machineReadoutModel(machine, jogHost ? currentAxisValues() : { wpos: machine.wpos, mpos: machine.mpos }, state.activeGcode?.preview?.tool_metadata || []);
     for (const axis of model.axes) {
       const row = host.querySelector(`[data-machine-axis="${axis.axis}"]`);
       if (!row) continue;
@@ -7901,7 +7916,9 @@ function renderActiveGcode() {
   const preview = active.preview || {};
   const renderedPreview = { ...preview, segments: activeGcodeDisplaySegments(active) };
   const live = activeJobPreviewState(state.machine, renderedPreview, active.path);
-  const tools = Array.isArray(preview.tools) && preview.tools.length ? " tools T" + preview.tools.join(", T") : "";
+  const tools = Array.isArray(preview.tool_metadata) && preview.tool_metadata.length
+    ? preview.tool_metadata.map((tool) => [gcodeToolLabel(tool), tool.name].filter(Boolean).join(" · ")).join(" | ")
+    : (Array.isArray(preview.tools) && preview.tools.length ? "tools T" + preview.tools.join(", T") : "");
   const entry = active.entry || state.files.get(active.path) || {};
   const sync = SYNC_LABEL[entry.sync] || entry.sync || "";
   const bounds = preview.bounds ? previewBoundsText(preview.bounds) : "no plotted bounds";

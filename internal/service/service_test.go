@@ -1331,6 +1331,29 @@ func TestGcodePreviewEstimatesMotionTimeFromModalFeedAndA(t *testing.T) {
 	}
 }
 
+func TestGcodePreviewParsesMakeraFusionToolComment(t *testing.T) {
+	preview, err := ParseGcodePreview(strings.NewReader(strings.Join([]string{
+		"(T1  Makera Metal - 1*3mm      D=1. CR=0.5 SD=3.175 TD=0. FL=3. SL=3. BL=19. - ZMIN=3.299 - ball end mill)",
+		"T1M6",
+		"G21 G90",
+		"G92 X0 Y0 Z0",
+		"G1 X1 F100",
+	}, "\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.ToolMetadata) != 1 {
+		t.Fatalf("tool metadata = %+v, want one entry", preview.ToolMetadata)
+	}
+	tool := preview.ToolMetadata[0]
+	if tool.Number != 1 || tool.Name != "Makera Metal - 1*3mm" || tool.Kind != "ball end mill" {
+		t.Fatalf("tool identity = %+v", tool)
+	}
+	if tool.DiameterMM != 1 || tool.CornerRadiusMM != 0.5 || tool.ShankDiameterMM != 3.175 || tool.FluteLengthMM != 3 || tool.StickoutMM != 3 || tool.BodyLengthMM != 19 {
+		t.Fatalf("tool dimensions = %+v", tool)
+	}
+}
+
 func TestMachineStatusNormalizesActiveJobProgress(t *testing.T) {
 	svc, st := newService(t)
 	if err := st.SetActiveGcodePath("/sd/gcodes/part.nc"); err != nil {

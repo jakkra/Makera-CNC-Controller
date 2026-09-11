@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -65,10 +66,31 @@ type GcodePreview struct {
 	Has4Axis            bool           `json:"has_4axis"`
 	Bounds              *GcodeBounds   `json:"bounds,omitempty"`
 	Tools               []int          `json:"tools,omitempty"`
+	ToolMetadata        []GcodeTool    `json:"tool_metadata,omitempty"`
 	Segments            []GcodeSegment `json:"segments,omitempty"`
 	OverviewSegments    []GcodeSegment `json:"overview_segments,omitempty"`
 	timing              []gcodeTimingPoint
 }
+
+// GcodeTool is descriptive metadata emitted by supported Fusion/Makera
+// post-processors. It is informational only and never controls the machine.
+type GcodeTool struct {
+	Number          int     `json:"number"`
+	Name            string  `json:"name,omitempty"`
+	Kind            string  `json:"kind,omitempty"`
+	DiameterMM      float64 `json:"diameter_mm,omitempty"`
+	CornerRadiusMM  float64 `json:"corner_radius_mm,omitempty"`
+	ShankDiameterMM float64 `json:"shank_diameter_mm,omitempty"`
+	FluteLengthMM   float64 `json:"flute_length_mm,omitempty"`
+	StickoutMM      float64 `json:"stickout_mm,omitempty"`
+	BodyLengthMM    float64 `json:"body_length_mm,omitempty"`
+	Line            int     `json:"line"`
+}
+
+var (
+	gcodeToolCommentRE = regexp.MustCompile(`(?i)^\s*T\s*([0-9]+)\s+(.+?)\s*$`)
+	gcodeToolFieldRE   = regexp.MustCompile(`(?i)\b(D|CR|SD|FL|SL|BL)=(-?[0-9]+(?:\.[0-9]+)?)`)
+)
 
 // gcodeTimingPoint remains server-side. It maps a completed source line to
 // planned elapsed time without exposing a potentially large per-line table in
@@ -539,6 +561,7 @@ func copyPreviewSummary(in GcodePreview) GcodePreview {
 		out.Bounds = &b
 	}
 	out.Tools = append([]int(nil), in.Tools...)
+	out.ToolMetadata = append([]GcodeTool(nil), in.ToolMetadata...)
 	out.Segments = nil
 	out.OverviewSegments = previewOverview(in.Segments, maxPreviewOverviewSegments)
 	return out
@@ -1210,6 +1233,7 @@ type previewParser struct {
 	currentTool           int
 	feedMMMin             float64
 	tools                 map[int]bool
+	toolMetadata          map[int]GcodeTool
 	preview               GcodePreview
 	bounds                GcodeBounds
 	haveBounds            bool
@@ -1253,10 +1277,11 @@ func parseGcodePreview(r io.Reader) (GcodePreview, []int64, error) {
 
 func parseGcodePreviewWithFeed(r io.Reader, feedProfile store.MachineFeedProfile) (GcodePreview, []int64, error) {
 	p := previewParser{
-		unit:     1,
-		absolute: true,
-		motion:   -1,
-		tools:    map[int]bool{},
+		unit:         1,
+		absolute:     true,
+		motion:       -1,
+		tools:        map[int]bool{},
+		toolMetadata: map[int]GcodeTool{},
 	}
 	offsets := []int64{0}
 	var offset int64
@@ -1284,11 +1309,18 @@ func parseGcodePreviewWithFeed(r io.Reader, feedProfile store.MachineFeedProfile
 		p.preview.Tools = append(p.preview.Tools, tool)
 	}
 	sort.Ints(p.preview.Tools)
+	for _, tool := range p.toolMetadata {
+		p.preview.ToolMetadata = append(p.preview.ToolMetadata, tool)
+	}
+	sort.Slice(p.preview.ToolMetadata, func(i, j int) bool {
+		return p.preview.ToolMetadata[i].Number < p.preview.ToolMetadata[j].Number
+	})
 	estimateGcodePreview(&p.preview, feedProfile)
 	return p.preview, offsets, nil
 }
 
 func (p *previewParser) parseLine(line string, lineNo int) {
+	p.parseToolComment(line, lineNo)
 	words := parseGcodeWords(stripGcodeComments(line))
 	if len(words) == 0 {
 		return
@@ -1403,6 +1435,55 @@ func (p *previewParser) parseLine(line string, lineNo int) {
 	}
 	p.pos = target
 	p.markAxesKnown(hasValue)
+}
+
+func (p *previewParser) parseToolComment(line string, lineNo int) {
+	text := strings.TrimSpace(line)
+	if !strings.HasPrefix(text, "(") || !strings.HasSuffix(text, ")") {
+		return
+	}
+	match := gcodeToolCommentRE.FindStringSubmatch(strings.TrimSpace(text[1 : len(text)-1]))
+	if len(match) != 3 {
+		return
+	}
+	number, err := strconv.Atoi(match[1])
+	if err != nil || number < 0 {
+		return
+	}
+	detail := strings.TrimSpace(match[2])
+	metadata := GcodeTool{Number: number, Line: lineNo}
+	if fieldAt := strings.Index(strings.ToUpper(detail), " D="); fieldAt >= 0 {
+		metadata.Name = strings.TrimSpace(detail[:fieldAt])
+	} else {
+		metadata.Name = detail
+	}
+	parts := strings.Split(detail, " - ")
+	if len(parts) > 1 {
+		metadata.Kind = strings.TrimSpace(parts[len(parts)-1])
+	}
+	for _, field := range gcodeToolFieldRE.FindAllStringSubmatch(detail, -1) {
+		value, err := strconv.ParseFloat(field[2], 64)
+		if err != nil || !finite(value) {
+			continue
+		}
+		switch strings.ToUpper(field[1]) {
+		case "D":
+			metadata.DiameterMM = value
+		case "CR":
+			metadata.CornerRadiusMM = value
+		case "SD":
+			metadata.ShankDiameterMM = value
+		case "FL":
+			metadata.FluteLengthMM = value
+		case "SL":
+			metadata.StickoutMM = value
+		case "BL":
+			metadata.BodyLengthMM = value
+		}
+	}
+	if existing, ok := p.toolMetadata[number]; !ok || (existing.Name == "" && metadata.Name != "") {
+		p.toolMetadata[number] = metadata
+	}
 }
 
 // markAxesKnown records which linear axes the file has explicitly commanded.
