@@ -382,6 +382,9 @@
   .active-gcode-summary { min-width: 0; }
   #active-gcode-title { font-weight: 650; overflow-wrap: anywhere; }
   #active-gcode-meta { color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
+  #pull-refresh-indicator { position: fixed; z-index: 130; top: max(8px, env(safe-area-inset-top)); left: 50%; display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--border); border-radius: 50%; color: var(--muted); background: rgba(18,23,28,.94); box-shadow: 0 4px 14px rgba(0,0,0,.28); opacity: 0; pointer-events: none; transform: translate(-50%, calc(-42px + var(--pull-refresh-offset, 0px))) rotate(var(--pull-refresh-turn, 0deg)); transition: opacity .12s ease, color .12s ease; }
+  body.pull-refresh-pulling #pull-refresh-indicator { opacity: 1; }
+  body.pull-refresh-ready #pull-refresh-indicator { color: var(--accent); border-color: var(--accent); }
   .active-gcode-progress { display: grid; grid-template-columns: minmax(152px, auto) repeat(2, minmax(76px, auto)); gap: 4px 16px; align-items: start; min-height: 0; margin-top: 4px; }
   .active-gcode-stat { display: grid; gap: 2px; min-width: 0; }
   .active-gcode-stat > span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
@@ -858,7 +861,10 @@
     .control-page-layout { grid-template-columns: 1fr; }
     .control-command-drawer { position: static; max-height: none; }
     .active-gcode-workspace { grid-template-columns: 1fr; height: auto; min-height: 0; }
+    .active-gcode-workspace:not(.is-empty) { grid-template-areas: "preview" "details"; }
     #active-gcode-splitter { display: none; }
+    .active-gcode-workspace:not(.is-empty) #gcode-preview-wrap { grid-area: preview; }
+    .active-gcode-workspace:not(.is-empty) #active-gcode-left { grid-area: details; }
     #active-gcode-left { height: 320px; }
     #active-gcode-left.is-console-active { height: clamp(440px, 64dvh, 620px); }
     #gcode-preview-wrap { height: clamp(300px, 48vh, 460px); min-height: 300px; }
@@ -1510,7 +1516,8 @@
     </div>
   </section>
 </template>
-<header>
+  <header>
+  <div id="pull-refresh-indicator" aria-hidden="true">↻</div>
   <div id="command-toolbar" aria-label="Command toolbar">
     <div id="app-brand" aria-label="CNC controller">
       <strong>Sensei</strong><span>CNC controller</span>

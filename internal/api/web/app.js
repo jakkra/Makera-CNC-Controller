@@ -1943,12 +1943,21 @@ function pullToRefreshTargetAllowed(target) {
   return !target.closest("button, a, input, select, textarea, [contenteditable], [role=slider], dialog, canvas, video");
 }
 
+function updatePullToRefreshIndicator(distance = 0, ready = false) {
+  const progress = Math.max(0, Math.min(1, Number(distance) / PULL_TO_REFRESH_DISTANCE_PX));
+  document.body.classList.toggle("pull-refresh-pulling", progress > 0);
+  document.body.classList.toggle("pull-refresh-ready", !!ready);
+  document.documentElement.style.setProperty("--pull-refresh-offset", `${Math.round(progress * 48)}px`);
+  document.documentElement.style.setProperty("--pull-refresh-turn", `${Math.round(progress * 180)}deg`);
+}
+
 function installPullToRefresh() {
   if (!window.matchMedia?.("(pointer: coarse)")?.matches) return;
   document.addEventListener("touchstart", (event) => {
     const touch = event.touches?.[0];
     if (!touch || event.touches.length !== 1 || !pageScrollIsAtTop() || !pullToRefreshTargetAllowed(event.target)) {
       pullToRefreshGesture = null;
+      updatePullToRefreshIndicator();
       return;
     }
     pullToRefreshGesture = { id: touch.identifier, x: touch.clientX, y: touch.clientY, triggered: false };
@@ -1959,24 +1968,32 @@ function installPullToRefresh() {
     const touch = [...event.touches].find((candidate) => candidate.identifier === gesture.id);
     if (!touch) {
       pullToRefreshGesture = null;
+      updatePullToRefreshIndicator();
       return;
     }
     const deltaX = touch.clientX - gesture.x;
     const deltaY = touch.clientY - gesture.y;
     if (deltaY <= 0 || (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > PULL_TO_REFRESH_DIRECTION_SLOP_PX)) {
       pullToRefreshGesture = null;
+      updatePullToRefreshIndicator();
       return;
     }
-    if (deltaY < PULL_TO_REFRESH_DISTANCE_PX || gesture.triggered) return;
+    const ready = deltaY >= PULL_TO_REFRESH_DISTANCE_PX;
+    updatePullToRefreshIndicator(deltaY, ready);
+    if (!ready || gesture.triggered) return;
     gesture.triggered = true;
     event.preventDefault();
   }, { passive: false });
   document.addEventListener("touchend", () => {
     const triggered = pullToRefreshGesture?.triggered;
     pullToRefreshGesture = null;
+    updatePullToRefreshIndicator();
     if (triggered) reloadPage();
   }, { passive: true });
-  document.addEventListener("touchcancel", () => { pullToRefreshGesture = null; }, { passive: true });
+  document.addEventListener("touchcancel", () => {
+    pullToRefreshGesture = null;
+    updatePullToRefreshIndicator();
+  }, { passive: true });
 }
 
 function queuePendingCount() {
@@ -8032,15 +8049,10 @@ function renderActiveGcode() {
     : (Array.isArray(preview.tools) && preview.tools.length ? "tools T" + preview.tools.join(", T") : "");
   const entry = active.entry || state.files.get(active.path) || {};
   const sync = SYNC_LABEL[entry.sync] || entry.sync || "";
-  const bounds = preview.bounds ? previewBoundsText(preview.bounds) : "no plotted bounds";
   meta.textContent = [
     fmtSize(entry.size || 0, false),
     sync,
-    `${preview.line_count || 0} lines`,
-    `${preview.move_count || 0} moves`,
-    `${preview.plotted_segments || 0} segments`,
-    preview.has_4axis ? "4-axis" : "3-axis",
-    bounds,
+    preview.has_4axis ? "4-axis" : "",
     tools,
   ].filter(Boolean).join(" | ");
   const machineReady = machineActionState() === "Idle";

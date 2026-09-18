@@ -40,6 +40,14 @@ test("mobile foreground recovery refreshes suspended streams and supports pull t
   }
 });
 
+test("active job metadata stays operator-focused and mobile shows the preview first", () => {
+  const render = extractFunction("renderActiveGcode");
+  assert.doesNotMatch(render, /preview\.line_count|preview\.move_count|preview\.plotted_segments|previewBoundsText/);
+  assert.match(render, /preview\.has_4axis \? "4-axis" : ""/);
+  assert.match(htmlSource, /id="pull-refresh-indicator" aria-hidden="true">↻<\/div>/);
+  assert.match(htmlSource, /\.active-gcode-workspace:not\(\.is-empty\) \{ grid-template-areas: "preview" "details"; \}/);
+});
+
 test("dashboard layout controls are hidden and expose their expanded state", () => {
   const attributes = new Map();
   let focused = false;
