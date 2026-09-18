@@ -1243,6 +1243,8 @@ type previewParser struct {
 	pos                   [4]float64
 	axisKnown             [3]bool
 	currentTool           int
+	lastChangedTool       int
+	hasChangedTool        bool
 	feedMMMin             float64
 	tools                 map[int]bool
 	toolMetadata          map[int]GcodeTool
@@ -1460,7 +1462,15 @@ func (p *previewParser) recordEvents(lineNo int, mCodes []int, dwell bool, value
 	for _, code := range mCodes {
 		switch code {
 		case 6:
+			// Fusion can repeat T<n> M6 at the start of a new setup even
+			// when the same physical bit remains installed. Surface only
+			// genuine changes in the timeline and tool-setup list.
+			if p.hasChangedTool && p.lastChangedTool == p.currentTool {
+				continue
+			}
 			p.addEvent(GcodeEvent{Kind: "tool_change", Line: lineNo, Tool: p.currentTool})
+			p.lastChangedTool = p.currentTool
+			p.hasChangedTool = true
 		case 3, 4:
 			p.addEvent(GcodeEvent{Kind: "spindle", Line: lineNo, Code: fmt.Sprintf("M%d", code), Value: values['S']})
 		case 5:

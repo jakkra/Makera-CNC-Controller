@@ -1413,6 +1413,24 @@ func TestGcodePreviewParsesTimelineEvents(t *testing.T) {
 	}
 }
 
+func TestGcodePreviewOmitsRepeatedSameToolSetupEvents(t *testing.T) {
+	preview, err := ParseGcodePreview(strings.NewReader(strings.Join([]string{
+		"T1 M6", "G1 X1 F100", "T1 M6", "G1 X2", "T2 M6", "G1 X3", "T2 M6", "G1 X4", "T1 M6",
+	}, "\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var changes []int
+	for _, event := range preview.Events {
+		if event.Kind == "tool_change" {
+			changes = append(changes, event.Tool)
+		}
+	}
+	if got, want := changes, []int{1, 2, 1}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("tool changes = %v, want %v", got, want)
+	}
+}
+
 func TestMachineStatusNormalizesActiveJobProgress(t *testing.T) {
 	svc, st := newService(t)
 	if err := st.SetActiveGcodePath("/sd/gcodes/part.nc"); err != nil {
