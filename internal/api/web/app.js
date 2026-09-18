@@ -8065,6 +8065,7 @@ function renderActiveGcode() {
 
 function renderActiveGcodeControls(active) {
   const machineState = machineActionState();
+  document.querySelector(".active-gcode-actions")?.setAttribute("data-machine-state", machineState);
   const pending = !!state.activeGcodePending;
   const run = document.getElementById("active-gcode-run");
   const paused = document.getElementById("paused-job-controls");

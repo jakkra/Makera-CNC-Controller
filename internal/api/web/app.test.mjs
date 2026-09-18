@@ -48,6 +48,12 @@ test("active job metadata stays operator-focused and mobile shows the preview fi
   assert.match(htmlSource, /\.active-gcode-workspace:not\(\.is-empty\) \{ grid-template-areas: "preview" "details"; \}/);
 });
 
+test("wide Active Job keeps Run controls in one compact row", () => {
+  assert.match(source, /active-gcode-actions"\)\?\.setAttribute\("data-machine-state", machineState\)/);
+  assert.match(htmlSource, /\.active-gcode-actions\[data-machine-state="Run"\] \{ min-width: 384px; grid-template-columns: max-content minmax\(232px,1fr\); align-items: stretch; \}/);
+  assert.match(htmlSource, /\[data-machine-state="Run"\] #feed-override-controls \{ grid-column: 2;/);
+});
+
 test("dashboard layout controls are hidden and expose their expanded state", () => {
   const attributes = new Map();
   let focused = false;
