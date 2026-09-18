@@ -177,6 +177,7 @@
   .machine-metric strong, .machine-metric small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .machine-metric strong { color: var(--text); font-size: 14px; }
   .machine-metric small { color: var(--muted); font-size: 10px; }
+  .machine-job-metric { display: none; }
   .machine-feed-override { display: none; grid-template-columns: 40px minmax(52px,1fr) 40px; gap: 4px; margin-top: 6px; }
   .dashboard-machine .machine-metric-grid { grid-template-columns: minmax(156px,1.6fr) repeat(2,minmax(0,1fr)); }
   .dashboard-machine .machine-feed-override { display: grid; }
@@ -188,6 +189,22 @@
   .job-control-strip button[data-job-control="resume"] { color: var(--ok); border-color: rgba(77,202,136,.55); }
   .job-control-strip button[data-job-control="stop-spindle"] { color: #ff9b9b; border-color: rgba(240,68,68,.55); }
   .dashboard-job-controls { margin-top: 2px; }
+  .dashboard-machine .machine-metric[data-machine-metric="tool"] { display: none; }
+  .dashboard-machine .machine-job-metric { display: grid; }
+  .machine-job-metric button { min-width: 0; min-height: 36px; padding: 0 6px; justify-content: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 750; }
+  .machine-job-metric button[data-job-control="pause"] { color: var(--warn); border-color: rgba(217,154,58,.55); }
+  .machine-job-metric button[data-job-control="resume"] { color: var(--ok); border-color: rgba(77,202,136,.55); }
+  .machine-job-metric button[data-job-control="stop-spindle"] { color: #ff9b9b; border-color: rgba(240,68,68,.55); }
+  .program-tool-list { min-width: 0; display: grid; gap: 4px; }
+  .program-tool-list-heading { min-width: 0; display: flex; justify-content: space-between; gap: 8px; padding: 2px 2px 3px; color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
+  .program-tool-list-heading small { color: var(--muted); font-size: inherit; font-weight: 500; letter-spacing: .04em; }
+  .program-tool-row { min-width: 0; min-height: 42px; display: grid; grid-template-columns: minmax(0,1fr) max-content; grid-template-rows: auto auto; gap: 1px 10px; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); }
+  .program-tool-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 12px; }
+  .program-tool-row small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 10px; }
+  .program-tool-count { grid-column: 2; grid-row: 1 / -1; color: var(--muted); font: 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-align: right; white-space: nowrap; }
+  .program-tool-row.is-current { border-color: rgba(87,166,214,.72); background: rgba(87,166,214,.11); }
+  .program-tool-row.is-current .program-tool-count { color: var(--accent); }
+  #active-job-program-tools { margin-top: 10px; }
   .surface-position-summary { display: grid; gap: 8px; color: var(--muted); }
   .surface-position-summary strong { color: var(--text); }
   .surface-position-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-sm); }
@@ -1475,7 +1492,7 @@
     body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) minmax(400px, 32vw); grid-template-rows: minmax(0,1fr); grid-auto-rows: unset; grid-template-areas: "job machine"; gap: 0; overflow: hidden; border: 1px solid #31404a; background: rgba(9,16,21,.72); }
     body[data-active-tab="dashboard"] .dashboard-job, body[data-active-tab="dashboard"] .dashboard-machine { min-height: 0; height: 100%; padding: 18px 20px; border: 0; border-radius: 0; background: transparent; }
     body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid .dashboard-job { grid-area: job; grid-column: job; grid-row: job; grid-template-rows: auto auto minmax(0,1fr); border-right: 1px solid #31404a; }
-    body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid .dashboard-machine { grid-area: machine; height: auto; align-self: start; grid-template-rows: auto auto; gap: 10px; }
+    body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid .dashboard-machine { grid-area: machine; height: auto; align-self: start; grid-template-rows: auto auto auto; gap: 10px; }
     body[data-active-tab="dashboard"] .dashboard-telemetry, body[data-active-tab="dashboard"] .dashboard-gcode { display: none; }
     body[data-active-tab="dashboard"] .dashboard-camera-stage { min-height: 0; height: 100%; border-radius: 4px; }
     /* Dashboard positions are a live monitoring task, not a compact toolbar.
@@ -1498,6 +1515,7 @@
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis strong { font-size: clamp(17px, 1.65vw, 24px); }
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis small { font-size: clamp(11px, 1.05vw, 14px); }
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-unit { display: none; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-job-metric { display: grid; }
     body[data-active-tab="files"] #files-view { height: 100%; min-height: 0; grid-template-rows: auto minmax(260px,1fr) auto; overflow: auto; }
     body[data-active-tab="files"] .files-browser-section, body[data-active-tab="files"] #file-browser, body[data-active-tab="files"] #file-main { height: 100%; min-height: 0; }
   }
@@ -1520,6 +1538,7 @@
       <div class="machine-metric" data-machine-metric="feed"><span>Feed</span><strong data-machine-primary>—</strong><small data-machine-secondary>—</small><div class="machine-feed-override" data-machine-feed-override aria-label="Feed override"><button type="button" data-machine-feed-delta="-10" aria-label="Decrease feed override by 10 percent">−10%</button><button type="button" data-machine-feed-reset aria-label="Reset feed override to 100 percent">—</button><button type="button" data-machine-feed-delta="10" aria-label="Increase feed override by 10 percent">+10%</button></div></div>
       <div class="machine-metric" data-machine-metric="spindle"><span>Spindle</span><strong data-machine-primary>—</strong><small data-machine-secondary>—</small></div>
       <div class="machine-metric" data-machine-metric="tool"><span>Tool</span><strong data-machine-primary>—</strong><small data-machine-secondary>—</small></div>
+      <div class="machine-metric machine-job-metric dashboard-job-controls" data-job-controls aria-label="Current job controls"><span>Job</span><button type="button" data-job-control="pause" hidden>Pause</button><button type="button" data-job-control="resume" hidden>Resume</button><button type="button" data-job-control="stop-spindle" hidden>Stop spindle</button><button type="button" data-job-control="start-spindle" hidden>Start spindle</button></div>
     </div>
   </section>
 </template>
@@ -1741,12 +1760,7 @@
       <section class="dashboard-panel dashboard-machine" data-dashboard-panel="machine">
         <div class="dashboard-heading dashboard-machine-heading"><div><span class="dashboard-eyebrow">Machine</span><h2>Position</h2></div><span id="dashboard-state" class="badge state-Unknown">Unknown</span></div>
         <div class="machine-readout-host" data-machine-readout-host></div>
-        <div id="dashboard-job-controls" class="job-control-strip dashboard-job-controls" data-job-controls aria-label="Current job controls">
-          <button type="button" id="dashboard-job-pause" data-job-control="pause" hidden>Pause</button>
-          <button type="button" id="dashboard-job-resume" data-job-control="resume" hidden>Resume</button>
-          <button type="button" id="dashboard-job-stop-spindle" data-job-control="stop-spindle" hidden>Stop spindle</button>
-          <button type="button" id="dashboard-job-start-spindle" data-job-control="start-spindle" hidden>Start spindle</button>
-        </div>
+        <section id="dashboard-program-tools" class="program-tool-list" data-program-tool-list aria-label="Tools used by current job" hidden></section>
       </section>
       <section class="dashboard-panel dashboard-job" data-dashboard-panel="job">
         <div class="dashboard-heading dashboard-job-heading"><div><span class="dashboard-eyebrow">Current job</span><h2 id="dashboard-job-title">No active job</h2></div></div>
@@ -1845,6 +1859,7 @@
               </div>
             </div>
           </div>
+          <section id="active-job-program-tools" class="program-tool-list" data-program-tool-list aria-label="Tools used by current job" hidden></section>
           <div class="active-gcode-workspace is-empty">
             <div id="active-gcode-left">
               <div class="active-gcode-left-head">

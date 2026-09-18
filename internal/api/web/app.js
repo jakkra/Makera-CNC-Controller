@@ -511,6 +511,74 @@ function gcodeToolLabel(tool) {
   return descriptor ? `T${tool.number} · ${descriptor}` : `T${tool.number}`;
 }
 
+function programToolListModel(preview = {}, activeToolID = null) {
+  const metadata = new Map();
+  for (const tool of Array.isArray(preview?.tool_metadata) ? preview.tool_metadata : []) {
+    const number = Number(tool?.number);
+    if (Number.isInteger(number) && number > 0) metadata.set(number, tool);
+  }
+  const used = new Set(metadata.keys());
+  for (const tool of Array.isArray(preview?.tools) ? preview.tools : []) {
+    const number = Number(tool);
+    if (Number.isInteger(number) && number > 0) used.add(number);
+  }
+  const changes = new Map();
+  for (const event of Array.isArray(preview?.events) ? preview.events : []) {
+    if (event?.kind !== "tool_change") continue;
+    const number = Number(event.tool);
+    if (!Number.isInteger(number) || number <= 0) continue;
+    used.add(number);
+    changes.set(number, (changes.get(number) || 0) + 1);
+  }
+  const active = Number(activeToolID);
+  return [...used].sort((a, b) => a - b).map((number) => {
+    const tool = metadata.get(number) || null;
+    const changeCount = changes.get(number) || 0;
+    return {
+      number,
+      label: tool ? gcodeToolLabel(tool) : toolDisplayName(number),
+      detail: String(tool?.name || "").trim(),
+      changeCount,
+      active: Number.isFinite(active) && active === number,
+    };
+  });
+}
+
+function renderProgramToolLists(preview = {}, machine = state.machine) {
+  const tools = programToolListModel(preview, machine?.tool?.active);
+  const key = JSON.stringify(tools);
+  for (const root of document.querySelectorAll("[data-program-tool-list]")) {
+    if (root.dataset.programToolKey === key) continue;
+    root.dataset.programToolKey = key;
+    root.hidden = tools.length === 0;
+    const fragment = document.createDocumentFragment();
+    const heading = document.createElement("div");
+    heading.className = "program-tool-list-heading";
+    const title = document.createElement("span");
+    title.textContent = "Program tools";
+    const count = document.createElement("small");
+    count.textContent = `${tools.length} tool${tools.length === 1 ? "" : "s"}`;
+    heading.append(title, count);
+    fragment.appendChild(heading);
+    for (const tool of tools) {
+      const row = document.createElement("div");
+      row.className = "program-tool-row";
+      row.classList.toggle("is-current", tool.active);
+      const label = document.createElement("strong");
+      label.textContent = tool.label;
+      const detail = document.createElement("small");
+      detail.textContent = tool.detail || "No Fusion tool details";
+      const count = document.createElement("span");
+      count.className = "program-tool-count";
+      const changes = `${tool.changeCount} change${tool.changeCount === 1 ? "" : "s"}`;
+      count.textContent = tool.active ? `Current · ${changes}` : changes;
+      row.append(label, detail, count);
+      fragment.appendChild(row);
+    }
+    root.replaceChildren(fragment);
+  }
+}
+
 function toolChangeTargetLabel(machine = state.machine, preview = state.activeGcode?.preview) {
   const target = Number(machine?.tool?.target);
   if (!Number.isFinite(target)) return "";
@@ -8034,6 +8102,7 @@ function renderActiveGcode() {
     ensureActiveGcodeSource(null);
     drawGcodePreview(null);
     renderActiveJobProgress(null, {}, external);
+    renderProgramToolLists({}, state.machine);
     renderDashboard();
     return;
   }
@@ -8055,6 +8124,7 @@ function renderActiveGcode() {
     preview.has_4axis ? "4-axis" : "",
     tools,
   ].filter(Boolean).join(" | ");
+  renderProgramToolLists(preview, state.machine);
   const machineReady = machineActionState() === "Idle";
   run.disabled = !!state.activeGcodePending;
   setSoftDisabled(run, !state.activeGcodePending && (!active.runnable || !machineReady));

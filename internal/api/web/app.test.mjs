@@ -256,7 +256,7 @@ test("Overview and Jog mount one shared machine readout with work and machine co
   assert.match(htmlSource, /surface-position-panel \.machine-axis-grid \{ grid-template-columns: repeat\(2, minmax\(0,1fr\)\); grid-auto-rows: 74px; \}/);
   assert.match(htmlSource, /surface-jog-actions \{ display: grid; grid-template-columns: 1fr; grid-template-rows: repeat\(2,76px\); gap: 0; \}/);
   assert.match(htmlSource, /id="surface-map-open">XY Target Map<\/button>/);
-  assert.match(htmlSource, /dashboard-machine \{ grid-area: machine; height: auto; align-self: start; grid-template-rows: auto auto; gap: 10px; \}/);
+  assert.match(htmlSource, /dashboard-grid\.dashboard-grid \.dashboard-machine \{ grid-area: machine; height: auto; align-self: start; grid-template-rows: auto auto auto; gap: 10px; \}/);
   assert.match(htmlSource, /grid-template-columns: minmax\(0,1fr\) minmax\(400px, 32vw\);/, "the camera job pane gets the overview width");
   assert.doesNotMatch(htmlSource, /id="dashboard-open-job"/, "the footer owns the sole job-details shortcut");
   assert.match(htmlSource, /id="development-refresh" aria-label="Refresh page" title="Refresh page">↻<\/button>/);
@@ -278,7 +278,7 @@ test("Overview and Jog mount one shared machine readout with work and machine co
   assert.doesNotMatch(htmlSource, /\b(Jogga|Filer|STOPP|Stegvis|Riktning)\b/);
   const ctx = buildContext([
     "fmtCoord", "fmtDashboardFeed", "fmtDashboardSpindle", "fmtActiveTool",
-    "toolDisplayName", "axisValue", "machineReadoutModel",
+    "gcodeToolMetadata", "gcodeToolLabel", "toolDisplayName", "axisValue", "machineReadoutModel",
   ]);
   const model = JSON.parse(vm.runInContext(`JSON.stringify(machineReadoutModel({
     wpos: {x: 190.29, y: 192.9, z: 78.5166, a: -11070},
@@ -323,7 +323,7 @@ test("Overview feed override has stable state, limits, and pending value", () =>
 
 test("Overview and Active Job share server-owned job controls", () => {
   for (const marker of [
-    'id="dashboard-job-controls"',
+    'class="machine-metric machine-job-metric dashboard-job-controls" data-job-controls',
     'id="active-job-controls"',
     'data-job-control="pause"',
     'data-job-control="resume"',
@@ -334,6 +334,7 @@ test("Overview and Active Job share server-owned job controls", () => {
     'id="paused-job-spindle-direction"',
   ]) assert.match(htmlSource, new RegExp(marker));
   assert.match(htmlSource, /dashboard-job-controls \{ margin-top: 2px; \}/);
+  assert.match(htmlSource, /machine-job-metric button \{ min-width: 0; min-height: 36px;/);
   assert.match(htmlSource, /active-job-controls \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); padding: 8px;/);
   assert.match(htmlSource, /id="paused-job-spindle-speed" type="number" inputmode="numeric" min="1" max="13000"/);
   assert.match(htmlSource, /<option value="" selected disabled>Choose…<\/option>/);
@@ -370,6 +371,34 @@ test("Overview and Active Job share server-owned job controls", () => {
   }, "resume_job");
   assert.equal(pending.actions.resume.pending, true);
   assert.equal(pending.actions.resume.disabled, true);
+});
+
+test("program tool lists identify each used tool, its changes, and the current tool", () => {
+  for (const marker of [
+    'id="dashboard-program-tools"',
+    'id="active-job-program-tools"',
+    'data-program-tool-list',
+  ]) assert.match(htmlSource, new RegExp(marker));
+  const ctx = buildContext(["gcodeToolLabel", "toolDisplayName", "programToolListModel"]);
+  const preview = {
+    tool_metadata: [
+      { number: 1, diameter_mm: 6, kind: "flat end mill", name: "Roughing" },
+      { number: 2, diameter_mm: 3.175, kind: "ball end mill", name: "Finishing" },
+    ],
+    tools: [1, 2],
+    events: [
+      { kind: "tool_change", tool: 1 },
+      { kind: "tool_change", tool: 2 },
+      { kind: "tool_change", tool: 2 },
+    ],
+  };
+  const tools = JSON.parse(vm.runInContext(
+    `JSON.stringify(programToolListModel(${JSON.stringify(preview)}, 2))`, ctx,
+  ));
+  assert.deepEqual(tools, [
+    { number: 1, label: "T1 · 6 mm flat end mill", detail: "Roughing", changeCount: 1, active: false },
+    { number: 2, label: "T2 · 3.175 mm ball end mill", detail: "Finishing", changeCount: 2, active: true },
+  ]);
 });
 
 test("unknown paused spindle context requires an explicit RPM and direction", async () => {
