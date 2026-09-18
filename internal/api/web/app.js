@@ -43,6 +43,9 @@ const JOG_INPUT_HEARTBEAT_MS = 100;
 const JOG_INPUT_DEADZONE = 0.12;
 const JOG_PREDICTION_TOLERANCE_MM = 0.02;
 const EXTERNAL_SNAPSHOT_REFRESH_MS = 1500;
+const FOREGROUND_PAGE_RELOAD_MS = 60000;
+const PULL_TO_REFRESH_DISTANCE_PX = 88;
+const PULL_TO_REFRESH_DIRECTION_SLOP_PX = 16;
 const MOBILE_WORKAREA_MAX_WIDTH_PX = 600;
 const MOBILE_JOG_RADIUS_MIN_PX = 56;
 const MOBILE_JOG_RADIUS_MAX_PX = 88;
@@ -208,6 +211,8 @@ const state = {
 
 let probeConfirmResolve = null;
 let outlineContextRevision = 1;
+let pageHiddenAt = 0;
+let pullToRefreshGesture = null;
 let surfaceMPGAudioContext = null;
 let surfaceMPGAudioResume = null;
 let surfaceMPGNextClickTime = 0;
@@ -1888,6 +1893,90 @@ async function request(url, opts = {}) {
     throw new Error(detail || resp.statusText || "HTTP " + resp.status);
   }
   return resp;
+}
+
+function reloadPage() {
+  window.location.reload();
+}
+
+function resetEventStream(key) {
+  const stream = state[key];
+  if (!stream) return;
+  stream.onopen = null;
+  stream.onerror = null;
+  stream.close();
+  state[key] = null;
+}
+
+function recoverForegroundSession() {
+  const hiddenFor = pageHiddenAt ? Date.now() - pageHiddenAt : 0;
+  pageHiddenAt = 0;
+  // Mobile browsers commonly suspend a tab's WebSockets, EventSource and image
+  // decoding without notifying the page. After a long suspension, reload the
+  // no-store document instead of leaving a partly-resumed operator view.
+  if (hiddenFor >= FOREGROUND_PAGE_RELOAD_MS) {
+    reloadPage();
+    return true;
+  }
+  stopDashboardBuiltinCamera();
+  stopDashboardExternalCamera();
+  resetEventStream("controlES");
+  resetEventStream("filesES");
+  connectControlSSE();
+  if (state.filesLoaded) connectFilesSSE();
+  loadDashboardCameras();
+  loadActiveGcode();
+  loadAPICapabilities();
+  loadJogCapabilities();
+  pollMachine();
+  if (state.activeTab === "maintenance") loadMaintenance();
+  return false;
+}
+
+function pageScrollIsAtTop() {
+  const root = document.scrollingElement || document.documentElement;
+  return Math.max(Number(window.scrollY) || 0, Number(root?.scrollTop) || 0) <= 0;
+}
+
+function pullToRefreshTargetAllowed(target) {
+  if (!(target instanceof Element)) return false;
+  return !target.closest("button, a, input, select, textarea, [contenteditable], [role=slider], dialog, canvas, video");
+}
+
+function installPullToRefresh() {
+  if (!window.matchMedia?.("(pointer: coarse)")?.matches) return;
+  document.addEventListener("touchstart", (event) => {
+    const touch = event.touches?.[0];
+    if (!touch || event.touches.length !== 1 || !pageScrollIsAtTop() || !pullToRefreshTargetAllowed(event.target)) {
+      pullToRefreshGesture = null;
+      return;
+    }
+    pullToRefreshGesture = { id: touch.identifier, x: touch.clientX, y: touch.clientY, triggered: false };
+  }, { passive: true });
+  document.addEventListener("touchmove", (event) => {
+    const gesture = pullToRefreshGesture;
+    if (!gesture) return;
+    const touch = [...event.touches].find((candidate) => candidate.identifier === gesture.id);
+    if (!touch) {
+      pullToRefreshGesture = null;
+      return;
+    }
+    const deltaX = touch.clientX - gesture.x;
+    const deltaY = touch.clientY - gesture.y;
+    if (deltaY <= 0 || (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > PULL_TO_REFRESH_DIRECTION_SLOP_PX)) {
+      pullToRefreshGesture = null;
+      return;
+    }
+    if (deltaY < PULL_TO_REFRESH_DISTANCE_PX || gesture.triggered) return;
+    gesture.triggered = true;
+    event.preventDefault();
+  }, { passive: false });
+  document.addEventListener("touchend", () => {
+    const triggered = pullToRefreshGesture?.triggered;
+    pullToRefreshGesture = null;
+    if (triggered) reloadPage();
+  }, { passive: true });
+  document.addEventListener("touchcancel", () => { pullToRefreshGesture = null; }, { passive: true });
 }
 
 function queuePendingCount() {
@@ -14858,7 +14947,8 @@ function init() {
   const drop = document.getElementById("drop");
   const input = document.getElementById("file");
   document.getElementById("header-toggle").onclick = () => setHeaderCollapsed(!document.body.classList.contains("header-collapsed"));
-  document.getElementById("development-refresh").onclick = () => window.location.reload();
+  document.getElementById("development-refresh").onclick = reloadPage;
+  installPullToRefresh();
   initDashboardControlsMenu();
   initWorkAreaActionsMenu();
   for (const [index, name] of NAV_VIEW_TABS.entries()) {
@@ -15300,12 +15390,15 @@ function init() {
     loadJogCapabilities();
   });
   document.addEventListener("visibilitychange", () => {
-    syncDashboardCameras();
     if (document.hidden) {
+      pageHiddenAt = Date.now();
+      stopDashboardBuiltinCamera();
+      stopDashboardExternalCamera();
       state.jog.inputSuspended = true;
       if (releaseJogInput(true)) renderJog();
     } else {
       state.jog.inputSuspended = false;
+      if (recoverForegroundSession()) return;
       connectJog();
       scheduleJogSample();
     }
@@ -15315,9 +15408,13 @@ function init() {
     if (releaseJogInput(true)) renderJog();
   });
   window.addEventListener("focus", () => {
+    if (document.hidden) return;
     state.jog.inputSuspended = false;
     connectJog();
     scheduleJogSample();
+  });
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) reloadPage();
   });
   window.addEventListener("pagehide", () => {
     stopDashboardBuiltinCamera();

@@ -25,6 +25,21 @@ test("file rows expose responsive metadata cells", () => {
   }
 });
 
+test("mobile foreground recovery refreshes suspended streams and supports pull to refresh", () => {
+  for (const marker of [
+    "const FOREGROUND_PAGE_RELOAD_MS = 60000;",
+    "function recoverForegroundSession()",
+    'resetEventStream("controlES");',
+    'resetEventStream("filesES");',
+    "function installPullToRefresh()",
+    "PULL_TO_REFRESH_DISTANCE_PX",
+    'window.addEventListener("pageshow", (event) => {',
+    "if (event.persisted) reloadPage();",
+  ]) {
+    assert.ok(source.includes(marker), `app.js includes ${marker}`);
+  }
+});
+
 test("dashboard layout controls are hidden and expose their expanded state", () => {
   const attributes = new Map();
   let focused = false;
