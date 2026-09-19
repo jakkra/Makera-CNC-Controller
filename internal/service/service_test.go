@@ -2652,6 +2652,29 @@ func TestPausedStartSpindleUsesOnlyKnownDirectionAndSpeed(t *testing.T) {
 	}
 }
 
+func TestJobControlStateWaitsForVerifiedSpindleStop(t *testing.T) {
+	context := store.ExecutionContext{Spindle: store.ExecutionSpindleContext{
+		Direction: "M3", SpeedRPM: 12000, SpeedKnown: true, Stopped: true,
+	}}
+	running, ok := machine.ParseStatusPayload("<Pause|S:12000,12000,100>")
+	if !ok {
+		t.Fatal("running status should parse")
+	}
+	control := jobControlState(running, context)
+	if control.CanStopSpindle || control.CanStartSpindle {
+		t.Fatalf("late pre-stop status control = %+v, want neither spindle action", control)
+	}
+
+	stopped, ok := machine.ParseStatusPayload("<Pause|S:0,0,100>")
+	if !ok {
+		t.Fatal("stopped status should parse")
+	}
+	control = jobControlState(stopped, context)
+	if control.CanStopSpindle || !control.CanStartSpindle {
+		t.Fatalf("verified stopped control = %+v, want only start spindle", control)
+	}
+}
+
 func TestExecutionContextStatusDoesNotInventSpindleDirection(t *testing.T) {
 	svc, st := newService(t)
 	if err := st.SetActiveGcodePath("/sd/gcodes/part.nc"); err != nil {

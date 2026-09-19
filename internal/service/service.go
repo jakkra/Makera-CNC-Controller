@@ -540,14 +540,19 @@ func (s *Service) ExecutionContext() store.ExecutionContext {
 func jobControlState(st machine.Status, context store.ExecutionContext) JobControlState {
 	paused := st.State == machine.Pause
 	spindleRunning := st.Spindle != nil && (st.Spindle.CurrentRPM > 1 || st.Spindle.TargetRPM > 1)
-	canStart := paused && !spindleRunning && context.Spindle.SpeedKnown &&
+	spindleStopped := st.Spindle != nil && math.Abs(st.Spindle.CurrentRPM) < 1 && math.Abs(st.Spindle.TargetRPM) < 1
+	// Starting is only offered after a fresh status has actually confirmed that
+	// the spindle is stopped. Conversely, an already-issued M5 suppresses Stop
+	// while a late pre-M5 status snapshot is still making its way through the
+	// relay/status stream.
+	canStart := paused && spindleStopped && context.Spindle.SpeedKnown &&
 		(context.Spindle.Direction == "M3" || context.Spindle.Direction == "M4")
 	return JobControlState{
 		Paused:          paused,
 		CanPause:        st.State == machine.Run,
 		CanResume:       paused,
 		CanStartSpindle: canStart,
-		CanStopSpindle:  paused && (spindleRunning || !context.Spindle.Stopped),
+		CanStopSpindle:  paused && spindleRunning && !context.Spindle.Stopped,
 		Spindle:         context.Spindle,
 		Job:             context.Job,
 	}
