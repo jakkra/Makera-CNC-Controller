@@ -15,7 +15,7 @@ import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
-import { beginFileAction, createFileCatalog, endFileAction, fileRowLocallyOwned } from "./modules/files.js";
+import { beginFileAction, createFileCatalog, endFileAction, fileRowLocallyOwned, mountFilesNavigation } from "./modules/files.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.html"), "utf8");
@@ -5747,6 +5747,45 @@ test("file catalog derives nested virtual folders, stable ordering, search dedup
   assert.equal(catalog.newestDescendantMTime("nested"), "2026-01-02T10:00:00Z");
   const searched = catalog.searchFileRows("nested");
   assert.deepEqual(searched.map((row) => relPath(row.path)), ["nested", "nested/deep.nc"]);
+});
+
+test("file navigation clears the filter, renders once, and preserves folder chrome semantics", () => {
+  const nodes = new Map();
+  const makeNode = () => ({ children: [], append(...items) { this.children.push(...items); }, appendChild(item) { this.children.push(item); }, className: "", style: {}, setAttribute() {} });
+  for (const id of ["filter", "folder-up", "current-folder", "breadcrumbs", "folder-tree"]) nodes.set(id, makeNode());
+  const documentRef = { getElementById: (id) => nodes.get(id), createElement: (tag) => ({ ...makeNode(), tag, type: "", textContent: "", onclick: null }) };
+  let currentDir = "nested";
+  let filter = "deep";
+  let renders = 0;
+  const navigation = mountFilesNavigation({
+    documentRef,
+    getCurrentDir: () => currentDir,
+    setCurrentDir: (value) => { currentDir = value; },
+    getFilter: () => filter,
+    setFilter: (value) => { filter = value; },
+    renderFiles: () => { renders++; },
+    paths: {
+      cleanRelPath: (value) => String(value || "").replace(/^\/+|\/+$/g, ""),
+      parentRelPath: (value) => String(value).split("/").slice(0, -1).join("/"),
+      relPath: (value) => String(value).replace(/^\/sd\/gcodes\/?/, ""),
+      basename: (value) => String(value).split("/").pop(),
+    },
+    catalog: { allFolderRows: () => [{ path: "/sd/gcodes/nested", is_dir: true }] },
+  });
+  navigation.mount();
+  nodes.get("folder-up").onclick();
+  assert.equal(currentDir, "");
+  renders = 0;
+  navigation.openDir("/nested/deep/");
+  assert.equal(currentDir, "nested/deep");
+  assert.equal(filter, "");
+  assert.equal(nodes.get("filter").value, "");
+  assert.equal(renders, 1);
+  navigation.renderFolderChrome();
+  assert.equal(nodes.get("current-folder").textContent, "/nested/deep");
+  navigation.renderFolderTree();
+  assert.equal(nodes.get("folder-tree").children[0].textContent, "gcodes");
+  assert.equal(nodes.get("folder-tree").children[1].className, "folder-tree-item");
 });
 
 test("file action lifecycle exposes pending state and releases it", () => {

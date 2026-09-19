@@ -129,3 +129,64 @@ export function sortFileRows(rows, relPath) {
     return relPath(a.path).localeCompare(relPath(b.path));
   });
 }
+
+export function mountFilesNavigation({ documentRef, getCurrentDir, setCurrentDir, getFilter, setFilter, renderFiles, paths, catalog }) {
+  const { cleanRelPath, parentRelPath, relPath, basename } = paths;
+
+  function openDir(dir) {
+    setCurrentDir(cleanRelPath(dir));
+    setFilter("");
+    documentRef.getElementById("filter").value = "";
+    renderFiles();
+  }
+
+  function renderFolderChrome() {
+    const currentDir = getCurrentDir();
+    documentRef.getElementById("current-folder").textContent = "/" + (currentDir || "");
+    documentRef.getElementById("folder-up").disabled = !currentDir;
+    const crumbs = documentRef.getElementById("breadcrumbs");
+    crumbs.innerHTML = "";
+    const root = documentRef.createElement("button");
+    root.type = "button";
+    root.textContent = "gcodes";
+    root.onclick = () => openDir("");
+    crumbs.appendChild(root);
+    const parts = currentDir.split("/").filter(Boolean);
+    for (let i = 0; i < parts.length; i++) {
+      const sep = documentRef.createElement("span");
+      sep.className = "crumb-sep";
+      sep.textContent = "/";
+      const btn = documentRef.createElement("button");
+      btn.type = "button";
+      btn.textContent = parts[i];
+      btn.onclick = () => openDir(parts.slice(0, i + 1).join("/"));
+      crumbs.append(sep, btn);
+    }
+  }
+
+  function renderFolderTree() {
+    const tree = documentRef.getElementById("folder-tree");
+    tree.innerHTML = "";
+    tree.appendChild(folderTreeButton("", "gcodes", 0));
+    for (const folder of catalog.allFolderRows()) {
+      const rel = relPath(folder.path);
+      tree.appendChild(folderTreeButton(rel, basename(rel), rel.split("/").length));
+    }
+  }
+
+  function folderTreeButton(rel, label, depth) {
+    const btn = documentRef.createElement("button");
+    btn.type = "button";
+    btn.className = "folder-tree-item" + (cleanRelPath(rel) === getCurrentDir() ? " active" : "");
+    btn.style.paddingLeft = 8 + Math.max(0, depth) * 14 + "px";
+    btn.textContent = label;
+    btn.onclick = () => openDir(rel);
+    return btn;
+  }
+
+  function mount() {
+    documentRef.getElementById("folder-up").onclick = () => openDir(parentRelPath(getCurrentDir()));
+  }
+
+  return { mount, openDir, renderFolderChrome, renderFolderTree, folderTreeButton };
+}

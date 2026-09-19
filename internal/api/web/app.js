@@ -3,7 +3,7 @@ import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
-import { beginFileAction as beginFileActionState, createFileCatalog, endFileAction as endFileActionState, fileRowLocallyOwned as fileRowLocallyOwnedState } from "./modules/files.js";
+import { beginFileAction as beginFileActionState, createFileCatalog, endFileAction as endFileActionState, fileRowLocallyOwned as fileRowLocallyOwnedState, mountFilesNavigation } from "./modules/files.js";
 
 const ROOT = "/sd/gcodes";
 const GCODE_MAX_LINES = 500;
@@ -213,6 +213,17 @@ const state = {
 const fileCatalog = createFileCatalog({
   getFiles: () => state.files,
   paths: { relPath, cleanRelPath, joinRelPath, remotePathFromRel },
+});
+
+const filesNavigation = mountFilesNavigation({
+  documentRef: document,
+  getCurrentDir: () => state.currentDir,
+  setCurrentDir: (dir) => { state.currentDir = dir; },
+  getFilter: () => state.filter,
+  setFilter: (filter) => { state.filter = filter; },
+  renderFiles: () => renderFiles(),
+  paths: { cleanRelPath, parentRelPath, relPath, basename },
+  catalog: fileCatalog,
 });
 
 const maintenance = mountMaintenance({
@@ -7827,54 +7838,19 @@ function allFolderRows() {
 }
 
 function openDir(dir) {
-  state.currentDir = cleanRelPath(dir);
-  state.filter = "";
-  document.getElementById("filter").value = "";
-  renderFiles();
+  filesNavigation.openDir(dir);
 }
 
 function renderFolderChrome() {
-  document.getElementById("current-folder").textContent = "/" + (state.currentDir || "");
-  document.getElementById("folder-up").disabled = !state.currentDir;
-  const crumbs = document.getElementById("breadcrumbs");
-  crumbs.innerHTML = "";
-  const root = document.createElement("button");
-  root.type = "button";
-  root.textContent = "gcodes";
-  root.onclick = () => openDir("");
-  crumbs.appendChild(root);
-  const parts = state.currentDir.split("/").filter(Boolean);
-  for (let i = 0; i < parts.length; i++) {
-    const sep = document.createElement("span");
-    sep.className = "crumb-sep";
-    sep.textContent = "/";
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.textContent = parts[i];
-    btn.onclick = () => openDir(parts.slice(0, i + 1).join("/"));
-    crumbs.append(sep, btn);
-  }
+  filesNavigation.renderFolderChrome();
 }
 
 function renderFolderTree() {
-  const tree = document.getElementById("folder-tree");
-  tree.innerHTML = "";
-  const root = folderTreeButton("", "gcodes", 0);
-  tree.appendChild(root);
-  for (const folder of allFolderRows()) {
-    const rel = relPath(folder.path);
-    tree.appendChild(folderTreeButton(rel, basename(rel), rel.split("/").length));
-  }
+  filesNavigation.renderFolderTree();
 }
 
 function folderTreeButton(rel, label, depth) {
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "folder-tree-item" + (cleanRelPath(rel) === state.currentDir ? " active" : "");
-  btn.style.paddingLeft = 8 + Math.max(0, depth) * 14 + "px";
-  btn.textContent = label;
-  btn.onclick = () => openDir(rel);
-  return btn;
+  return filesNavigation.folderTreeButton(rel, label, depth);
 }
 
 function renderFileSummary() {
@@ -14838,7 +14814,7 @@ function init() {
     state.filter = e.target.value;
     renderFiles();
   };
-  document.getElementById("folder-up").onclick = () => openDir(parentRelPath(state.currentDir));
+  filesNavigation.mount();
   document.getElementById("folder-new").onclick = doMkdir;
 
   const form = document.getElementById("gcode-form");
