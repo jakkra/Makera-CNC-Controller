@@ -15,7 +15,7 @@ import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
-import { beginFileAction, createFileCatalog, endFileAction, fileRowLocallyOwned, mountFilesCommands, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
+import { beginFileAction, createFileCatalog, endFileAction, fileRowLocallyOwned, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
@@ -5939,6 +5939,42 @@ test("file transitions preserve snapshot and change ordering", () => {
   assert.equal(activeReloads, 1);
   assert.deepEqual(events, ["set-files", "set-jobs", "machine", "files", "machine", "jobs"]);
   assert.equal(machine.pending_jobs, 3);
+});
+
+test("file job refresh skips idle state and applies live job snapshots", async () => {
+  const jobs = new Map([[1, { id: 1, state: "queued" }]]);
+  const machine = {};
+  const calls = [];
+  const requests = [];
+  let filesLoaded = false;
+  const refresh = mountFilesJobRefresh({
+    request: async (url) => {
+      requests.push(url);
+      return { json: async () => [{ id: 2, state: "running" }] };
+    },
+    getFilesLoaded: () => filesLoaded,
+    getJobs: () => jobs,
+    setJobs: (value) => { jobs.clear(); for (const [key, job] of value) jobs.set(key, job); },
+    getMachine: () => machine,
+    queuePendingCount: () => 1,
+    renderMachine: () => calls.push("machine"),
+    renderFiles: () => calls.push("files"),
+    renderJobs: () => calls.push("jobs"),
+  });
+  assert.equal(refresh.hasLiveJobs(), true);
+  await refresh.refreshJobs();
+  assert.deepEqual(calls, []);
+  assert.deepEqual(requests, []);
+  filesLoaded = true;
+  await refresh.refreshJobs();
+  assert.deepEqual([...jobs.values()], [{ id: 2, state: "running" }]);
+  assert.equal(machine.pending_jobs, 1);
+  assert.deepEqual(calls, ["machine", "files", "jobs"]);
+  assert.deepEqual(requests, ["/api/jobs"]);
+  jobs.set(2, { id: 2, state: "done" });
+  await refresh.refreshJobs();
+  assert.deepEqual(calls, ["machine", "files", "jobs"]);
+  assert.deepEqual(requests, ["/api/jobs"]);
 });
 
 test("file row renderer preserves keyed unchanged and locally owned rows", () => {

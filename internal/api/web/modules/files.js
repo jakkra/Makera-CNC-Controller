@@ -694,3 +694,33 @@ export function mountFilesTransitions({
 
   return { applySnapshot, applyEntry, applyJob };
 }
+
+export function mountFilesJobRefresh({
+  request,
+  getFilesLoaded,
+  getJobs,
+  setJobs,
+  getMachine,
+  queuePendingCount,
+  renderMachine,
+  renderFiles,
+  renderJobs,
+}) {
+  function hasLiveJobs() {
+    return [...getJobs().values()].some((j) => j.state === "queued" || j.state === "running");
+  }
+
+  async function refreshJobs() {
+    if (!getFilesLoaded() || !hasLiveJobs()) return;
+    const r = await request("/api/jobs");
+    const jobs = await r.json();
+    if (!Array.isArray(jobs)) return;
+    setJobs(new Map(jobs.map((j) => [j.id, j])));
+    getMachine().pending_jobs = queuePendingCount();
+    renderMachine();
+    renderFiles();
+    renderJobs();
+  }
+
+  return { hasLiveJobs, refreshJobs };
+}

@@ -3,7 +3,7 @@ import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
-import { beginFileAction as beginFileActionState, createFileCatalog, endFileAction as endFileActionState, mountFilesCommands, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
+import { beginFileAction as beginFileActionState, createFileCatalog, endFileAction as endFileActionState, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
 
 const ROOT = "/sd/gcodes";
 const GCODE_MAX_LINES = 500;
@@ -275,6 +275,18 @@ const filesTransitions = mountFilesTransitions({
   renderJobs,
   isActiveGcodePath: (path) => state.activeGcode?.path === path,
   loadActiveGcode,
+});
+
+const filesJobRefresh = mountFilesJobRefresh({
+  request,
+  getFilesLoaded: () => state.filesLoaded,
+  getJobs: () => state.jobs,
+  setJobs: (jobs) => { state.jobs = jobs; },
+  getMachine: () => state.machine,
+  queuePendingCount,
+  renderMachine,
+  renderFiles: () => renderFiles(),
+  renderJobs,
 });
 
 const filesRows = mountFilesRows({
@@ -2141,20 +2153,8 @@ function queuePendingCount() {
   return n;
 }
 
-function hasLiveJobs() {
-  return [...state.jobs.values()].some((j) => j.state === "queued" || j.state === "running");
-}
-
 async function refreshJobs() {
-  if (!state.filesLoaded || !hasLiveJobs()) return;
-  const r = await request("/api/jobs");
-  const jobs = await r.json();
-  if (!Array.isArray(jobs)) return;
-  state.jobs = new Map(jobs.map((j) => [j.id, j]));
-  state.machine.pending_jobs = queuePendingCount();
-  renderMachine();
-  renderFiles();
-  renderJobs();
+  return filesJobRefresh.refreshJobs();
 }
 
 function pendingCount() {

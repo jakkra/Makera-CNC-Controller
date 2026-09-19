@@ -1260,7 +1260,7 @@ func TestWebUIServed(t *testing.T) {
 	filesModule := get(t, srv.URL+"/modules/files.js")
 	filesModuleBody, _ := io.ReadAll(filesModule.Body)
 	filesModule.Body.Close()
-	for _, want := range []string{"export function mountFilesCommands", "export function mountFilesTransitions"} {
+	for _, want := range []string{"export function mountFilesCommands", "export function mountFilesTransitions", "export function mountFilesJobRefresh"} {
 		if filesModule.StatusCode != http.StatusOK || !strings.Contains(string(filesModuleBody), want) {
 			t.Errorf("modules/files.js missing %s (status=%d)", want, filesModule.StatusCode)
 		}
@@ -1359,8 +1359,8 @@ func TestWebUIServed(t *testing.T) {
 			t.Errorf("app.js missing automatic Movement disarm behavior %s", want)
 		}
 	}
-	if !strings.Contains(string(jsBody), "refreshJobs") || !strings.Contains(string(jsBody), "/api/jobs") {
-		t.Errorf("app.js missing active job diagnostic refresh")
+	if !strings.Contains(string(jsBody), "refreshJobs") || !strings.Contains(string(filesModuleBody), "/api/jobs") {
+		t.Errorf("active job diagnostic refresh is incomplete")
 	}
 	if !strings.Contains(string(jsBody), "renderWorkArea") || !strings.Contains(string(jsBody), "SPINDLE_DIAMETER_MM") || !strings.Contains(string(jsBody), "OUTLINE_POINT_DIAMETER_MM") || !strings.Contains(string(jsBody), "jogPanelMessage") || !strings.Contains(string(jsBody), "sendTapMove") || !strings.Contains(string(jsBody), "sendWorkCoordinateMove") || !strings.Contains(string(jsBody), "workMoveTargetsFromInputs") || !strings.Contains(string(jsBody), "resetWorkMoveInput") || !strings.Contains(string(jsBody), "workMoveInputIsLive") || !strings.Contains(string(jsBody), "renderWorkMoveFieldState") || !strings.Contains(string(jsBody), "stepTapFeed") || !strings.Contains(string(jsBody), "feedBoundsFor") || !strings.Contains(string(jsBody), "stepZ") || !strings.Contains(string(jsBody), "setOriginAxis") || !strings.Contains(string(jsBody), "applyXYZOrigin") || !strings.Contains(string(jsBody), "applyOriginSource") || !strings.Contains(string(jsBody), "originTargetsFromOriginSource") || !strings.Contains(string(jsBody), "originTargetsFromXYZ") || !strings.Contains(string(jsBody), "machineAnchorPoints") || !strings.Contains(string(jsBody), "runAutoZProbe") || !strings.Contains(string(jsBody), "recallSelectedOrigin") || !strings.Contains(string(jsBody), "saveCurrentOrigin") || !strings.Contains(string(jsBody), "deleteSelectedOrigin") || !strings.Contains(string(jsBody), "saved_origins") || !strings.Contains(string(jsBody), `type: "target"`) || !strings.Contains(string(jsBody), `type: "step"`) || !strings.Contains(string(jsBody), `type: "origin"`) || !strings.Contains(string(jsBody), "G10L20P0") || !strings.Contains(string(jsBody), "/api/probe/auto-z") || !strings.Contains(string(jsBody), "/api/machine/status") || !strings.Contains(string(jsBody), "motion_estimated") {
 		t.Errorf("app.js missing work area, tap move, jog status messaging, or cache-only status polling")
