@@ -1,5 +1,6 @@
 import * as THREE from "./three.module.min.js";
 import { request } from "./modules/api.js";
+import { mountActiveJobSelection } from "./modules/active-job.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
@@ -290,6 +291,18 @@ const filesJobRefresh = mountFilesJobRefresh({
   renderJobs,
 });
 
+const activeJobSelection = mountActiveJobSelection({
+  request,
+  setActiveSelectPendingPath: (path) => { state.activeSelectPendingPath = path; },
+  setActiveGcode: (active) => { state.activeGcode = active; },
+  relPath,
+  setActiveFeedback,
+  setNotice,
+  renderFiles: () => renderFiles(),
+  renderActiveGcode,
+  showTab,
+});
+
 const filesRows = mountFilesRows({
   documentRef: document,
   windowRef: window,
@@ -321,7 +334,7 @@ const filesRows = mountFilesRows({
   discardFile,
   doRename,
   doDelete,
-  selectActiveGcode,
+  selectActiveGcode: activeJobSelection.selectActiveGcode,
   openDir,
 });
 
@@ -10622,29 +10635,6 @@ function syncActiveGcodeFromMachine(machine) {
   const path = String(machine?.active_job?.path || "");
   if (!path || path === state.activeGcode?.path || state.activeGcodeLoading) return;
   loadActiveGcode();
-}
-
-async function selectActiveGcode(path) {
-  state.activeSelectPendingPath = path;
-  setActiveFeedback("Loading preview for " + relPath(path) + "...", "");
-  renderFiles();
-  try {
-    const r = await request("/api/gcode/active", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path }),
-    });
-    state.activeGcode = await r.json();
-    setActiveFeedback("Preview loaded for " + relPath(path) + ".", "ok");
-    showTab("active-job");
-  } catch (e) {
-    setActiveFeedback("Preview failed: " + e.message, "error");
-    setNotice("Select gcode failed: " + e.message, "error", "active-gcode");
-  } finally {
-    state.activeSelectPendingPath = "";
-    renderFiles();
-    renderActiveGcode();
-  }
 }
 
 async function runActiveGcode() {

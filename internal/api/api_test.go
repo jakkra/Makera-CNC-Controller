@@ -1265,7 +1265,7 @@ func TestWebUIServed(t *testing.T) {
 			t.Errorf("modules/files.js missing %s (status=%d)", want, filesModule.StatusCode)
 		}
 	}
-	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`} {
+	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`} {
 		if !strings.Contains(string(jsBody), want) {
 			t.Errorf("app.js missing shared module import %s", want)
 		}
@@ -1279,6 +1279,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/format.js", "export function fmtCoord"},
 		{"/modules/maintenance.js", "export function mountMaintenance"},
 		{"/modules/files.js", "export function fileRowLocallyOwned"},
+		{"/modules/active-job.js", "export function mountActiveJobSelection"},
 	} {
 		module := get(t, srv.URL+asset.path)
 		moduleBody, _ := io.ReadAll(module.Body)

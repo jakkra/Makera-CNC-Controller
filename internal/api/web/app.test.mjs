@@ -12,6 +12,7 @@ import vm from "node:vm";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { request } from "./modules/api.js";
+import { mountActiveJobSelection } from "./modules/active-job.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
@@ -5996,6 +5997,60 @@ test("file helper factory preserves job predicates and retry labels", () => {
   assert.equal(helpers.retryButtonText({ kind: "delete" }), "Retry Delete");
   assert.equal(helpers.retryButtonText({ kind: "rename" }), "Retry Rename");
   assert.equal(helpers.retryButtonText({ kind: "other" }), "Retry");
+});
+
+test("active job selection preserves request and pending render lifecycle", async () => {
+  const pending = [];
+  const feedback = [];
+  const notices = [];
+  const renders = [];
+  const requests = [];
+  let active = null;
+  const selection = mountActiveJobSelection({
+    request: async (url, options) => {
+      requests.push({ url, options });
+      return { json: async () => ({ path: "/sd/gcodes/part.nc", runnable: true }) };
+    },
+    setActiveSelectPendingPath: (path) => pending.push(path),
+    setActiveGcode: (value) => { active = value; },
+    relPath: (path) => path.replace("/sd/gcodes/", ""),
+    setActiveFeedback: (...args) => feedback.push(args),
+    setNotice: (...args) => notices.push(args),
+    renderFiles: () => renders.push("files"),
+    renderActiveGcode: () => renders.push("active"),
+    showTab: (tab) => renders.push(tab),
+  });
+  await selection.selectActiveGcode("/sd/gcodes/part.nc");
+  assert.deepEqual(requests, [{
+    url: "/api/gcode/active",
+    options: { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: "/sd/gcodes/part.nc" }) },
+  }]);
+  assert.deepEqual(pending, ["/sd/gcodes/part.nc", ""]);
+  assert.deepEqual(feedback, [["Loading preview for part.nc...", ""], ["Preview loaded for part.nc.", "ok"]]);
+  assert.deepEqual(renders, ["files", "active-job", "files", "active"]);
+  assert.deepEqual(active, { path: "/sd/gcodes/part.nc", runnable: true });
+  assert.deepEqual(notices, []);
+
+  const failedPending = [];
+  const failedFeedback = [];
+  const failedNotices = [];
+  const failedRenders = [];
+  const failed = mountActiveJobSelection({
+    request: async () => { throw new Error("offline"); },
+    setActiveSelectPendingPath: (path) => failedPending.push(path),
+    setActiveGcode: () => assert.fail("failed selection must not replace the active preview"),
+    relPath: (path) => path.replace("/sd/gcodes/", ""),
+    setActiveFeedback: (...args) => failedFeedback.push(args),
+    setNotice: (...args) => failedNotices.push(args),
+    renderFiles: () => failedRenders.push("files"),
+    renderActiveGcode: () => failedRenders.push("active"),
+    showTab: () => assert.fail("failed selection must not navigate"),
+  });
+  await failed.selectActiveGcode("/sd/gcodes/broken.nc");
+  assert.deepEqual(failedPending, ["/sd/gcodes/broken.nc", ""]);
+  assert.deepEqual(failedFeedback, [["Loading preview for broken.nc...", ""], ["Preview failed: offline", "error"]]);
+  assert.deepEqual(failedNotices, [["Select gcode failed: offline", "error", "active-gcode"]]);
+  assert.deepEqual(failedRenders, ["files", "files", "active"]);
 });
 
 test("file row renderer preserves keyed unchanged and locally owned rows", () => {
