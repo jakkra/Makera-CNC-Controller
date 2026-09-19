@@ -148,6 +148,8 @@ go run -mod=mod ./cmd/fakemachine -addr 127.0.0.1:12222
 Then:
 - Web UI: <http://127.0.0.1:8420/>
 - Direct dashboard URL: <http://127.0.0.1:8420/dashboard>
+- Surface installation/development: see [Surface development and deployment](docs/surface-development.md)
+  for the SSH worktree, test policy, service boundaries, and safe local release flow.
 - Recording/OBS dashboard: see [Recording dashboard](docs/recording-dashboard.md)
   for durable named layouts, profile URLs, transparent embed mode, optional
   machine telemetry, and bounded G-code streaming.
