@@ -190,3 +190,80 @@ export function mountFilesNavigation({ documentRef, getCurrentDir, setCurrentDir
 
   return { mount, openDir, renderFolderChrome, renderFolderTree, folderTreeButton };
 }
+
+export function mountFilesPresentation({ documentRef, getFiles, getJobs, getFilesLoaded, relPath, escapeHtml, retryButtonText, retryJob, discardFile, canDiscardFile, syncLabel }) {
+  function renderFileSummary() {
+    const box = documentRef.getElementById("file-summary");
+    const counts = new Map();
+    for (const f of getFiles().values()) counts.set(f.sync || "unknown", (counts.get(f.sync || "unknown") || 0) + 1);
+    const total = getFiles().size;
+    const parts = [["files", total], ...[...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]))];
+    box.innerHTML = "";
+    for (const [label, count] of parts) {
+      const el = documentRef.createElement("span");
+      el.className = "summary-pill";
+      el.textContent = `${syncLabel[label] || label}: ${count}`;
+      box.appendChild(el);
+    }
+  }
+
+  function renderJobs() {
+    const div = documentRef.getElementById("jobs");
+    const jobs = [...getJobs().values()].filter((j) => j.state !== "done").sort((a, b) => a.id - b.id);
+    documentRef.getElementById("active-jobs").textContent = String(jobs.length);
+    if (!jobs.length) {
+      const text = getFilesLoaded() ? "No active or failed jobs." : "Activity loads with the Files tab.";
+      div.innerHTML = `<div class="empty">${text}</div>`;
+      return;
+    }
+    div.innerHTML = `<div class="jobs-head"><span>Job</span><span>Status</span><span>Detail</span></div>`;
+    for (const j of jobs) {
+      const row = documentRef.createElement("div");
+      row.className = "job";
+      row.innerHTML = `
+      <span class="job-main"><span class="job-kind">${escapeHtml(j.kind)}</span><span class="name">${escapeHtml(relPath(j.path))}</span></span>
+      <span class="job-status">${escapeHtml(jobStatusText(j))}</span>
+      <span class="job-detail">${jobDetailHTML(j)}</span>`;
+      appendJobActions(row.querySelector(".job-detail"), j);
+      div.appendChild(row);
+    }
+  }
+
+  function jobStatusText(j) {
+    return `${j.state || ""}${j.attempts ? `, attempt ${j.attempts}` : ""}`;
+  }
+
+  function jobDetailHTML(j) {
+    if (j.state === "failed" && j.last_error) return `<span class="job-message">Failed</span><span class="job-error">${escapeHtml(j.last_error)}</span>`;
+    const message = j.blocked_message || j.last_error || "";
+    return message ? `<span class="job-message">${escapeHtml(message)}</span>` : "";
+  }
+
+  function appendJobActions(box, job) {
+    const actions = documentRef.createElement("span");
+    actions.className = "job-recovery";
+    if (job.state === "failed") {
+      const retry = documentRef.createElement("button");
+      retry.type = "button";
+      retry.textContent = retryButtonText(job);
+      retry.onclick = () => retryJob(job);
+      actions.append(retry);
+      const discard = documentRef.createElement("button");
+      discard.type = "button";
+      discard.textContent = "Discard";
+      discard.onclick = () => discardFile(job.path);
+      actions.append(discard);
+    }
+    const entry = getFiles().get(job.path);
+    if (job.state !== "failed" && job.state !== "running" && entry && canDiscardFile(entry)) {
+      const discard = documentRef.createElement("button");
+      discard.type = "button";
+      discard.textContent = "Discard";
+      discard.onclick = () => discardFile(job.path);
+      actions.append(discard);
+    }
+    if (actions.children.length) box.appendChild(actions);
+  }
+
+  return { renderFileSummary, renderJobs, jobStatusText, jobDetailHTML, appendJobActions };
+}

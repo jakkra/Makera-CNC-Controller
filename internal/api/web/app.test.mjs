@@ -15,7 +15,7 @@ import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
-import { beginFileAction, createFileCatalog, endFileAction, fileRowLocallyOwned, mountFilesNavigation } from "./modules/files.js";
+import { beginFileAction, createFileCatalog, endFileAction, fileRowLocallyOwned, mountFilesNavigation, mountFilesPresentation } from "./modules/files.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.html"), "utf8");
@@ -5786,6 +5786,61 @@ test("file navigation clears the filter, renders once, and preserves folder chro
   navigation.renderFolderTree();
   assert.equal(nodes.get("folder-tree").children[0].textContent, "gcodes");
   assert.equal(nodes.get("folder-tree").children[1].className, "folder-tree-item");
+});
+
+test("file presentation renders summary ordering and failed-job retry actions", () => {
+  const nodes = new Map();
+  const makeNode = () => {
+    const node = {
+      children: [],
+      innerHTML: "",
+      append(...items) { this.children.push(...items); },
+      appendChild(item) { this.children.push(item); },
+      querySelector(selector) {
+        if (selector === ".job-detail") {
+          if (!this.detail) this.detail = makeNode();
+          return this.detail;
+        }
+        return null;
+      },
+      className: "",
+      textContent: "",
+      style: {},
+    };
+    return node;
+  };
+  for (const id of ["file-summary", "jobs", "active-jobs"]) nodes.set(id, makeNode());
+  const files = new Map([
+    ["/sd/gcodes/b.nc", { path: "/sd/gcodes/b.nc", sync: "synced" }],
+    ["/sd/gcodes/a.nc", { path: "/sd/gcodes/a.nc", sync: "error" }],
+  ]);
+  const jobs = new Map([[7, { id: 7, path: "/sd/gcodes/a.nc", kind: "upload", state: "failed", attempts: 2, last_error: "offline" }]]);
+  const documentRef = { getElementById: (id) => nodes.get(id), createElement: () => makeNode() };
+  const retryCalls = [];
+  const discardCalls = [];
+  const presentation = mountFilesPresentation({
+    documentRef,
+    getFiles: () => files,
+    getJobs: () => jobs,
+    getFilesLoaded: () => true,
+    relPath: (path) => path.replace("/sd/gcodes/", ""),
+    escapeHtml: (value) => String(value),
+    retryButtonText: () => "Retry Upload",
+    retryJob: (job) => retryCalls.push(job.id),
+    discardFile: (path) => discardCalls.push(path),
+    canDiscardFile: () => true,
+    syncLabel: { files: "Files", error: "Error", synced: "Synced" },
+  });
+  presentation.renderFileSummary();
+  assert.deepEqual(nodes.get("file-summary").children.map((node) => node.textContent), ["Files: 2", "Error: 1", "Synced: 1"]);
+  presentation.renderJobs();
+  assert.equal(nodes.get("active-jobs").textContent, "1");
+  const detail = nodes.get("jobs").children[0]?.detail;
+  const retry = detail?.children[0]?.children.find((node) => node.textContent === "Retry Upload");
+  assert.ok(retry);
+  retry.onclick();
+  assert.deepEqual(retryCalls, [7]);
+  assert.deepEqual(discardCalls, []);
 });
 
 test("file action lifecycle exposes pending state and releases it", () => {

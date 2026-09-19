@@ -3,7 +3,7 @@ import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
-import { beginFileAction as beginFileActionState, createFileCatalog, endFileAction as endFileActionState, fileRowLocallyOwned as fileRowLocallyOwnedState, mountFilesNavigation } from "./modules/files.js";
+import { beginFileAction as beginFileActionState, createFileCatalog, endFileAction as endFileActionState, fileRowLocallyOwned as fileRowLocallyOwnedState, mountFilesNavigation, mountFilesPresentation } from "./modules/files.js";
 
 const ROOT = "/sd/gcodes";
 const GCODE_MAX_LINES = 500;
@@ -224,6 +224,20 @@ const filesNavigation = mountFilesNavigation({
   renderFiles: () => renderFiles(),
   paths: { cleanRelPath, parentRelPath, relPath, basename },
   catalog: fileCatalog,
+});
+
+const filesPresentation = mountFilesPresentation({
+  documentRef: document,
+  getFiles: () => state.files,
+  getJobs: () => state.jobs,
+  getFilesLoaded: () => state.filesLoaded,
+  relPath,
+  escapeHtml,
+  retryButtonText,
+  retryJob,
+  discardFile,
+  canDiscardFile,
+  syncLabel: SYNC_LABEL,
 });
 
 const maintenance = mountMaintenance({
@@ -7854,84 +7868,23 @@ function folderTreeButton(rel, label, depth) {
 }
 
 function renderFileSummary() {
-  const box = document.getElementById("file-summary");
-  const counts = new Map();
-  for (const f of state.files.values()) {
-    counts.set(f.sync || "unknown", (counts.get(f.sync || "unknown") || 0) + 1);
-  }
-  const total = state.files.size;
-  const parts = [["files", total], ...[...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]))];
-  box.innerHTML = "";
-  for (const [label, count] of parts) {
-    const el = document.createElement("span");
-    el.className = "summary-pill";
-    el.textContent = `${SYNC_LABEL[label] || label}: ${count}`;
-    box.appendChild(el);
-  }
+  filesPresentation.renderFileSummary();
 }
 
 function renderJobs() {
-  const div = document.getElementById("jobs");
-  const jobs = [...state.jobs.values()]
-    .filter((j) => j.state !== "done")
-    .sort((a, b) => a.id - b.id);
-  document.getElementById("active-jobs").textContent = String(jobs.length);
-  if (!jobs.length) {
-    const text = state.filesLoaded ? "No active or failed jobs." : "Activity loads with the Files tab.";
-    div.innerHTML = `<div class="empty">${text}</div>`;
-    return;
-  }
-  div.innerHTML = `<div class="jobs-head"><span>Job</span><span>Status</span><span>Detail</span></div>`;
-  for (const j of jobs) {
-    const row = document.createElement("div");
-    row.className = "job";
-    row.innerHTML = `
-      <span class="job-main"><span class="job-kind">${escapeHtml(j.kind)}</span><span class="name">${escapeHtml(relPath(j.path))}</span></span>
-      <span class="job-status">${escapeHtml(jobStatusText(j))}</span>
-      <span class="job-detail">${jobDetailHTML(j)}</span>`;
-    appendJobActions(row.querySelector(".job-detail"), j);
-    div.appendChild(row);
-  }
+  filesPresentation.renderJobs();
 }
 
 function jobStatusText(j) {
-  return `${j.state || ""}${j.attempts ? `, attempt ${j.attempts}` : ""}`;
+  return filesPresentation.jobStatusText(j);
 }
 
 function jobDetailHTML(j) {
-  if (j.state === "failed" && j.last_error) {
-    return `<span class="job-message">Failed</span><span class="job-error">${escapeHtml(j.last_error)}</span>`;
-  }
-  const message = j.blocked_message || j.last_error || "";
-  return message ? `<span class="job-message">${escapeHtml(message)}</span>` : "";
+  return filesPresentation.jobDetailHTML(j);
 }
 
 function appendJobActions(box, job) {
-  const actions = document.createElement("span");
-  actions.className = "job-recovery";
-  if (job.state === "failed") {
-    const retry = document.createElement("button");
-    retry.type = "button";
-    retry.textContent = retryButtonText(job);
-    retry.onclick = () => retryJob(job);
-    actions.append(retry);
-
-    const discard = document.createElement("button");
-    discard.type = "button";
-    discard.textContent = "Discard";
-    discard.onclick = () => discardFile(job.path);
-    actions.append(discard);
-  }
-
-  const entry = state.files.get(job.path);
-  if (job.state !== "failed" && job.state !== "running" && entry && canDiscardFile(entry)) {
-    const discard = document.createElement("button");
-    discard.type = "button";
-    discard.textContent = "Discard";
-    discard.onclick = () => discardFile(job.path);
-    actions.append(discard);
-  }
-  if (actions.children.length) box.appendChild(actions);
+  filesPresentation.appendJobActions(box, job);
 }
 
 function renderActiveGcode() {
