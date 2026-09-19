@@ -15,7 +15,7 @@ import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
-import { beginFileAction, endFileAction, fileRowLocallyOwned } from "./modules/files.js";
+import { beginFileAction, createFileCatalog, endFileAction, fileRowLocallyOwned } from "./modules/files.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.html"), "utf8");
@@ -5726,6 +5726,27 @@ test("file row ownership preserves pointer and pending action nodes", () => {
   assert.equal(fileRowLocallyOwned(row, fileActions, null), true, "rendered pending action owns its row");
   fileActions.clear();
   assert.equal(fileRowLocallyOwned(row, fileActions, null), false, "terminal action releases its row");
+});
+
+test("file catalog derives nested virtual folders, stable ordering, search deduplication, and descendant mtimes", () => {
+  const root = "/sd/gcodes";
+  const relPath = (path) => path.startsWith(root + "/") ? path.slice(root.length + 1) : path.replace(/^\/+/, "");
+  const cleanRelPath = (path) => String(path || "").replace(/\\/g, "/").split("/").filter(Boolean).join("/");
+  const joinRelPath = (dir, name) => { dir = cleanRelPath(dir); name = cleanRelPath(name); return dir && name ? `${dir}/${name}` : (dir || name); };
+  const remotePathFromRel = (path) => { const rel = cleanRelPath(path); return rel ? `${root}/${rel}` : root; };
+  const files = new Map([
+    [`${root}/z.nc`, { path: `${root}/z.nc`, is_dir: false, size: 3, mtime: "2026-01-01T10:00:00Z", sync: "synced" }],
+    [`${root}/nested/deep.nc`, { path: `${root}/nested/deep.nc`, is_dir: false, size: 4, mtime: "2026-01-02T10:00:00Z", sync: "synced" }],
+    [`${root}/actual`, { path: `${root}/actual`, is_dir: true, mtime: "", sync: "synced" }],
+  ]);
+  const catalog = createFileCatalog({ getFiles: () => files, paths: { relPath, cleanRelPath, joinRelPath, remotePathFromRel } });
+  const rootRows = catalog.directoryRows("");
+  assert.deepEqual(rootRows.map((row) => relPath(row.path)), ["actual", "nested", "z.nc"]);
+  assert.equal(rootRows.find((row) => relPath(row.path) === "nested").virtual, true);
+  assert.equal(rootRows.find((row) => relPath(row.path) === "nested").children, 1);
+  assert.equal(catalog.newestDescendantMTime("nested"), "2026-01-02T10:00:00Z");
+  const searched = catalog.searchFileRows("nested");
+  assert.deepEqual(searched.map((row) => relPath(row.path)), ["nested", "nested/deep.nc"]);
 });
 
 test("file action lifecycle exposes pending state and releases it", () => {
