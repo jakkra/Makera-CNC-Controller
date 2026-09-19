@@ -1257,17 +1257,31 @@ func TestWebUIServed(t *testing.T) {
 	if js.StatusCode != http.StatusOK || !strings.Contains(string(jsBody), "EventSource") {
 		t.Errorf("app.js status=%d", js.StatusCode)
 	}
-	if !strings.Contains(string(jsBody), `from "./modules/format.js"`) {
-		t.Error("app.js missing coordinate formatter module import")
+	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`} {
+		if !strings.Contains(string(jsBody), want) {
+			t.Errorf("app.js missing shared module import %s", want)
+		}
 	}
-	format := get(t, srv.URL+"/modules/format.js")
-	formatBody, _ := io.ReadAll(format.Body)
-	format.Body.Close()
-	if format.StatusCode != http.StatusOK || !strings.Contains(format.Header.Get("Content-Type"), "javascript") || !strings.Contains(string(formatBody), "export function fmtCoord") {
-		t.Errorf("format module status=%d content-type=%q", format.StatusCode, format.Header.Get("Content-Type"))
-	}
-	if got := format.Header.Get("Cache-Control"); got != "no-store" {
-		t.Errorf("format module Cache-Control = %q, want no-store", got)
+	for _, asset := range []struct {
+		path string
+		mark string
+	}{
+		{"/modules/api.js", "export async function request"},
+		{"/modules/dom.js", "export function setSoftDisabled"},
+		{"/modules/format.js", "export function fmtCoord"},
+	} {
+		module := get(t, srv.URL+asset.path)
+		moduleBody, _ := io.ReadAll(module.Body)
+		module.Body.Close()
+		if module.StatusCode != http.StatusOK || !strings.Contains(module.Header.Get("Content-Type"), "javascript") || !strings.Contains(string(moduleBody), asset.mark) {
+			t.Errorf("module %s status=%d content-type=%q", asset.path, module.StatusCode, module.Header.Get("Content-Type"))
+		}
+		if got := module.Header.Get("Cache-Control"); got != "no-store" {
+			t.Errorf("module %s Cache-Control = %q, want no-store", asset.path, got)
+		}
+		if asset.path == "/modules/dom.js" && !strings.Contains(string(moduleBody), "aria-disabled") {
+			t.Error("dom module missing soft disabled accessibility behavior")
+		}
 	}
 	missingModule := get(t, srv.URL+"/modules/not-a-module.js")
 	missingModule.Body.Close()
@@ -1419,7 +1433,7 @@ func TestWebUIServed(t *testing.T) {
 			t.Errorf("app.js missing %s", want)
 		}
 	}
-	for _, want := range []string{"scheduleJogReconnect", "clearJogReconnect", "preferredPadIndex", "visibilitychange", "armQueuedAction", "flushQueuedTapMoveArm", "tapMoveArmFailureText", "setSoftDisabled", "aria-disabled"} {
+	for _, want := range []string{"scheduleJogReconnect", "clearJogReconnect", "preferredPadIndex", "visibilitychange", "armQueuedAction", "flushQueuedTapMoveArm", "tapMoveArmFailureText", "setSoftDisabled"} {
 		if !strings.Contains(string(jsBody), want) {
 			t.Errorf("app.js missing jog reconnect behavior %s", want)
 		}

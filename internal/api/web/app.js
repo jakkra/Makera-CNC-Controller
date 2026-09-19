@@ -1,5 +1,7 @@
 import * as THREE from "./three.module.min.js";
-import { fmtCoord, fmtPos } from "./modules/format.js";
+import { request } from "./modules/api.js";
+import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
+import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 
 const ROOT = "/sd/gcodes";
 const GCODE_MAX_LINES = 500;
@@ -415,13 +417,6 @@ function fmtSize(n, isDir) {
   return (n / 1024 / 1024).toFixed(1) + " MB";
 }
 
-function fmtTime(s) {
-  if (!s || s.startsWith("0001-")) return "-";
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleString([], { dateStyle: "short", timeStyle: "medium" });
-}
-
 function fmtAge(ms) {
   if (!Number.isFinite(ms) || ms < 0) return "-";
   if (ms < 1000) return "now";
@@ -430,17 +425,6 @@ function fmtAge(ms) {
   const min = Math.round(sec / 60);
   if (min < 60) return min + "m";
   return Math.round(min / 60) + "h";
-}
-
-function fmtDuration(ms) {
-  if (!Number.isFinite(ms) || ms < 0) return "-";
-  const sec = Math.round(ms / 1000);
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
-  if (h) return `${h}h ${m}m`;
-  if (m) return `${m}m ${s}s`;
-  return `${s}s`;
 }
 
 function fmtActiveFeed(f) {
@@ -1940,21 +1924,6 @@ function initWorkAreaActionsMenu() {
   });
 }
 
-async function request(url, opts = {}) {
-  const resp = await fetch(url, { credentials: "same-origin", cache: "no-store", ...opts });
-  if (!resp.ok) {
-    let detail = "";
-    try {
-      const body = await resp.json();
-      detail = body.error || JSON.stringify(body);
-    } catch {
-      detail = await resp.text();
-    }
-    throw new Error(detail || resp.statusText || "HTTP " + resp.status);
-  }
-  return resp;
-}
-
 function reloadPage() {
   window.location.reload();
 }
@@ -2730,16 +2699,6 @@ function stopSurfaceHoldJog() {
   clearNotice("surface-jog");
   renderJog();
   return true;
-}
-
-function setSoftDisabled(el, disabled) {
-  if (!el) return;
-  if (disabled) el.setAttribute("aria-disabled", "true");
-  else el.removeAttribute("aria-disabled");
-}
-
-function setTextIfChanged(el, text) {
-  if (el && el.textContent !== text) el.textContent = text;
 }
 
 const actionPresses = new WeakMap();
@@ -11315,12 +11274,6 @@ function finishToolAction(action) {
 function refreshMachineAfterToolAction() {
   pollMachine();
   setTimeout(pollMachine, 1200);
-}
-
-function setElementBusy(el, busy) {
-  if (!el) return;
-  if (busy) el.setAttribute("aria-busy", "true");
-  else el.removeAttribute("aria-busy");
 }
 
 function renderToolActions(m = state.machine || {}) {

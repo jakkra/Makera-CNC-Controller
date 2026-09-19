@@ -11,19 +11,76 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { fmtCoord, fmtPos } from "./modules/format.js";
+import { request } from "./modules/api.js";
+import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
+import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.html"), "utf8");
 
-test("coordinate formatters are imported as production ES modules", () => {
+test("shared helpers are imported as production ES modules", async () => {
   assert.equal(fmtCoord(1.2345), "1.234");
   assert.equal(fmtCoord(Number.NaN), "-");
   assert.equal(fmtPos({ x: 1, y: -2.5, z: 0 }, true), "X 1.000 Y -2.500 Z 0.000 est");
   assert.equal(fmtPos(null), "-");
-  assert.match(source, /import \{ fmtCoord, fmtPos \} from "\.\/modules\/format\.js";/);
+  assert.equal(fmtDuration(61000), "1m 1s");
+  assert.equal(fmtDuration(-1), "-");
+  assert.equal(fmtTime("0001-01-01T00:00:00Z"), "-");
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    calls.push({ url, opts });
+    return { ok: true, body: "response" };
+  };
+  try {
+    const response = await request("/api/example", { method: "POST", cache: "reload" });
+    assert.equal(response.body, "response");
+    globalThis.fetch = async () => ({ ok: false, json: async () => ({ error: "denied" }) });
+    await assert.rejects(request("/api/denied"), /denied/);
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 503,
+      statusText: "Unavailable",
+      json: async () => { throw new Error("not json"); },
+      text: async () => "temporarily offline",
+    });
+    await assert.rejects(request("/api/offline"), /temporarily offline/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.deepEqual(calls, [{ url: "/api/example", opts: { credentials: "same-origin", cache: "reload", method: "POST" } }]);
+  const attributes = new Map();
+  let text = "before";
+  let writes = 0;
+  const node = {
+    setAttribute: (name, value) => attributes.set(name, value),
+    removeAttribute: (name) => attributes.delete(name),
+  };
+  Object.defineProperty(node, "textContent", {
+    get: () => text,
+    set: (value) => { writes++; text = value; },
+  });
+  setSoftDisabled(node, true);
+  setElementBusy(node, true);
+  setTextIfChanged(node, "after");
+  setTextIfChanged(node, "after");
+  assert.equal(node.textContent, "after");
+  assert.equal(writes, 1);
+  assert.deepEqual([...attributes], [["aria-disabled", "true"], ["aria-busy", "true"]]);
+  setSoftDisabled(node, false);
+  setElementBusy(node, false);
+  assert.equal(attributes.size, 0);
+  for (const [module, names] of [["api", "request"], ["dom", "setElementBusy, setSoftDisabled, setTextIfChanged"], ["format", "fmtCoord, fmtDuration, fmtPos, fmtTime"]]) {
+    assert.match(source, new RegExp(`import \\{ ${names} \\} from "\\.\\/modules\\/${module}\\.js";`));
+  }
   assert.doesNotMatch(source, /function fmtCoord\(/);
   assert.doesNotMatch(source, /function fmtPos\(/);
+  assert.doesNotMatch(source, /function fmtDuration\(/);
+  assert.doesNotMatch(source, /function fmtTime\(/);
+  assert.doesNotMatch(source, /async function request\(/);
+  assert.doesNotMatch(source, /function setSoftDisabled\(/);
+  assert.doesNotMatch(source, /function setTextIfChanged\(/);
+  assert.doesNotMatch(source, /function setElementBusy\(/);
 });
 
 test("file rows expose responsive metadata cells", () => {
