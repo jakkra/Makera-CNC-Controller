@@ -1,36 +1,36 @@
-# Surface development and deployment
+# Target-computer development and deployment
 
-This is the operating guide for the installed Sensei controller on the Ubuntu
-Surface. It is intentionally separate from the generic Docker and Windows
-deployment instructions in the README.
+This guide applies to a native Linux computer that runs the Sensei controller.
+It is intentionally separate from the generic Docker and Windows deployment
+instructions in the README.
 
 ## What is local and what is remote
 
-Development is performed **on the Surface over SSH**. Therefore, “local” in
-the commands below means local to the Surface—not the developer's laptop and
-not the CNC.
+Development is performed **on the target computer**, normally through SSH.
+Therefore, “local” in the commands below means local to that computer—not the
+developer's laptop and not the CNC.
 
 | System | Role |
 |---|---|
-| Surface | Source worktree, Go build host, Sensei runtime, camera host, kiosk |
-| CNC | Physical machine reached by the Surface proxy; never modify its firmware |
-| GitHub `origin` | Source-control remote: `git@github.com:jakkra/Makera-CNC-Controller.git` |
-| Tailscale | Private remote access to the Surface dashboard; use the current Surface tailnet DNS name |
+| Target computer | Source worktree, Go build host, Sensei runtime, optional camera host and kiosk |
+| CNC | Physical machine reached by the proxy; never modify its firmware |
+| Git `origin` | The source-control remote configured for the clone; inspect it with `git remote -v` |
 
-The Surface worktree is:
+The examples use this conventional worktree path; choose another path if the
+target installation requires it:
 
 ```text
-/home/jakkra/src/Makera-CNC-Controller
+~/src/Makera-CNC-Controller
 ```
 
-The controller web UI is available locally at `http://127.0.0.1:8420/`.
-Use the Surface's Tailscale DNS name for off-device access; do not hard-code a
-tailnet hostname in source or configuration documentation.
+The controller web UI is available locally at `http://127.0.0.1:8420/` when
+the default native configuration is used. Network exposure and authentication
+are deployment-specific and are not part of this guide.
 
 ## Daily development workflow
 
 ```sh
-cd /home/jakkra/src/Makera-CNC-Controller
+cd ~/src/Makera-CNC-Controller
 git status
 git switch codex/sensei-controller
 ```
@@ -52,12 +52,14 @@ node --test internal/api/web/app.test.mjs
 ```
 
 The full race suite is deliberately reserved for a release checkpoint or
-protocol/concurrency work: it is slow on the Surface. Do not run an ad-hoc
-development proxy on port 8420 while the installed service owns that port.
+protocol/concurrency work: it can be slow on a small target computer. Do not
+run an ad-hoc development proxy on port 8420 while the installed service owns
+that port.
 
 ## Commit and push
 
-The normal branch for Sensei work is `codex/sensei-controller`.
+Use the branch agreed for the installation; the examples use
+`codex/sensei-controller`.
 
 ```sh
 git add <changed-files>
@@ -65,11 +67,11 @@ git commit -m "concise change summary"
 git push origin codex/sensei-controller
 ```
 
-Check `git status` before and after committing. Do not commit
-`~/.config/sensei/proxy.env`, credentials, Tailscale identity files, or other
+Check `git status` before and after committing. Do not commit private proxy
+configuration, credentials, service environment files, or other
 machine-local configuration.
 
-## Deploy to the running Surface service
+## Deploy to the running target service
 
 The installed runtime is intentionally separate from the source worktree.
 Keep the service running while editing and testing; deploy only a deliberate,
@@ -96,7 +98,7 @@ Previous release: ~/.local/share/sensei/releases/sensei-cnc-proxy.previous
 Private config:   ~/.config/sensei/proxy.env
 ```
 
-## Surface services
+## Target-computer services
 
 ```sh
 systemctl --user status sensei-cnc-proxy.service
@@ -107,8 +109,8 @@ sudo systemctl status sensei-ustreamer.service
 | Service | Responsibility |
 |---|---|
 | `sensei-cnc-proxy.service` | CNC proxy, API, web UI and WebDAV |
-| `sensei-kiosk.service` | Local fullscreen dashboard |
-| `sensei-ustreamer.service` | C920 external-camera stream |
+| `sensei-kiosk.service` | Optional local fullscreen dashboard |
+| `sensei-ustreamer.service` | Optional external-camera stream |
 
 For proxy logs:
 
