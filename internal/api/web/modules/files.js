@@ -14,6 +14,51 @@ export function endFileAction(fileActions, path, render) {
   render();
 }
 
+export function createFileHelpers({ getJobs }) {
+  function jobsForPath(path) {
+    return [...getJobs().values()].filter((j) => j.path === path);
+  }
+
+  function failedJobsForPath(path) {
+    return jobsForPath(path).filter((j) => j.state === "failed");
+  }
+
+  function preferredRetryJob(jobs) {
+    return jobs.find((j) => j.kind === "upload" || j.kind === "mkdir") || jobs[0] || null;
+  }
+
+  function canDiscardFile(f) {
+    if (!f || f.virtual) return false;
+    if (jobsForPath(f.path).some((j) => j.state === "running")) return false;
+    if (["local_only", "pending_upload"].includes(f.sync)) return true;
+    if (f.sync !== "error") return false;
+    return true;
+  }
+
+  function canSelectGcodeFile(f) {
+    if (!f || f.virtual || f.is_dir) return false;
+    if (["pending_delete", "deleting", "error"].includes(f.sync)) return false;
+    return true;
+  }
+
+  function retryButtonText(job) {
+    switch (job?.kind) {
+    case "upload":
+      return "Retry Upload";
+    case "mkdir":
+      return "Retry Folder";
+    case "delete":
+      return "Retry Delete";
+    case "rename":
+      return "Retry Rename";
+    default:
+      return "Retry";
+    }
+  }
+
+  return { jobsForPath, failedJobsForPath, preferredRetryJob, canDiscardFile, canSelectGcodeFile, retryButtonText };
+}
+
 export function createFileCatalog({ getFiles, paths }) {
   const { relPath, cleanRelPath, joinRelPath, remotePathFromRel } = paths;
 

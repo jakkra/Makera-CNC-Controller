@@ -15,7 +15,7 @@ import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
-import { beginFileAction, createFileCatalog, endFileAction, fileRowLocallyOwned, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
+import { beginFileAction, createFileCatalog, createFileHelpers, endFileAction, fileRowLocallyOwned, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
@@ -5975,6 +5975,27 @@ test("file job refresh skips idle state and applies live job snapshots", async (
   await refresh.refreshJobs();
   assert.deepEqual(calls, ["machine", "files", "jobs"]);
   assert.deepEqual(requests, ["/api/jobs"]);
+});
+
+test("file helper factory preserves job predicates and retry labels", () => {
+  const jobs = new Map([
+    [1, { id: 1, path: "/sd/gcodes/a.nc", kind: "upload", state: "queued" }],
+    [2, { id: 2, path: "/sd/gcodes/b.nc", kind: "delete", state: "failed" }],
+  ]);
+  const helpers = createFileHelpers({ getJobs: () => jobs });
+  assert.deepEqual(helpers.jobsForPath("/sd/gcodes/a.nc"), [...jobs.values()].slice(0, 1));
+  assert.deepEqual(helpers.failedJobsForPath("/sd/gcodes/b.nc"), [...jobs.values()].slice(1));
+  assert.equal(helpers.canDiscardFile({ path: "/sd/gcodes/a.nc", sync: "synced" }), false);
+  assert.equal(helpers.canDiscardFile({ path: "/sd/gcodes/a.nc", sync: "local_only" }), true);
+  assert.equal(helpers.canDiscardFile({ path: "/sd/gcodes/a.nc", sync: "error" }), true);
+  assert.equal(helpers.canSelectGcodeFile({ path: "/sd/gcodes/a.nc", sync: "synced", is_dir: false }), true);
+  assert.equal(helpers.canSelectGcodeFile({ path: "/sd/gcodes/a.nc", sync: "error", is_dir: false }), false);
+  assert.equal(helpers.preferredRetryJob(helpers.failedJobsForPath("/sd/gcodes/b.nc")).id, 2);
+  assert.equal(helpers.retryButtonText({ kind: "upload" }), "Retry Upload");
+  assert.equal(helpers.retryButtonText({ kind: "mkdir" }), "Retry Folder");
+  assert.equal(helpers.retryButtonText({ kind: "delete" }), "Retry Delete");
+  assert.equal(helpers.retryButtonText({ kind: "rename" }), "Retry Rename");
+  assert.equal(helpers.retryButtonText({ kind: "other" }), "Retry");
 });
 
 test("file row renderer preserves keyed unchanged and locally owned rows", () => {

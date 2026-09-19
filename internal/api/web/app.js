@@ -3,7 +3,7 @@ import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
-import { beginFileAction as beginFileActionState, createFileCatalog, endFileAction as endFileActionState, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
+import { beginFileAction as beginFileActionState, createFileCatalog, createFileHelpers, endFileAction as endFileActionState, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
 
 const ROOT = "/sd/gcodes";
 const GCODE_MAX_LINES = 500;
@@ -214,6 +214,7 @@ const fileCatalog = createFileCatalog({
   getFiles: () => state.files,
   paths: { relPath, cleanRelPath, joinRelPath, remotePathFromRel },
 });
+const fileHelpers = createFileHelpers({ getJobs: () => state.jobs });
 
 const filesNavigation = mountFilesNavigation({
   documentRef: document,
@@ -232,10 +233,10 @@ const filesPresentation = mountFilesPresentation({
   getFilesLoaded: () => state.filesLoaded,
   relPath,
   escapeHtml,
-  retryButtonText,
+  retryButtonText: fileHelpers.retryButtonText,
   retryJob,
   discardFile,
-  canDiscardFile,
+  canDiscardFile: fileHelpers.canDiscardFile,
   syncLabel: SYNC_LABEL,
 });
 
@@ -254,7 +255,7 @@ const filesCommands = mountFilesCommands({
   basename,
   relPath,
   apiFileURL,
-  retryButtonText,
+  retryButtonText: fileHelpers.retryButtonText,
   setNotice,
   clearNotice,
   beginFileAction,
@@ -311,11 +312,11 @@ const filesRows = mountFilesRows({
   basename,
   apiFileURL,
   syncLabel: SYNC_LABEL,
-  preferredRetryJob,
-  failedJobsForPath,
-  canDiscardFile,
-  canSelectGcodeFile,
-  retryButtonText,
+  preferredRetryJob: fileHelpers.preferredRetryJob,
+  failedJobsForPath: fileHelpers.failedJobsForPath,
+  canDiscardFile: fileHelpers.canDiscardFile,
+  canSelectGcodeFile: fileHelpers.canSelectGcodeFile,
+  retryButtonText: fileHelpers.retryButtonText,
   retryJob,
   discardFile,
   doRename,
@@ -7686,47 +7687,6 @@ function fileOverflowMenu(actions) {
 
 function appendFileOverflowAction(actions, labelOrButton, onclick, danger = false) {
   filesRows.appendFileOverflowAction(actions, labelOrButton, onclick, danger);
-}
-
-function jobsForPath(path) {
-  return [...state.jobs.values()].filter((j) => j.path === path);
-}
-
-function failedJobsForPath(path) {
-  return jobsForPath(path).filter((j) => j.state === "failed");
-}
-
-function preferredRetryJob(jobs) {
-  return jobs.find((j) => j.kind === "upload" || j.kind === "mkdir") || jobs[0] || null;
-}
-
-function canDiscardFile(f) {
-  if (!f || f.virtual) return false;
-  if (jobsForPath(f.path).some((j) => j.state === "running")) return false;
-  if (["local_only", "pending_upload"].includes(f.sync)) return true;
-  if (f.sync !== "error") return false;
-  return true;
-}
-
-function canSelectGcodeFile(f) {
-  if (!f || f.virtual || f.is_dir) return false;
-  if (["pending_delete", "deleting", "error"].includes(f.sync)) return false;
-  return true;
-}
-
-function retryButtonText(job) {
-  switch (job?.kind) {
-  case "upload":
-    return "Retry Upload";
-  case "mkdir":
-    return "Retry Folder";
-  case "delete":
-    return "Retry Delete";
-  case "rename":
-    return "Retry Rename";
-  default:
-    return "Retry";
-  }
 }
 
 function directoryRows(dir) {
