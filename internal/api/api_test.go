@@ -1257,7 +1257,7 @@ func TestWebUIServed(t *testing.T) {
 	if js.StatusCode != http.StatusOK || !strings.Contains(string(jsBody), "EventSource") {
 		t.Errorf("app.js status=%d", js.StatusCode)
 	}
-	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`} {
+	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`} {
 		if !strings.Contains(string(jsBody), want) {
 			t.Errorf("app.js missing shared module import %s", want)
 		}
@@ -1270,6 +1270,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/dom.js", "export function setSoftDisabled"},
 		{"/modules/format.js", "export function fmtCoord"},
 		{"/modules/maintenance.js", "export function mountMaintenance"},
+		{"/modules/files.js", "export function fileRowLocallyOwned"},
 	} {
 		module := get(t, srv.URL+asset.path)
 		moduleBody, _ := io.ReadAll(module.Body)

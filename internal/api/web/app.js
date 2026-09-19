@@ -3,6 +3,7 @@ import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
+import { beginFileAction as beginFileActionState, endFileAction as endFileActionState, fileRowLocallyOwned as fileRowLocallyOwnedState } from "./modules/files.js";
 
 const ROOT = "/sd/gcodes";
 const GCODE_MAX_LINES = 500;
@@ -7603,8 +7604,7 @@ function renderFiles() {
 }
 
 function fileRowLocallyOwned(tr) {
-	const action = state.fileActions.get(tr.dataset.filePath) || "";
-	return tr.contains(document.activeElement) || !!tr.querySelector(":active") || (!!action && tr.dataset.fileAction === action);
+	return fileRowLocallyOwnedState(tr, state.fileActions, document.activeElement);
 }
 
 function scheduleFileRender() {
@@ -11575,14 +11575,11 @@ async function doRename(path) {
 }
 
 function beginFileAction(path, buttonLabel, notice) {
-	state.fileActions.set(path, buttonLabel);
-	setNotice(notice, "info", "files-action", { timeoutMs: 0, force: true });
-	renderFiles();
+	beginFileActionState(state.fileActions, path, buttonLabel, notice, setNotice, renderFiles);
 }
 
 function endFileAction(path) {
-	state.fileActions.delete(path);
-	renderFiles();
+	endFileActionState(state.fileActions, path, renderFiles);
 }
 
 function renderGcodeCommandState() {

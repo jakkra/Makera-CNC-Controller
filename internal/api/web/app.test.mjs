@@ -15,6 +15,7 @@ import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
+import { beginFileAction, endFileAction, fileRowLocallyOwned } from "./modules/files.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.html"), "utf8");
@@ -5718,35 +5719,24 @@ test("file row ownership preserves pointer and pending action nodes", () => {
     contains: (node) => node === active,
     querySelector: () => null,
   };
-  const ctx = buildContext(["fileRowLocallyOwned"], [], {
-    document: { activeElement: null },
-    state: { fileActions },
-    row,
-    active,
-  });
-  assert.equal(vm.runInContext("fileRowLocallyOwned(row)", ctx), false);
-  vm.runInContext("document.activeElement = active", ctx);
-  assert.equal(vm.runInContext("fileRowLocallyOwned(row)", ctx), true, "focused action owns its row");
-  vm.runInContext("document.activeElement = null; state.fileActions.set(row.dataset.filePath, 'Deleting...'); row.dataset.fileAction = 'Deleting...'", ctx);
-  assert.equal(vm.runInContext("fileRowLocallyOwned(row)", ctx), true, "rendered pending action owns its row");
-  vm.runInContext("state.fileActions.clear()", ctx);
-  assert.equal(vm.runInContext("fileRowLocallyOwned(row)", ctx), false, "terminal action releases its row");
+  assert.equal(fileRowLocallyOwned(row, fileActions, null), false);
+  assert.equal(fileRowLocallyOwned(row, fileActions, active), true, "focused action owns its row");
+  fileActions.set(row.dataset.filePath, "Deleting...");
+  row.dataset.fileAction = "Deleting...";
+  assert.equal(fileRowLocallyOwned(row, fileActions, null), true, "rendered pending action owns its row");
+  fileActions.clear();
+  assert.equal(fileRowLocallyOwned(row, fileActions, null), false, "terminal action releases its row");
 });
 
 test("file action lifecycle exposes pending state and releases it", () => {
   const renders = [];
   const notices = [];
   const state = { fileActions: new Map() };
-  const ctx = buildContext(["beginFileAction", "endFileAction"], [], {
-    state,
-    renderFiles: () => renders.push("render"),
-    setNotice: (...args) => notices.push(args),
-  });
-  vm.runInContext("beginFileAction('/sd/gcodes/part.nc', 'Deleting...', 'Deleting: part.nc')", ctx);
+  beginFileAction(state.fileActions, "/sd/gcodes/part.nc", "Deleting...", "Deleting: part.nc", (...args) => notices.push(args), () => renders.push("render"));
   assert.equal(state.fileActions.get("/sd/gcodes/part.nc"), "Deleting...");
   assert.equal(notices.length, 1);
   assert.equal(notices[0][3].timeoutMs, 0, "pending feedback remains until terminal result");
-  vm.runInContext("endFileAction('/sd/gcodes/part.nc')", ctx);
+  endFileAction(state.fileActions, "/sd/gcodes/part.nc", () => renders.push("render"));
   assert.equal(state.fileActions.size, 0);
   assert.equal(renders.length, 2);
 });
