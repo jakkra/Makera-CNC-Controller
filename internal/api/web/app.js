@@ -1,4 +1,5 @@
 import * as THREE from "./three.module.min.js";
+import { fmtCoord, fmtPos } from "./modules/format.js";
 
 const ROOT = "/sd/gcodes";
 const GCODE_MAX_LINES = 500;
@@ -440,15 +441,6 @@ function fmtDuration(ms) {
   if (h) return `${h}h ${m}m`;
   if (m) return `${m}m ${s}s`;
   return `${s}s`;
-}
-
-function fmtCoord(v) {
-  return Number.isFinite(v) ? v.toFixed(3) : "-";
-}
-
-function fmtPos(p, estimated = false) {
-  if (!p) return "-";
-  return `X ${fmtCoord(p.x)} Y ${fmtCoord(p.y)} Z ${fmtCoord(p.z)}${estimated ? " est" : ""}`;
 }
 
 function fmtActiveFeed(f) {

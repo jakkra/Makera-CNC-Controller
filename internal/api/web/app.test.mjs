@@ -11,9 +11,20 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { fmtCoord, fmtPos } from "./modules/format.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.html"), "utf8");
+
+test("coordinate formatters are imported as production ES modules", () => {
+  assert.equal(fmtCoord(1.2345), "1.234");
+  assert.equal(fmtCoord(Number.NaN), "-");
+  assert.equal(fmtPos({ x: 1, y: -2.5, z: 0 }, true), "X 1.000 Y -2.500 Z 0.000 est");
+  assert.equal(fmtPos(null), "-");
+  assert.match(source, /import \{ fmtCoord, fmtPos \} from "\.\/modules\/format\.js";/);
+  assert.doesNotMatch(source, /function fmtCoord\(/);
+  assert.doesNotMatch(source, /function fmtPos\(/);
+});
 
 test("file rows expose responsive metadata cells", () => {
   for (const marker of [
@@ -277,9 +288,9 @@ test("Overview and Jog mount one shared machine readout with work and machine co
   assert.doesNotMatch(source, /[åäö]/i);
   assert.doesNotMatch(htmlSource, /\b(Jogga|Filer|STOPP|Stegvis|Riktning)\b/);
   const ctx = buildContext([
-    "fmtCoord", "fmtDashboardFeed", "fmtDashboardSpindle", "fmtActiveTool",
+    "fmtDashboardFeed", "fmtDashboardSpindle", "fmtActiveTool",
     "gcodeToolMetadata", "gcodeToolLabel", "toolDisplayName", "axisValue", "machineReadoutModel",
-  ]);
+  ], [], { fmtCoord });
   const model = JSON.parse(vm.runInContext(`JSON.stringify(machineReadoutModel({
     wpos: {x: 190.29, y: 192.9, z: 78.5166, a: -11070},
     mpos: {x: -1, y: -1, z: -1, a: 0},
@@ -5553,7 +5564,7 @@ test("machine learning always leaves pending state and reports through the botto
 
 test("machine learning summary reports learned machine data, not persistence metadata", () => {
   const ctx = buildContext(
-    ["finiteOr", "fmtCoord", "normalizeMachineLearned", "machineLearnedSummaryLines"],
+    ["finiteOr", "normalizeMachineLearned", "machineLearnedSummaryLines"], [], { fmtCoord },
   );
   const lines = vm.runInContext(
     `machineLearnedSummaryLines({

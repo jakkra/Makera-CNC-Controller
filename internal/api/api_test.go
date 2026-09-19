@@ -1257,6 +1257,23 @@ func TestWebUIServed(t *testing.T) {
 	if js.StatusCode != http.StatusOK || !strings.Contains(string(jsBody), "EventSource") {
 		t.Errorf("app.js status=%d", js.StatusCode)
 	}
+	if !strings.Contains(string(jsBody), `from "./modules/format.js"`) {
+		t.Error("app.js missing coordinate formatter module import")
+	}
+	format := get(t, srv.URL+"/modules/format.js")
+	formatBody, _ := io.ReadAll(format.Body)
+	format.Body.Close()
+	if format.StatusCode != http.StatusOK || !strings.Contains(format.Header.Get("Content-Type"), "javascript") || !strings.Contains(string(formatBody), "export function fmtCoord") {
+		t.Errorf("format module status=%d content-type=%q", format.StatusCode, format.Header.Get("Content-Type"))
+	}
+	if got := format.Header.Get("Cache-Control"); got != "no-store" {
+		t.Errorf("format module Cache-Control = %q, want no-store", got)
+	}
+	missingModule := get(t, srv.URL+"/modules/not-a-module.js")
+	missingModule.Body.Close()
+	if missingModule.StatusCode != http.StatusNotFound {
+		t.Errorf("unknown module status=%d, want 404", missingModule.StatusCode)
+	}
 	for _, want := range []string{`function machineReadoutModel`, `function renderMachineReadouts`, `data-machine-space="work"`, `data-machine-space="machine"`} {
 		if !strings.Contains(string(jsBody), want) {
 			t.Errorf("app.js missing dashboard position hierarchy marker %s", want)
