@@ -2,6 +2,7 @@ import * as THREE from "./three.module.min.js";
 import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
+import { mountMaintenance } from "./modules/maintenance.js";
 
 const ROOT = "/sd/gcodes";
 const GCODE_MAX_LINES = 500;
@@ -66,10 +67,6 @@ const MACRO_EDITOR_IDS = ["macro-name", "macro-description", "macro-color", "mac
 const state = {
   files: new Map(),
   jobs: new Map(),
-  runs: [],
-  notificationSnapshot: { enabled: false, deliveries: [] },
-  maintenanceLoading: false,
-  notificationTestPending: false,
   readOnly: false,
   machine: { state: "", mode: "owner", age_ms: 0, connected: false },
   gcodeSeqs: new Set(),
@@ -211,6 +208,13 @@ const state = {
   outline: defaultOutlineState(),
   workarea: defaultWorkAreaView(),
 };
+
+const maintenance = mountMaintenance({
+  request,
+  setStatusMessage,
+  bindButtonAction,
+  getReadOnly: () => state.readOnly,
+});
 
 let probeConfirmResolve = null;
 let outlineContextRevision = 1;
@@ -1211,6 +1215,7 @@ async function loadUISettings() {
 
 function applyAPICapabilities(caps) {
   state.readOnly = !!caps?.read_only;
+  maintenance.render();
   document.body.classList.toggle("read-only", state.readOnly);
   for (const id of [
     "command-actions", "ctl-halt", "tab-jog", "tab-control", "tab-files",
@@ -1958,7 +1963,7 @@ function recoverForegroundSession() {
   loadAPICapabilities();
   loadJogCapabilities();
   pollMachine();
-  if (state.activeTab === "maintenance") loadMaintenance();
+  if (state.activeTab === "maintenance") maintenance.load();
   return false;
 }
 
@@ -14350,147 +14355,10 @@ function showTab(name, urlMode = "push") {
   if (name === "active-job") renderActiveGcode();
   if (name === "dashboard") renderDashboard();
   if (name === "control" || name === "jog") renderJog();
-  if (name === "maintenance") loadMaintenance();
+  if (name === "maintenance") maintenance.load();
   else clearNotice("jog-availability");
   syncDashboardCameras();
   syncViewTabURL(name, urlMode);
-}
-
-function runOutcome(run) {
-  if (run?.active) return "Running";
-  if (Array.isArray(run?.alarms) && run.alarms.length) return "Alarm";
-  switch (String(run?.end_state || "")) {
-  case "Idle": return "Completed";
-  case "Unknown": return "Unknown";
-  default: return String(run?.end_state || "Ended");
-  }
-}
-
-function runHistoryEvents(run) {
-  const events = [];
-  for (const item of Array.isArray(run?.state_transitions) ? run.state_transitions : []) events.push({ time: item.time, text: `Machine state · ${item.state}` });
-  for (const item of Array.isArray(run?.alarms) ? run.alarms : []) events.push({ time: item.time, text: `Alarm${item.halt_reason?.code ? ` · ${item.halt_reason.code}` : ""}` });
-  for (const item of Array.isArray(run?.feed_overrides) ? run.feed_overrides : []) events.push({ time: item.time, text: `Feed override · ${Math.round(Number(item.override) || 0)}%` });
-  for (const item of Array.isArray(run?.spindle_overrides) ? run.spindle_overrides : []) events.push({ time: item.time, text: `Spindle override · ${Math.round(Number(item.override) || 0)}%` });
-  for (const item of Array.isArray(run?.commands) ? run.commands : []) events.push({ time: item.time, text: `${item.source || "controller"} · ${item.text || "command"}` });
-  return events.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-}
-
-function openRunHistoryDetail(run) {
-  const dialog = document.getElementById("run-history-dialog");
-  const title = document.getElementById("run-history-detail-title");
-  const summary = document.getElementById("run-history-detail-summary");
-  const eventsRoot = document.getElementById("run-history-detail-events");
-  if (!dialog || !title || !summary || !eventsRoot) return;
-  title.textContent = run.file || "Observed controller job";
-  summary.textContent = `${runOutcome(run)} · ${fmtDuration(Number(run.duration_ms))} · ${fmtTime(run.started_at)}`;
-  const fragment = document.createDocumentFragment();
-  for (const event of runHistoryEvents(run)) {
-    const row = document.createElement("div");
-    row.className = "run-history-event";
-    const time = document.createElement("time");
-    time.textContent = fmtTime(event.time);
-    const text = document.createElement("span");
-    text.textContent = event.text;
-    row.append(time, text);
-    fragment.appendChild(row);
-  }
-  if (!fragment.children.length) {
-    const empty = document.createElement("div");
-    empty.className = "maintenance-empty";
-    empty.textContent = "No observed events for this job.";
-    fragment.appendChild(empty);
-  }
-  eventsRoot.replaceChildren(fragment);
-  dialog.showModal();
-}
-
-function renderMaintenance() {
-  const runs = document.getElementById("maintenance-runs");
-  const notifications = document.getElementById("maintenance-notifications");
-  if (runs) {
-    const fragment = document.createDocumentFragment();
-    for (const run of state.runs) {
-      const row = document.createElement("button");
-      row.type = "button";
-      row.className = "maintenance-row";
-      const title = document.createElement("strong");
-      title.textContent = run.file || "Observed controller job";
-      const detail = document.createElement("span");
-      detail.textContent = `${runOutcome(run)} · ${fmtDuration(Number(run.duration_ms))} · ${fmtTime(run.started_at)}`;
-      row.append(title, detail);
-      row.title = `${title.textContent} · ${detail.textContent}`;
-      row.onclick = () => openRunHistoryDetail(run);
-      fragment.appendChild(row);
-    }
-    if (!fragment.children.length) {
-      const empty = document.createElement("div");
-      empty.className = "maintenance-empty";
-      empty.textContent = "No observed jobs yet.";
-      fragment.appendChild(empty);
-    }
-    runs.replaceChildren(fragment);
-  }
-  if (notifications) {
-    const fragment = document.createDocumentFragment();
-    const deliveries = Array.isArray(state.notificationSnapshot?.deliveries) ? state.notificationSnapshot.deliveries : [];
-    for (const delivery of deliveries) {
-      const row = document.createElement("div");
-      row.className = "maintenance-row";
-      const title = document.createElement("strong");
-      title.textContent = delivery.title || "Notification";
-      const detail = document.createElement("span");
-      detail.textContent = `${delivery.state || "unknown"} · ${delivery.body || delivery.error || ""} · ${fmtTime(delivery.created_at)}`;
-      row.append(title, detail);
-      row.title = `${title.textContent} · ${detail.textContent}`;
-      fragment.appendChild(row);
-    }
-    if (!fragment.children.length) {
-      const empty = document.createElement("div");
-      empty.className = "maintenance-empty";
-      empty.textContent = state.notificationSnapshot?.enabled ? "No notification deliveries yet." : "Mobile notifications are not configured.";
-      fragment.appendChild(empty);
-    }
-    notifications.replaceChildren(fragment);
-  }
-  const test = document.getElementById("maintenance-notification-test");
-  if (test) {
-    test.disabled = !state.notificationSnapshot?.enabled || state.notificationTestPending || state.readOnly;
-    test.setAttribute("aria-busy", String(state.notificationTestPending));
-    setTextIfChanged(test, state.notificationTestPending ? "Sending test…" : "Test notification");
-  }
-}
-
-async function loadMaintenance() {
-  if (state.maintenanceLoading) return;
-  state.maintenanceLoading = true;
-  try {
-    const [runsResponse, notificationResponse] = await Promise.all([request("/api/runs"), request("/api/notifications")]);
-    state.runs = await runsResponse.json();
-    state.notificationSnapshot = await notificationResponse.json();
-    renderMaintenance();
-  } catch (error) {
-    setStatusMessage("maintenance", "Maintenance history could not be loaded: " + error.message, "error", { force: true });
-  } finally {
-    state.maintenanceLoading = false;
-  }
-}
-
-async function testMaintenanceNotification() {
-  if (!state.notificationSnapshot?.enabled || state.notificationTestPending || state.readOnly) return;
-  state.notificationTestPending = true;
-  renderMaintenance();
-  setStatusMessage("maintenance-notification", "Sending notification test…", "", { force: true });
-  try {
-    await request("/api/notifications/test", { method: "POST" });
-    setStatusMessage("maintenance-notification", "Notification test sent.", "ok", { force: true });
-    await loadMaintenance();
-  } catch (error) {
-    setStatusMessage("maintenance-notification", "Notification test failed: " + error.message, "error", { force: true });
-  } finally {
-    state.notificationTestPending = false;
-    renderMaintenance();
-  }
 }
 
 function runSurfaceShellAction(action) {
@@ -14969,6 +14837,7 @@ function bindSurfaceXYMap() {
 }
 
 function init() {
+  maintenance.mount();
   mountMachineReadouts();
   initializeResponsiveControlSections();
   applyDashboardURLState();
@@ -15346,8 +15215,6 @@ function init() {
   for (const button of document.querySelectorAll("[data-surface-action]")) {
     button.onclick = () => runSurfaceShellAction(button.dataset.surfaceAction);
   }
-  bindButtonAction(document.getElementById("maintenance-notification-test"), testMaintenanceNotification);
-  document.getElementById("run-history-detail-close").onclick = () => document.getElementById("run-history-dialog")?.close();
   bindButtonAction(document.getElementById("surface-footer-hold"), () => sendControl("hold"));
   bindButtonAction(document.getElementById("surface-footer-resume"), () => {
     resumeActiveJob();

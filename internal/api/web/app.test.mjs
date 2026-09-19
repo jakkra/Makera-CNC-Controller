@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
+import { runHistoryEvents } from "./modules/maintenance.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.html"), "utf8");
@@ -254,12 +255,11 @@ test("timeline event labels use Fusion tool metadata and preserve CNC meaning", 
 });
 
 test("run history detail orders observed events by time", () => {
-  const ctx = buildContext(["runHistoryEvents"], [], { Date });
-  const events = JSON.parse(vm.runInContext(`JSON.stringify(runHistoryEvents({
+  const events = runHistoryEvents({
     state_transitions:[{time:"2026-01-01T10:02:00Z",state:"Hold"}],
     commands:[{time:"2026-01-01T10:01:00Z",source:"controller",text:"M3 S12000"}],
     feed_overrides:[{time:"2026-01-01T10:03:00Z",override:90}]
-  }))`, ctx));
+  });
   assert.deepEqual(events.map((event) => event.text), ["controller · M3 S12000", "Machine state · Hold", "Feed override · 90%"]);
 });
 
