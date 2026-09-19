@@ -1257,6 +1257,12 @@ func TestWebUIServed(t *testing.T) {
 	if js.StatusCode != http.StatusOK || !strings.Contains(string(jsBody), "EventSource") {
 		t.Errorf("app.js status=%d", js.StatusCode)
 	}
+	filesModule := get(t, srv.URL+"/modules/files.js")
+	filesModuleBody, _ := io.ReadAll(filesModule.Body)
+	filesModule.Body.Close()
+	if filesModule.StatusCode != http.StatusOK || !strings.Contains(string(filesModuleBody), "export function mountFilesCommands") {
+		t.Errorf("modules/files.js status=%d", filesModule.StatusCode)
+	}
 	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`} {
 		if !strings.Contains(string(jsBody), want) {
 			t.Errorf("app.js missing shared module import %s", want)
@@ -1420,9 +1426,14 @@ func TestWebUIServed(t *testing.T) {
 	if strings.Contains(string(jsBody), "Emergency halt the machine?") {
 		t.Errorf("app.js must not confirm emergency halt")
 	}
-	for _, want := range []string{"directoryRows", "renderFolderTree", "renderFolderChrome", "openDir", "doMkdir", "joinRelPath", "retryJob", "discardFile", "/api/files/retry", "/api/files/discard"} {
+	for _, want := range []string{"directoryRows", "renderFolderTree", "renderFolderChrome", "openDir", "doMkdir", "joinRelPath", "retryJob", "discardFile"} {
 		if !strings.Contains(string(jsBody), want) {
 			t.Errorf("app.js missing %s", want)
+		}
+	}
+	for _, want := range []string{"/api/files/retry", "/api/files/discard"} {
+		if !strings.Contains(string(filesModuleBody), want) {
+			t.Errorf("modules/files.js missing %s", want)
 		}
 	}
 	for _, want := range []string{"loadUISettings", "saveUISettings", "renderMacroButtons", "runMacro", "/api/ui/settings"} {

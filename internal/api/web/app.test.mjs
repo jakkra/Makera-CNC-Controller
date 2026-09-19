@@ -15,7 +15,7 @@ import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
-import { beginFileAction, createFileCatalog, endFileAction, fileRowLocallyOwned, mountFilesNavigation, mountFilesPresentation, mountFilesRows } from "./modules/files.js";
+import { beginFileAction, createFileCatalog, endFileAction, fileRowLocallyOwned, mountFilesCommands, mountFilesNavigation, mountFilesPresentation, mountFilesRows } from "./modules/files.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
@@ -5842,6 +5842,71 @@ test("file presentation renders summary ordering and failed-job retry actions", 
   retry.onclick();
   assert.deepEqual(retryCalls, [7]);
   assert.deepEqual(discardCalls, []);
+});
+
+test("file command module preserves mutation requests and pending lifecycle", async () => {
+  const calls = [];
+  const notices = [];
+  const lifecycle = [];
+  const renders = [];
+  let currentDir = "nested";
+  let filter = "";
+  const prompts = ["new-folder", "renamed.nc"];
+  class FormDataDouble {
+    constructor() { this.parts = []; }
+    append(...part) { this.parts.push(part); }
+  }
+  const input = { files: [{ name: "bound.nc" }], value: "selected", click() {} };
+  const drop = { classList: { add() {}, remove() {} } };
+  const filterInput = {};
+  const folderButton = {};
+  const elements = new Map([["file", input], ["drop", drop], ["filter", filterInput], ["folder-new", folderButton]]);
+  const commands = mountFilesCommands({
+    documentRef: { getElementById: (id) => elements.get(id) },
+    request: async (url, options) => { calls.push({ url, options }); },
+    FormDataRef: FormDataDouble,
+    promptRef: () => prompts.shift(),
+    confirmRef: () => true,
+    getCurrentDir: () => currentDir,
+    setCurrentDir: (value) => { currentDir = value; },
+    setFilter: (value) => { filter = value; },
+    joinRelPath: (dir, name) => dir ? `${dir}/${name}` : name,
+    cleanRelPath: (value) => value.replace(/^\/+|\/+$/g, ""),
+    dirname: (value) => value.slice(0, value.lastIndexOf("/")),
+    basename: (value) => value.slice(value.lastIndexOf("/") + 1),
+    relPath: (value) => value.replace("/sd/gcodes/", ""),
+    apiFileURL: (value) => "/api/files" + value,
+    retryButtonText: () => "Retry Upload",
+    setNotice: (...args) => notices.push(args),
+    clearNotice: () => {},
+    beginFileAction: (...args) => lifecycle.push(["begin", ...args]),
+    endFileAction: (...args) => lifecycle.push(["end", ...args]),
+    renderFiles: () => renders.push("render"),
+  });
+  commands.bind();
+  input.onchange();
+  assert.equal(input.value, "", "file input clears after upload selection");
+  assert.equal(typeof drop.ondrop, "function");
+  assert.equal(typeof filterInput.oninput, "function");
+  assert.equal(typeof folderButton.onclick, "function");
+  calls.length = 0;
+  await commands.uploadFiles([{ name: "part.nc" }]);
+  await commands.doMkdir();
+  await commands.doDelete("/sd/gcodes/old.nc");
+  await commands.retryJob({ id: 9, path: "/sd/gcodes/retry.nc" });
+  await commands.discardFile("/sd/gcodes/local.nc");
+  await commands.doRename("/sd/gcodes/old.nc");
+  assert.equal(calls[0].url, "/api/files");
+  assert.deepEqual(calls[0].options.body.parts[1], ["path", "nested/part.nc"]);
+  assert.deepEqual(calls[1], { url: "/api/dirs", options: { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: "nested/new-folder" }) } });
+  assert.deepEqual(calls[2], { url: "/api/files/sd/gcodes/old.nc", options: { method: "DELETE" } });
+  assert.equal(calls[3].url, "/api/files/retry");
+  assert.equal(calls[4].url, "/api/files/discard");
+  assert.equal(calls[5].url, "/api/files/rename");
+  assert.deepEqual(lifecycle.map(([phase]) => phase), ["begin", "end", "begin", "end", "begin", "end", "begin", "end"]);
+  assert.equal(currentDir, "nested/new-folder");
+  assert.equal(renders.length, 1);
+  assert.ok(notices.length >= 6);
 });
 
 test("file row renderer preserves keyed unchanged and locally owned rows", () => {

@@ -502,3 +502,152 @@ export function mountFilesRows({
 
   return { renderFiles, fileRowLocallyOwned: isFileRowLocallyOwned, scheduleFileRender, fileRowSignature, buildFileRow, appendFileActions, fileOverflowMenu, appendFileOverflowAction };
 }
+
+export function mountFilesCommands({
+  documentRef,
+  request,
+  FormDataRef,
+  promptRef,
+  confirmRef,
+  getCurrentDir,
+  setCurrentDir,
+  setFilter,
+  joinRelPath,
+  cleanRelPath,
+  dirname,
+  basename,
+  relPath,
+  apiFileURL,
+  retryButtonText,
+  setNotice,
+  clearNotice,
+  beginFileAction,
+  endFileAction,
+  renderFiles,
+}) {
+  async function uploadFiles(fileList) {
+    clearNotice("files-action");
+    for (const file of fileList) {
+      const target = joinRelPath(getCurrentDir(), file.name);
+      const fd = new FormDataRef();
+      fd.append("file", file, file.name);
+      fd.append("path", target);
+      try {
+        await request("/api/files", { method: "POST", body: fd });
+        setNotice("Queued upload: " + target, "ok", "files-action");
+      } catch (e) {
+        setNotice("Upload failed for " + file.name + ": " + e.message, "error", "files-action");
+      }
+    }
+  }
+
+  async function doMkdir() {
+    const name = promptRef("New folder name:");
+    if (!name) return;
+    const dir = joinRelPath(getCurrentDir(), name);
+    try {
+      await request("/api/dirs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: dir }),
+      });
+      setNotice("Folder queued: " + dir, "ok", "files-action");
+      setCurrentDir(cleanRelPath(dir));
+      renderFiles();
+    } catch (e) {
+      setNotice("Folder create failed: " + e.message, "error", "files-action");
+    }
+  }
+
+  async function doDelete(path) {
+    if (!confirmRef("Delete " + relPath(path) + "?")) return;
+    beginFileAction(path, "Deleting...", "Deleting: " + relPath(path));
+    try {
+      await request(apiFileURL(path), { method: "DELETE" });
+      setNotice("Delete accepted: " + relPath(path), "ok", "files-action");
+    } catch (e) {
+      setNotice("Delete failed: " + e.message, "error", "files-action");
+    } finally {
+      endFileAction(path);
+    }
+  }
+
+  async function retryJob(job) {
+    if (!job) return;
+    beginFileAction(job.path, "Retrying...", retryButtonText(job) + ": " + relPath(job.path));
+    try {
+      await request("/api/files/retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: job.id }),
+      });
+      setNotice(retryButtonText(job) + " queued: " + relPath(job.path), "ok", "files-action");
+    } catch (e) {
+      setNotice("Retry failed: " + e.message, "error", "files-action");
+    } finally {
+      endFileAction(job.path);
+    }
+  }
+
+  async function discardFile(path) {
+    if (!confirmRef("Discard local state for " + relPath(path) + "? This does not delete anything from the machine.")) return;
+    beginFileAction(path, "Discarding...", "Discarding local state: " + relPath(path));
+    try {
+      await request("/api/files/discard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      setNotice("Discarded local state: " + relPath(path), "ok", "files-action");
+    } catch (e) {
+      setNotice("Discard failed: " + e.message, "error", "files-action");
+    } finally {
+      endFileAction(path);
+    }
+  }
+
+  async function doRename(path) {
+    const currentName = basename(path);
+    const nextName = promptRef("Rename to:", currentName);
+    if (!nextName || nextName === currentName) return;
+    const dir = dirname(path);
+    const to = dir ? dir + "/" + nextName : nextName;
+    beginFileAction(path, "Renaming...", "Renaming: " + relPath(path));
+    try {
+      await request("/api/files/rename", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from: path, to }),
+      });
+      setNotice("Rename queued: " + relPath(path) + " -> " + to, "ok", "files-action");
+    } catch (e) {
+      setNotice("Rename failed: " + e.message, "error", "files-action");
+    } finally {
+      endFileAction(path);
+    }
+  }
+
+  let bound = false;
+  function bind() {
+    if (bound) return;
+    bound = true;
+    const input = documentRef.getElementById("file");
+    const drop = documentRef.getElementById("drop");
+    drop.onclick = () => input.click();
+    input.onchange = () => { uploadFiles(input.files); input.value = ""; };
+    drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+    drop.ondragleave = () => drop.classList.remove("over");
+    drop.ondrop = (e) => {
+      e.preventDefault();
+      drop.classList.remove("over");
+      uploadFiles(e.dataTransfer.files);
+    };
+    documentRef.getElementById("filter").oninput = (e) => {
+      setFilter(e.target.value);
+      renderFiles();
+    };
+    documentRef.getElementById("folder-new").onclick = doMkdir;
+  }
+
+  return { bind, uploadFiles, doMkdir, doDelete, retryJob, discardFile, doRename };
+}

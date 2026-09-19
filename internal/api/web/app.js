@@ -3,7 +3,7 @@ import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
-import { beginFileAction as beginFileActionState, createFileCatalog, endFileAction as endFileActionState, mountFilesNavigation, mountFilesPresentation, mountFilesRows } from "./modules/files.js";
+import { beginFileAction as beginFileActionState, createFileCatalog, endFileAction as endFileActionState, mountFilesCommands, mountFilesNavigation, mountFilesPresentation, mountFilesRows } from "./modules/files.js";
 
 const ROOT = "/sd/gcodes";
 const GCODE_MAX_LINES = 500;
@@ -219,7 +219,6 @@ const filesNavigation = mountFilesNavigation({
   documentRef: document,
   getCurrentDir: () => state.currentDir,
   setCurrentDir: (dir) => { state.currentDir = dir; },
-  getFilter: () => state.filter,
   setFilter: (filter) => { state.filter = filter; },
   renderFiles: () => renderFiles(),
   paths: { cleanRelPath, parentRelPath, relPath, basename },
@@ -238,6 +237,29 @@ const filesPresentation = mountFilesPresentation({
   discardFile,
   canDiscardFile,
   syncLabel: SYNC_LABEL,
+});
+
+const filesCommands = mountFilesCommands({
+  documentRef: document,
+  request,
+  FormDataRef: FormData,
+  promptRef: (message, value) => prompt(message, value),
+  confirmRef: (message) => confirm(message),
+  getCurrentDir: () => state.currentDir,
+  setCurrentDir: (dir) => { state.currentDir = dir; },
+  setFilter: (filter) => { state.filter = filter; },
+  joinRelPath,
+  cleanRelPath,
+  dirname,
+  basename,
+  relPath,
+  apiFileURL,
+  retryButtonText,
+  setNotice,
+  clearNotice,
+  beginFileAction,
+  endFileAction,
+  renderFiles: () => renderFiles(),
 });
 
 const filesRows = mountFilesRows({
@@ -11190,107 +11212,12 @@ async function importBackupFile(file) {
   }
 }
 
-async function uploadFiles(fileList) {
-  clearNotice("files-action");
-  for (const file of fileList) {
-    const target = joinRelPath(state.currentDir, file.name);
-    const fd = new FormData();
-    fd.append("file", file, file.name);
-    fd.append("path", target);
-    try {
-      await request("/api/files", { method: "POST", body: fd });
-      setNotice("Queued upload: " + target, "ok", "files-action");
-    } catch (e) {
-      setNotice("Upload failed for " + file.name + ": " + e.message, "error", "files-action");
-    }
-  }
-}
-
-async function doMkdir() {
-  const name = prompt("New folder name:");
-  if (!name) return;
-  const dir = joinRelPath(state.currentDir, name);
-  try {
-    await request("/api/dirs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: dir }),
-    });
-    setNotice("Folder queued: " + dir, "ok", "files-action");
-    state.currentDir = cleanRelPath(dir);
-    renderFiles();
-  } catch (e) {
-    setNotice("Folder create failed: " + e.message, "error", "files-action");
-  }
-}
-
-async function doDelete(path) {
-	if (!confirm("Delete " + relPath(path) + "?")) return;
-	beginFileAction(path, "Deleting...", "Deleting: " + relPath(path));
-	try {
-    await request(apiFileURL(path), { method: "DELETE" });
-    setNotice("Delete accepted: " + relPath(path), "ok", "files-action");
-	} catch (e) {
-		setNotice("Delete failed: " + e.message, "error", "files-action");
-	} finally {
-		endFileAction(path);
-	}
-}
-
-async function retryJob(job) {
-	if (!job) return;
-	beginFileAction(job.path, "Retrying...", retryButtonText(job) + ": " + relPath(job.path));
-	try {
-    await request("/api/files/retry", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ job_id: job.id }),
-    });
-    setNotice(retryButtonText(job) + " queued: " + relPath(job.path), "ok", "files-action");
-	} catch (e) {
-		setNotice("Retry failed: " + e.message, "error", "files-action");
-	} finally {
-		endFileAction(job.path);
-	}
-}
-
-async function discardFile(path) {
-	if (!confirm("Discard local state for " + relPath(path) + "? This does not delete anything from the machine.")) return;
-	beginFileAction(path, "Discarding...", "Discarding local state: " + relPath(path));
-	try {
-    await request("/api/files/discard", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path }),
-    });
-    setNotice("Discarded local state: " + relPath(path), "ok", "files-action");
-	} catch (e) {
-		setNotice("Discard failed: " + e.message, "error", "files-action");
-	} finally {
-		endFileAction(path);
-	}
-}
-
-async function doRename(path) {
-  const currentName = basename(path);
-  const nextName = prompt("Rename to:", currentName);
-  if (!nextName || nextName === currentName) return;
-	const dir = dirname(path);
-	const to = dir ? dir + "/" + nextName : nextName;
-	beginFileAction(path, "Renaming...", "Renaming: " + relPath(path));
-	try {
-    await request("/api/files/rename", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ from: path, to }),
-    });
-    setNotice("Rename queued: " + relPath(path) + " -> " + to, "ok", "files-action");
-	} catch (e) {
-		setNotice("Rename failed: " + e.message, "error", "files-action");
-	} finally {
-		endFileAction(path);
-	}
-}
+function uploadFiles(fileList) { return filesCommands.uploadFiles(fileList); }
+function doMkdir() { return filesCommands.doMkdir(); }
+function doDelete(path) { return filesCommands.doDelete(path); }
+function retryJob(job) { return filesCommands.retryJob(job); }
+function discardFile(path) { return filesCommands.discardFile(path); }
+function doRename(path) { return filesCommands.doRename(path); }
 
 function beginFileAction(path, buttonLabel, notice) {
 	beginFileActionState(state.fileActions, path, buttonLabel, notice, setNotice, renderFiles);
@@ -14556,8 +14483,6 @@ function init() {
   mountMachineReadouts();
   initializeResponsiveControlSections();
   applyDashboardURLState();
-  const drop = document.getElementById("drop");
-  const input = document.getElementById("file");
   document.getElementById("header-toggle").onclick = () => setHeaderCollapsed(!document.body.classList.contains("header-collapsed"));
   document.getElementById("development-refresh").onclick = reloadPage;
   installPullToRefresh();
@@ -14622,22 +14547,8 @@ function init() {
   }
   showActiveJobLeftTab(state.activeJobLeftTab);
   bindActiveJobSplitter();
-  drop.onclick = () => input.click();
-  input.onchange = () => { uploadFiles(input.files); input.value = ""; };
-  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
-  drop.ondragleave = () => drop.classList.remove("over");
-  drop.ondrop = (e) => {
-    e.preventDefault();
-    drop.classList.remove("over");
-    uploadFiles(e.dataTransfer.files);
-  };
-
-  document.getElementById("filter").oninput = (e) => {
-    state.filter = e.target.value;
-    renderFiles();
-  };
+  filesCommands.bind();
   filesNavigation.mount();
-  document.getElementById("folder-new").onclick = doMkdir;
 
   const form = document.getElementById("gcode-form");
   const gcodeInput = document.getElementById("gcode-input");
