@@ -15,9 +15,10 @@ import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
-import { beginFileAction, createFileCatalog, endFileAction, fileRowLocallyOwned, mountFilesNavigation, mountFilesPresentation } from "./modules/files.js";
+import { beginFileAction, createFileCatalog, endFileAction, fileRowLocallyOwned, mountFilesNavigation, mountFilesPresentation, mountFilesRows } from "./modules/files.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
+const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
 const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.html"), "utf8");
 
 test("shared helpers are imported as production ES modules", async () => {
@@ -91,7 +92,7 @@ test("file rows expose responsive metadata cells", () => {
     'class="file-size-cell num" data-label="${f.is_dir ? "Items" : "Size"}"',
     'class="file-modified-cell" data-label="Modified"',
   ]) {
-    assert.ok(source.includes(marker), `app.js includes ${marker}`);
+    assert.ok(filesModuleSource.includes(marker), `modules/files.js includes ${marker}`);
   }
 });
 
@@ -5841,6 +5842,80 @@ test("file presentation renders summary ordering and failed-job retry actions", 
   retry.onclick();
   assert.deepEqual(retryCalls, [7]);
   assert.deepEqual(discardCalls, []);
+});
+
+test("file row renderer preserves keyed unchanged and locally owned rows", () => {
+  const file = { path: "/sd/gcodes/part.nc", is_dir: false, virtual: false, children: null, size: 10, mtime: "", sync: "synced" };
+  const fileActions = new Map();
+  let visibleRows = [file];
+  const makeRow = () => ({
+    dataset: { fileKey: "entry:part.nc", filePath: file.path, fileAction: "" },
+    children: [],
+    contains: (node) => node != null && node === documentRef.activeElement,
+    querySelector: () => null,
+    remove() { this.removed = true; },
+  });
+  const tbody = { children: [], insertBefore(row) { this.children.push(row); } };
+  const empty = { textContent: "", hidden: false };
+  const documentRef = { activeElement: null, getElementById: (id) => id === "files" ? tbody : id === "files-empty" ? empty : null, createElement: () => ({}) };
+  const timers = [];
+  let renderTimer = null;
+  const rows = mountFilesRows({
+    documentRef,
+    windowRef: { HTMLElement: class HTMLElement {} },
+    getFilter: () => "",
+    getCurrentDir: () => "",
+    getFilesLoaded: () => true,
+    getFileActions: () => fileActions,
+    getActiveSelectPendingPath: () => "",
+    getFileRenderTimer: () => renderTimer,
+    setFileRenderTimer: (timer) => { renderTimer = timer; if (timer) timers.push(timer); },
+    directoryRows: () => visibleRows,
+    searchFileRows: () => visibleRows,
+    renderFileSummary: () => {},
+    renderFolderChrome: () => {},
+    renderFolderTree: () => {},
+    escapeHtml: (value) => String(value),
+    fmtSize: () => "10 B",
+    fmtTime: () => "-",
+    relPath: (value) => value.replace("/sd/gcodes/", ""),
+    basename: (value) => value.split("/").pop(),
+    apiFileURL: (value) => value,
+    syncLabel: { synced: "Synced" },
+    preferredRetryJob: () => null,
+    failedJobsForPath: () => [],
+    canDiscardFile: () => false,
+    canSelectGcodeFile: () => false,
+    retryButtonText: () => "Retry",
+    retryJob: () => {},
+    discardFile: () => {},
+    doRename: () => {},
+    doDelete: () => {},
+    selectActiveGcode: () => {},
+    openDir: () => {},
+  });
+  const unchanged = makeRow();
+  unchanged.dataset.fileSignature = rows.fileRowSignature(file, "");
+  tbody.children = [unchanged];
+  rows.renderFiles();
+  assert.equal(tbody.children[0], unchanged, "unchanged keyed row remains the same node");
+  const owned = makeRow();
+  owned.dataset.fileSignature = "different";
+  tbody.children = [owned];
+  documentRef.activeElement = owned;
+  rows.renderFiles();
+  assert.equal(tbody.children[0], owned, "focused changed row is deferred");
+  assert.equal(timers.length, 1);
+  documentRef.activeElement = null;
+  fileActions.set(file.path, "Deleting...");
+  owned.dataset.fileAction = "Deleting...";
+  visibleRows = [];
+  rows.renderFiles();
+  assert.equal(tbody.children[0], owned, "pending disappeared row is retained");
+  fileActions.clear();
+  rows.renderFiles();
+  assert.equal(owned.removed, true, "released disappeared row is removed");
+  clearTimeout(renderTimer);
 });
 
 test("file action lifecycle exposes pending state and releases it", () => {

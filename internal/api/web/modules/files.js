@@ -267,3 +267,238 @@ export function mountFilesPresentation({ documentRef, getFiles, getJobs, getFile
 
   return { renderFileSummary, renderJobs, jobStatusText, jobDetailHTML, appendJobActions };
 }
+
+export function mountFilesRows({
+  documentRef,
+  windowRef,
+  getFilter,
+  getCurrentDir,
+  getFilesLoaded,
+  getFileActions,
+  getActiveSelectPendingPath,
+  getFileRenderTimer,
+  setFileRenderTimer,
+  directoryRows,
+  searchFileRows,
+  renderFileSummary,
+  renderFolderChrome,
+  renderFolderTree,
+  escapeHtml,
+  fmtSize,
+  fmtTime,
+  relPath,
+  basename,
+  apiFileURL,
+  syncLabel,
+  preferredRetryJob,
+  failedJobsForPath,
+  canDiscardFile,
+  canSelectGcodeFile,
+  retryButtonText,
+  retryJob,
+  discardFile,
+  doRename,
+  doDelete,
+  selectActiveGcode,
+  openDir,
+}) {
+  function renderFiles() {
+    if (getFileRenderTimer()) {
+      clearTimeout(getFileRenderTimer());
+      setFileRenderTimer(null);
+    }
+    renderFileSummary();
+    renderFolderChrome();
+    renderFolderTree();
+    const tbody = documentRef.getElementById("files");
+    const q = getFilter().trim().toLowerCase();
+    const rows = q ? searchFileRows(q) : directoryRows(getCurrentDir());
+
+    const empty = documentRef.getElementById("files-empty");
+    empty.textContent = getFilesLoaded()
+      ? (q ? "No files or folders match the search." : "This folder is empty.")
+      : "Files load when this tab opens.";
+    empty.hidden = rows.length > 0;
+
+    // Update stable row nodes keyed by path instead of rebuilding the table:
+    // rows whose rendered state is unchanged keep their DOM (and any in-flight
+    // click/pointer state); only rows whose signature changed are rebuilt.
+    const existing = new Map();
+    for (const tr of tbody.children) existing.set(tr.dataset.fileKey, tr);
+    rows.forEach((f, i) => {
+      const key = (f.virtual ? "virtual:" : "entry:") + relPath(f.path);
+      const signature = fileRowSignature(f, q);
+      let tr = existing.get(key);
+      if (tr) {
+        existing.delete(key);
+        if (tr.dataset.fileSignature !== signature) {
+          if (isFileRowLocallyOwned(tr)) {
+            scheduleFileRender();
+          } else {
+            buildFileRow(tr, f, q);
+            tr.dataset.fileSignature = signature;
+          }
+        }
+      } else {
+        tr = documentRef.createElement("tr");
+        tr.dataset.fileKey = key;
+        buildFileRow(tr, f, q);
+        tr.dataset.fileSignature = signature;
+      }
+      const ref = tbody.children[i] || null;
+      if (ref !== tr) tbody.insertBefore(tr, ref);
+    });
+    for (const tr of existing.values()) {
+      if (isFileRowLocallyOwned(tr)) {
+        scheduleFileRender();
+      } else {
+        tr.remove();
+      }
+    }
+  }
+
+  function isFileRowLocallyOwned(row) {
+    return fileRowLocallyOwned(row, getFileActions(), documentRef.activeElement);
+  }
+
+  function scheduleFileRender() {
+    if (getFileRenderTimer()) return;
+    setFileRenderTimer(setTimeout(() => {
+      setFileRenderTimer(null);
+      renderFiles();
+    }, 250));
+  }
+
+  function fileRowSignature(f, q) {
+    const retry = preferredRetryJob(failedJobsForPath(f.path));
+    return JSON.stringify([
+      q ? 1 : 0,
+      f.is_dir ? 1 : 0,
+      f.virtual ? 1 : 0,
+      f.children,
+      f.error || "",
+      f.sync || "",
+      f.size,
+      f.mtime || "",
+      retry ? retry.id + "/" + retryButtonText(retry) : "",
+      canDiscardFile(f) ? 1 : 0,
+      canSelectGcodeFile(f) ? 1 : 0,
+      getActiveSelectPendingPath() === f.path ? 1 : 0,
+      getFileActions().get(f.path) || "",
+    ]);
+  }
+
+  function buildFileRow(tr, f, q) {
+    tr.dataset.filePath = f.path;
+    tr.dataset.fileAction = getFileActions().get(f.path) || "";
+    tr.classList.toggle("is-folder", !!f.is_dir);
+    tr.classList.toggle("is-file", !f.is_dir);
+    tr.classList.toggle("is-virtual", !!f.virtual);
+    const label = syncLabel[f.sync] || f.sync || "-";
+    const type = f.is_dir ? (f.virtual ? "folder" : "dir") : "file";
+    tr.innerHTML = `
+    <td class="path-cell">
+      <button type="button" class="file-name ${f.is_dir ? "folder-name" : ""}">${escapeHtml(q ? relPath(f.path) : basename(f.path))}</button>
+      ${f.children != null ? `<div class="muted">${f.children} item${f.children === 1 ? "" : "s"}</div>` : ""}
+      ${f.error ? `<div class="err">${escapeHtml(f.error)}</div>` : ""}
+    </td>
+    <td class="file-type-cell" data-label="Type">${type}</td>
+    <td class="file-size-cell num" data-label="${f.is_dir ? "Items" : "Size"}">${escapeHtml(f.is_dir && f.children != null ? String(f.children) : fmtSize(f.size, f.is_dir))}</td>
+    <td class="file-modified-cell" data-label="Modified">${escapeHtml(fmtTime(f.mtime))}</td>
+    <td class="status-cell">${f.virtual ? `<span class="sync"><span class="dot"></span>Folder</span>` : `<span class="sync s-${escapeHtml(f.sync)}"><span class="dot"></span>${escapeHtml(label)}</span>`}</td>
+    <td class="actions"></td>`;
+
+    const actions = tr.querySelector(".actions");
+    const name = tr.querySelector(".file-name");
+    if (f.is_dir) {
+      name.onclick = () => openDir(relPath(f.path));
+      const open = documentRef.createElement("button");
+      open.type = "button";
+      open.textContent = "Open";
+      open.onclick = () => openDir(relPath(f.path));
+      actions.append(open);
+    } else {
+      name.onclick = () => windowRef.open(apiFileURL(f.path), "_blank", "noopener");
+      const open = documentRef.createElement("a");
+      open.textContent = "Open";
+      open.href = apiFileURL(f.path);
+      open.target = "_blank";
+      open.rel = "noopener";
+      actions.append(open);
+    }
+    if (!f.virtual) appendFileActions(actions, f);
+  }
+
+  function appendFileActions(actions, f) {
+    const pending = getFileActions().get(f.path);
+    if (pending) {
+      const btn = documentRef.createElement("button");
+      btn.type = "button";
+      btn.textContent = pending;
+      btn.disabled = true;
+      btn.setAttribute("aria-busy", "true");
+      actions.append(btn);
+      return;
+    }
+    const failed = failedJobsForPath(f.path);
+    const retry = preferredRetryJob(failed);
+    if (retry) {
+      const btn = documentRef.createElement("button");
+      btn.type = "button";
+      btn.textContent = retryButtonText(retry);
+      btn.onclick = () => retryJob(retry);
+      actions.append(btn);
+    }
+    if (canDiscardFile(f)) appendFileOverflowAction(actions, "Discard", () => discardFile(f.path));
+    if (f.sync === "error") return;
+    if (canSelectGcodeFile(f)) {
+      const select = documentRef.createElement("button");
+      select.type = "button";
+      const pendingSelect = getActiveSelectPendingPath() === f.path;
+      select.textContent = pendingSelect ? "Selecting..." : "Select";
+      select.disabled = pendingSelect;
+      select.onclick = () => selectActiveGcode(f.path);
+      actions.append(select);
+    }
+    const rename = documentRef.createElement("button");
+    rename.type = "button";
+    rename.textContent = "Rename";
+    rename.onclick = () => doRename(f.path);
+    const del = documentRef.createElement("button");
+    del.type = "button";
+    del.textContent = "Delete";
+    del.onclick = () => doDelete(f.path);
+    appendFileOverflowAction(actions, rename);
+    appendFileOverflowAction(actions, del, null, true);
+  }
+
+  function fileOverflowMenu(actions) {
+    let menu = actions.querySelector(".file-row-menu");
+    if (menu) return menu;
+    menu = documentRef.createElement("details");
+    menu.className = "file-row-menu";
+    const summary = documentRef.createElement("summary");
+    summary.setAttribute("aria-label", "More file actions");
+    summary.title = "More actions";
+    summary.textContent = "•••";
+    const panel = documentRef.createElement("div");
+    panel.className = "file-row-menu-panel";
+    menu.append(summary, panel);
+    actions.append(menu);
+    return menu;
+  }
+
+  function appendFileOverflowAction(actions, labelOrButton, onclick, danger = false) {
+    const menu = fileOverflowMenu(actions);
+    const button = labelOrButton instanceof windowRef.HTMLElement ? labelOrButton : documentRef.createElement("button");
+    button.type = "button";
+    if (typeof labelOrButton === "string") button.textContent = labelOrButton;
+    if (onclick) button.onclick = onclick;
+    if (danger) button.classList.add("danger");
+    button.addEventListener("click", () => menu.removeAttribute("open"));
+    menu.querySelector(".file-row-menu-panel").append(button);
+    actions.append(menu);
+  }
+
+  return { renderFiles, fileRowLocallyOwned: isFileRowLocallyOwned, scheduleFileRender, fileRowSignature, buildFileRow, appendFileActions, fileOverflowMenu, appendFileOverflowAction };
+}
