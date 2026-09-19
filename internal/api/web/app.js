@@ -3,7 +3,7 @@ import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
-import { beginFileAction as beginFileActionState, createFileCatalog, endFileAction as endFileActionState, mountFilesCommands, mountFilesNavigation, mountFilesPresentation, mountFilesRows } from "./modules/files.js";
+import { beginFileAction as beginFileActionState, createFileCatalog, endFileAction as endFileActionState, mountFilesCommands, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
 
 const ROOT = "/sd/gcodes";
 const GCODE_MAX_LINES = 500;
@@ -260,6 +260,21 @@ const filesCommands = mountFilesCommands({
   beginFileAction,
   endFileAction,
   renderFiles: () => renderFiles(),
+});
+
+const filesTransitions = mountFilesTransitions({
+  getFiles: () => state.files,
+  setFiles: (files) => { state.files = files; },
+  setFilesLoaded: (loaded) => { state.filesLoaded = loaded; },
+  getJobs: () => state.jobs,
+  setJobs: (jobs) => { state.jobs = jobs; },
+  getMachine: () => state.machine,
+  queuePendingCount,
+  renderMachine,
+  renderFiles: () => renderFiles(),
+  renderJobs,
+  isActiveGcodePath: (path) => state.activeGcode?.path === path,
+  loadActiveGcode,
 });
 
 const filesRows = mountFilesRows({
@@ -13849,12 +13864,7 @@ function applySnapshot(snap) {
   if (snap.machine) {
     applyMachineStatus(snap.machine, false);
   }
-  if (Array.isArray(snap.files)) {
-    state.files = new Map(snap.files.map((f) => [f.path, f]));
-    state.filesLoaded = true;
-  }
-  if (Array.isArray(snap.jobs)) state.jobs = new Map(snap.jobs.map((j) => [j.id, j]));
-  if (Array.isArray(snap.jobs)) state.machine.pending_jobs = queuePendingCount();
+  filesTransitions.applySnapshot(snap);
   renderMachine();
   renderFiles();
   renderJobs();
@@ -13903,16 +13913,9 @@ function applyChange(ev) {
     return;
   }
   if (ev.kind === "entry" && ev.entry) {
-    if (ev.entry.sync === "") state.files.delete(ev.entry.path);
-    else state.files.set(ev.entry.path, ev.entry);
-    if (state.activeGcode?.path === ev.entry.path) loadActiveGcode();
-    renderMachine();
-    renderFiles();
+    filesTransitions.applyEntry(ev.entry);
   } else if (ev.kind === "job" && ev.job) {
-    state.jobs.set(ev.job.id, ev.job);
-    state.machine.pending_jobs = queuePendingCount();
-    renderMachine();
-    renderJobs();
+    filesTransitions.applyJob(ev.job);
   } else if (ev.kind === "active_gcode") {
     loadActiveGcode();
   }

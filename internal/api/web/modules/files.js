@@ -651,3 +651,46 @@ export function mountFilesCommands({
 
   return { bind, uploadFiles, doMkdir, doDelete, retryJob, discardFile, doRename };
 }
+
+export function mountFilesTransitions({
+  getFiles,
+  setFiles,
+  setFilesLoaded,
+  getJobs,
+  setJobs,
+  getMachine,
+  queuePendingCount,
+  renderMachine,
+  renderFiles,
+  renderJobs,
+  isActiveGcodePath,
+  loadActiveGcode,
+}) {
+  function applySnapshot(snap) {
+    if (Array.isArray(snap.files)) {
+      setFiles(new Map(snap.files.map((f) => [f.path, f])));
+      setFilesLoaded(true);
+    }
+    if (Array.isArray(snap.jobs)) {
+      setJobs(new Map(snap.jobs.map((j) => [j.id, j])));
+      getMachine().pending_jobs = queuePendingCount();
+    }
+  }
+
+  function applyEntry(entry) {
+    if (entry.sync === "") getFiles().delete(entry.path);
+    else getFiles().set(entry.path, entry);
+    if (isActiveGcodePath(entry.path)) loadActiveGcode();
+    renderMachine();
+    renderFiles();
+  }
+
+  function applyJob(job) {
+    getJobs().set(job.id, job);
+    getMachine().pending_jobs = queuePendingCount();
+    renderMachine();
+    renderJobs();
+  }
+
+  return { applySnapshot, applyEntry, applyJob };
+}

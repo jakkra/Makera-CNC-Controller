@@ -15,7 +15,7 @@ import { request } from "./modules/api.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
-import { beginFileAction, createFileCatalog, endFileAction, fileRowLocallyOwned, mountFilesCommands, mountFilesNavigation, mountFilesPresentation, mountFilesRows } from "./modules/files.js";
+import { beginFileAction, createFileCatalog, endFileAction, fileRowLocallyOwned, mountFilesCommands, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
@@ -5907,6 +5907,38 @@ test("file command module preserves mutation requests and pending lifecycle", as
   assert.equal(currentDir, "nested/new-folder");
   assert.equal(renders.length, 1);
   assert.ok(notices.length >= 6);
+});
+
+test("file transitions preserve snapshot and change ordering", () => {
+  const files = new Map([["/sd/gcodes/old.nc", { path: "/sd/gcodes/old.nc" }]]);
+  const jobs = new Map();
+  const machine = {};
+  const events = [];
+  let filesLoaded = false;
+  let activeReloads = 0;
+  const transitions = mountFilesTransitions({
+    getFiles: () => files,
+    setFiles: (value) => { events.push("set-files"); files.clear(); for (const [key, entry] of value) files.set(key, entry); },
+    setFilesLoaded: (value) => { filesLoaded = value; },
+    getJobs: () => jobs,
+    setJobs: (value) => { events.push("set-jobs"); jobs.clear(); for (const [key, job] of value) jobs.set(key, job); },
+    getMachine: () => machine,
+    queuePendingCount: () => 3,
+    renderMachine: () => events.push("machine"),
+    renderFiles: () => events.push("files"),
+    renderJobs: () => events.push("jobs"),
+    isActiveGcodePath: (path) => path === "/sd/gcodes/active.nc",
+    loadActiveGcode: () => { activeReloads++; },
+  });
+  transitions.applySnapshot({ files: [{ path: "/sd/gcodes/new.nc" }], jobs: [{ id: 4, state: "queued" }] });
+  assert.deepEqual(events, ["set-files", "set-jobs"]);
+  assert.equal(filesLoaded, true);
+  assert.equal(machine.pending_jobs, 3);
+  transitions.applyEntry({ path: "/sd/gcodes/active.nc", sync: "" });
+  transitions.applyJob({ id: 4, state: "done" });
+  assert.equal(activeReloads, 1);
+  assert.deepEqual(events, ["set-files", "set-jobs", "machine", "files", "machine", "jobs"]);
+  assert.equal(machine.pending_jobs, 3);
 });
 
 test("file row renderer preserves keyed unchanged and locally owned rows", () => {
