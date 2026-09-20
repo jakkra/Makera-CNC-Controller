@@ -12,7 +12,7 @@ import vm from "node:vm";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { request } from "./modules/api.js";
-import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobRunner, mountActiveJobSelection, mountPausedJobCommand } from "./modules/active-job.js";
+import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobRunner, mountActiveJobSelection, mountPausedJobCommand, previewBoundsText } from "./modules/active-job.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
@@ -6219,6 +6219,12 @@ test("paused job command preserves validation, payload, pending, and polling", a
   pending = "run";
   await command.runPausedJobCommand("stop_spindle");
   assert.equal(pending, "run");
+});
+
+test("active job preview bounds preserve XYZ and rotary formatting", () => {
+  assert.equal(previewBoundsText({ min: [1, 2, 3], max: [4, 7, 9] }), "X 3.00 Y 5.00 Z 6.00 mm");
+  assert.equal(previewBoundsText({ min: [0, 0, 0], max: [1, 2, 3], min_a: -2, max_a: 10 }), "X 1.00 Y 2.00 Z 3.00 mm A 12.00 deg");
+  assert.equal(previewBoundsText({ min: [], max: [] }), "");
 });
 
 test("file row renderer preserves keyed unchanged and locally owned rows", () => {

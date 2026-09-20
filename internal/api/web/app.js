@@ -1,6 +1,6 @@
 import * as THREE from "./three.module.min.js";
 import { request } from "./modules/api.js";
-import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection } from "./modules/active-job.js";
+import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection, previewBoundsText as activeJobPreviewBoundsText } from "./modules/active-job.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
@@ -9434,16 +9434,7 @@ function gcodeCursorForPlayedLine(segments, playedLine) {
 }
 
 function previewBoundsText(bounds) {
-  const min = bounds.min || [];
-  const max = bounds.max || [];
-  const dx = Number(max[0]) - Number(min[0]);
-  const dy = Number(max[1]) - Number(min[1]);
-  const dz = Number(max[2]) - Number(min[2]);
-  if (![dx, dy, dz].every(Number.isFinite)) return "";
-  const xyz = `X ${dx.toFixed(2)} Y ${dy.toFixed(2)} Z ${dz.toFixed(2)} mm`;
-  const da = Number(bounds.max_a) - Number(bounds.min_a);
-  if (Number.isFinite(da) && Math.abs(da) > 0.0001) return `${xyz} A ${Math.abs(da).toFixed(2)} deg`;
-  return xyz;
+  return activeJobPreviewBoundsText(bounds);
 }
 
 function drawGcodePreview(preview, live = null) {

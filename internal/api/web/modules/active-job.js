@@ -215,3 +215,15 @@ export function mountPausedJobCommand({
 
   return { runPausedJobCommand };
 }
+export function previewBoundsText(bounds) {
+  const min = bounds.min || [];
+  const max = bounds.max || [];
+  const dx = Number(max[0]) - Number(min[0]);
+  const dy = Number(max[1]) - Number(min[1]);
+  const dz = Number(max[2]) - Number(min[2]);
+  if (![dx, dy, dz].every(Number.isFinite)) return "";
+  const xyz = `X ${dx.toFixed(2)} Y ${dy.toFixed(2)} Z ${dz.toFixed(2)} mm`;
+  const da = Number(bounds.max_a) - Number(bounds.min_a);
+  if (Number.isFinite(da) && Math.abs(da) > 0.0001) return `${xyz} A ${Math.abs(da).toFixed(2)} deg`;
+  return xyz;
+}
