@@ -1,3 +1,4 @@
+import { createLiveUpdates } from "./modules/live-updates.js";
 import { createFeedback } from "./modules/feedback.js";
 import { triangulationEdgeKey, triangleCross, pointInTriangle2D, triangleCCW, pointInPolygonOrBoundary, effectiveOutlineGeometry, normalizedClosedPolygon, buildFieldProbePreview as computeFieldProbePreview } from "./modules/outline-geometry.js";
 import * as THREE from "./three.module.min.js";
@@ -143,8 +144,6 @@ const state = {
   activeSelectPendingPath: "",
   toolPending: "",
   gamepadMacroBindingDirty: false,
-  controlES: null,
-  filesES: null,
   jog: {
     caps: null,
     ws: null,
@@ -230,6 +229,17 @@ const {
   setNotice,
   setStatusMessage,
 } = createFeedback({ documentRef: document, performanceRef: performance });
+
+const { resetEventStream, connectControlSSE, connectFilesSSE, pollMachine } = createLiveUpdates({
+  request,
+  applySnapshot,
+  applyMachineStatus,
+  appendGcodeLine,
+  applyChange,
+  clearConnectivityIssue,
+  setConnectivityIssue,
+  refreshJobs,
+});
 
 const filesNavigation = mountFilesNavigation({
   documentRef: document,
@@ -1935,14 +1945,6 @@ function reloadPage() {
   window.location.reload();
 }
 
-function resetEventStream(key) {
-  const stream = state[key];
-  if (!stream) return;
-  stream.onopen = null;
-  stream.onerror = null;
-  stream.close();
-  state[key] = null;
-}
 
 function recoverForegroundSession() {
   const hiddenFor = pageHiddenAt ? Date.now() - pageHiddenAt : 0;
@@ -11980,32 +11982,7 @@ function applyChange(ev) {
   }
 }
 
-function connectControlSSE() {
-  if (state.controlES) return;
-  const es = new EventSource("/api/events?scope=control");
-  state.controlES = es;
-  es.onopen = () => clearConnectivityIssue("control-sse");
-  es.addEventListener("snapshot", (e) => {
-    clearConnectivityIssue("control-sse");
-    applySnapshot(JSON.parse(e.data));
-  });
-  es.addEventListener("machine", (e) => applyMachineStatus(JSON.parse(e.data)));
-  es.addEventListener("gcode", (e) => appendGcodeLine(JSON.parse(e.data)));
-  es.onerror = () => setConnectivityIssue("control-sse", "Control event stream disconnected; retrying.");
-}
 
-function connectFilesSSE() {
-  if (state.filesES) return;
-  const es = new EventSource("/api/events?scope=files");
-  state.filesES = es;
-  es.onopen = () => clearConnectivityIssue("files-sse");
-  es.addEventListener("snapshot", (e) => {
-    clearConnectivityIssue("files-sse");
-    applySnapshot(JSON.parse(e.data));
-  });
-  es.addEventListener("change", (e) => applyChange(JSON.parse(e.data)));
-  es.onerror = () => setConnectivityIssue("files-sse", "Files event stream disconnected; retrying.");
-}
 
 function viewTabFromURL(locationLike = window.location) {
   const pathname = String(locationLike?.pathname || "/").replace(/^\/+|\/+$/g, "");
@@ -12206,21 +12183,6 @@ function bindActiveJobSplitter() {
   setActiveJobSplitPercent(state.activeJobSplitPercent);
 }
 
-async function pollMachine() {
-  try {
-    const r = await request("/api/machine/status");
-    const next = await r.json();
-    applyMachineStatus(next);
-    clearConnectivityIssue("machine-status");
-  } catch (e) {
-    setConnectivityIssue("machine-status", "Machine status unavailable: " + e.message);
-  }
-  try {
-    await refreshJobs();
-  } catch {
-    // File SSE reports its own disconnect state; avoid duplicating it here.
-  }
-}
 
 function mergeMachineStatusForDisplay(next) {
   if (!jogEstimateActive()) return next;

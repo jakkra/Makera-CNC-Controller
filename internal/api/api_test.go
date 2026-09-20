@@ -1270,7 +1270,7 @@ func TestWebUIServed(t *testing.T) {
 	js := get(t, srv.URL+"/app.js")
 	jsBody, _ := io.ReadAll(js.Body)
 	js.Body.Close()
-	if js.StatusCode != http.StatusOK || !strings.Contains(string(jsBody), "EventSource") {
+	if js.StatusCode != http.StatusOK || !strings.Contains(string(jsBody), "createLiveUpdates") {
 		t.Errorf("app.js status=%d", js.StatusCode)
 	}
 	geometryModule := get(t, srv.URL+"/modules/outline-geometry.js")
@@ -1279,6 +1279,9 @@ func TestWebUIServed(t *testing.T) {
 	feedbackModule := get(t, srv.URL+"/modules/feedback.js")
 	feedbackBody, _ := io.ReadAll(feedbackModule.Body)
 	feedbackModule.Body.Close()
+	liveModule := get(t, srv.URL+"/modules/live-updates.js")
+	liveBody, _ := io.ReadAll(liveModule.Body)
+	liveModule.Body.Close()
 	filesModule := get(t, srv.URL+"/modules/files.js")
 	filesModuleBody, _ := io.ReadAll(filesModule.Body)
 	filesModule.Body.Close()
@@ -1297,6 +1300,7 @@ func TestWebUIServed(t *testing.T) {
 		mark string
 	}{
 		{"/modules/api.js", "export async function request"},
+		{"/modules/live-updates.js", "export function createLiveUpdates"},
 		{"/modules/feedback.js", "export function createFeedback"},
 		{"/modules/outline-geometry.js", "export function buildFieldProbePreview"},
 		{"/modules/dom.js", "export function setSoftDisabled"},
@@ -1333,7 +1337,7 @@ func TestWebUIServed(t *testing.T) {
 			t.Errorf("app.js missing dashboard position hierarchy marker %s", want)
 		}
 	}
-	if !strings.Contains(string(jsBody), "/api/events?scope=control") || !strings.Contains(string(jsBody), "/api/events?scope=files") {
+	if !strings.Contains(string(liveBody), "/api/events?scope=control") || !strings.Contains(string(liveBody), "/api/events?scope=files") {
 		t.Errorf("app.js missing scoped event streams")
 	}
 	for _, want := range []string{`setAttribute("aria-selected", String(active))`, `if (e.key === "ArrowRight")`, `else if (e.key === "Home")`, `window.addEventListener("popstate"`, `showTab(viewTabFromURL(), "replace")`} {
@@ -1341,10 +1345,10 @@ func TestWebUIServed(t *testing.T) {
 			t.Errorf("app.js missing accessible tab behavior %s", want)
 		}
 	}
-	if !strings.Contains(string(jsBody), `clearConnectivityIssue("control-sse")`) || !strings.Contains(string(jsBody), `clearConnectivityIssue("files-sse")`) {
+	if !strings.Contains(string(liveBody), `clearConnectivityIssue("control-sse")`) || !strings.Contains(string(liveBody), `clearConnectivityIssue("files-sse")`) {
 		t.Errorf("app.js missing stream reconnect notice clearing")
 	}
-	if !strings.Contains(string(jsBody), `setConnectivityIssue("machine-status", "Machine status unavailable: " + e.message)`) || !strings.Contains(string(jsBody), `clearConnectivityIssue("machine-status")`) {
+	if !strings.Contains(string(liveBody), `setConnectivityIssue("machine-status", "Machine status unavailable: " + e.message)`) || !strings.Contains(string(liveBody), `clearConnectivityIssue("machine-status")`) {
 		t.Errorf("app.js missing machine status notice lifecycle")
 	}
 	for _, want := range []string{`function attentionResumeAction`, `return "resume_job"`, `return "resume"`, `id="mobile-actions-toggle"`, `class="surface-jog-panel attention-surface"`, `state.readOnly || !resumeAction`, `Disarm other controller`, `classList.add("mobile-menu-open")`} {
@@ -1392,7 +1396,7 @@ func TestWebUIServed(t *testing.T) {
 	if !strings.Contains(string(jsBody), "refreshJobs") || !strings.Contains(string(filesModuleBody), "/api/jobs") {
 		t.Errorf("active job diagnostic refresh is incomplete")
 	}
-	if !strings.Contains(string(jsBody), "renderWorkArea") || !strings.Contains(string(jsBody), "SPINDLE_DIAMETER_MM") || !strings.Contains(string(jsBody), "OUTLINE_POINT_DIAMETER_MM") || !strings.Contains(string(jsBody), "jogPanelMessage") || !strings.Contains(string(jsBody), "sendTapMove") || !strings.Contains(string(jsBody), "sendWorkCoordinateMove") || !strings.Contains(string(jsBody), "workMoveTargetsFromInputs") || !strings.Contains(string(jsBody), "resetWorkMoveInput") || !strings.Contains(string(jsBody), "workMoveInputIsLive") || !strings.Contains(string(jsBody), "renderWorkMoveFieldState") || !strings.Contains(string(jsBody), "stepTapFeed") || !strings.Contains(string(jsBody), "feedBoundsFor") || !strings.Contains(string(jsBody), "stepZ") || !strings.Contains(string(jsBody), "setOriginAxis") || !strings.Contains(string(jsBody), "applyXYZOrigin") || !strings.Contains(string(jsBody), "applyOriginSource") || !strings.Contains(string(jsBody), "originTargetsFromOriginSource") || !strings.Contains(string(jsBody), "originTargetsFromXYZ") || !strings.Contains(string(jsBody), "machineAnchorPoints") || !strings.Contains(string(jsBody), "runAutoZProbe") || !strings.Contains(string(jsBody), "recallSelectedOrigin") || !strings.Contains(string(jsBody), "saveCurrentOrigin") || !strings.Contains(string(jsBody), "deleteSelectedOrigin") || !strings.Contains(string(jsBody), "saved_origins") || !strings.Contains(string(jsBody), `type: "target"`) || !strings.Contains(string(jsBody), `type: "step"`) || !strings.Contains(string(jsBody), `type: "origin"`) || !strings.Contains(string(jsBody), "G10L20P0") || !strings.Contains(string(jsBody), "/api/probe/auto-z") || !strings.Contains(string(jsBody), "/api/machine/status") || !strings.Contains(string(jsBody), "motion_estimated") {
+	if !strings.Contains(string(jsBody), "renderWorkArea") || !strings.Contains(string(jsBody), "SPINDLE_DIAMETER_MM") || !strings.Contains(string(jsBody), "OUTLINE_POINT_DIAMETER_MM") || !strings.Contains(string(jsBody), "jogPanelMessage") || !strings.Contains(string(jsBody), "sendTapMove") || !strings.Contains(string(jsBody), "sendWorkCoordinateMove") || !strings.Contains(string(jsBody), "workMoveTargetsFromInputs") || !strings.Contains(string(jsBody), "resetWorkMoveInput") || !strings.Contains(string(jsBody), "workMoveInputIsLive") || !strings.Contains(string(jsBody), "renderWorkMoveFieldState") || !strings.Contains(string(jsBody), "stepTapFeed") || !strings.Contains(string(jsBody), "feedBoundsFor") || !strings.Contains(string(jsBody), "stepZ") || !strings.Contains(string(jsBody), "setOriginAxis") || !strings.Contains(string(jsBody), "applyXYZOrigin") || !strings.Contains(string(jsBody), "applyOriginSource") || !strings.Contains(string(jsBody), "originTargetsFromOriginSource") || !strings.Contains(string(jsBody), "originTargetsFromXYZ") || !strings.Contains(string(jsBody), "machineAnchorPoints") || !strings.Contains(string(jsBody), "runAutoZProbe") || !strings.Contains(string(jsBody), "recallSelectedOrigin") || !strings.Contains(string(jsBody), "saveCurrentOrigin") || !strings.Contains(string(jsBody), "deleteSelectedOrigin") || !strings.Contains(string(jsBody), "saved_origins") || !strings.Contains(string(jsBody), `type: "target"`) || !strings.Contains(string(jsBody), `type: "step"`) || !strings.Contains(string(jsBody), `type: "origin"`) || !strings.Contains(string(jsBody), "G10L20P0") || !strings.Contains(string(jsBody), "/api/probe/auto-z") || !strings.Contains(string(liveBody), "/api/machine/status") || !strings.Contains(string(jsBody), "motion_estimated") {
 		t.Errorf("app.js missing work area, tap move, jog status messaging, or cache-only status polling")
 	}
 	for _, want := range []string{"defaultOutlineState", "startOutlineCapture", "endOutlineCapture", "addOutlinePoint", "undoOutline", "redoOutline", "closeOutline", "toggleOutlineCurveFit", "traceOutline", "traceOutlineMachinePoints", "/api/outline/trace", "probeFloor", "rebaseOutlineToFloor", "/api/probe/floor", "floor_machine_z", "runFieldProbe", "probeZAtWorkPoint", "currentOutlineCapturePosition", "retractZMM: startZMM", "/api/probe/z", "PROBE_SPOT_DIAMETER_MM", "OUTLINE_CURVE_TOLERANCE_MM", "MAX_EFFECTIVE_OUTLINE_POINTS", "effectiveOutlineGeometry", "outlineEffectiveExportPoints", "buildBoundaryProbePoints", "buildRelaxedProbePoints", "relaxProbeDistribution", "probeSpotFitsPolygon", "renderWorkAreaOutline", "renderWorkAreaFieldProbePreview", "outlinePathD", "outlineCubicSegments", "buildOutlineDXF", "outlineJSONDocument", "saveOutlineJSON", "loadOutlineFile", "outlineStateFromJSON", "application/json", "application/dxf", "$INSUNITS", "AC1009", "POLYLINE", "VERTEX", "SEQEND", "buildHeightMeshVertices", "exportHeightOBJ", "exportHeightImage", "safe_z_enabled", "safe_z_disabled"} {
