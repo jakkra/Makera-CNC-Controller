@@ -62,6 +62,18 @@ const MACHINE_SETTING_IDS = [
 ];
 const MACRO_EDITOR_IDS = ["macro-name", "macro-description", "macro-color", "macro-lines", "macro-placement"];
 
+const SYNC_LABEL = {
+  synced: "Synced",
+  local_only: "Local only",
+  pending_upload: "Queued",
+  uploading: "Uploading",
+  pending_delete: "Delete queued",
+  deleting: "Deleting",
+  pending_rename: "Rename queued",
+  remote_only: "On machine",
+  error: "Error",
+};
+
 const state = {
   files: new Map(),
   jobs: new Map(),
@@ -515,17 +527,6 @@ const SURFACE_MPG_DEAD_ZONE = 0.24;
 // Same axis palette as the Control tab work-area origin marker.
 const GCODE_AXIS_COLORS = { x: "#f05b5b", y: "#6fa3ff", z: "#44c27b" };
 
-const SYNC_LABEL = {
-  synced: "Synced",
-  local_only: "Local only",
-  pending_upload: "Queued",
-  uploading: "Uploading",
-  pending_delete: "Delete queued",
-  deleting: "Deleting",
-  pending_rename: "Rename queued",
-  remote_only: "On machine",
-  error: "Error",
-};
 
 const HALT_REASON = {
   1: "Halt manually",
