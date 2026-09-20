@@ -1283,6 +1283,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/active-job.js", "export function mountActiveJobLoader"},
 		{"/modules/active-job.js", "export function mountActiveJobRunner"},
 		{"/modules/active-job.js", "export function mountActiveJobControl"},
+		{"/modules/active-job.js", "export function mountPausedJobCommand"},
 	} {
 		module := get(t, srv.URL+asset.path)
 		moduleBody, _ := io.ReadAll(module.Body)

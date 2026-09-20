@@ -1,6 +1,6 @@
 import * as THREE from "./three.module.min.js";
 import { request } from "./modules/api.js";
-import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobRunner, mountActiveJobSelection } from "./modules/active-job.js";
+import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection } from "./modules/active-job.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
@@ -339,6 +339,16 @@ const activeJobControl = mountActiveJobControl({
   confirmRef: (message) => confirm(message),
   setActiveFeedback,
   renderMachine,
+  pollMachine,
+});
+
+const pausedJobCommand = mountPausedJobCommand({
+  request,
+  getActiveGcodePending: () => state.activeGcodePending,
+  setActiveGcodePending: (value) => { state.activeGcodePending = value; },
+  getRaiseDistance: () => document.getElementById("paused-job-raise-distance")?.value,
+  setActiveFeedback,
+  renderActiveGcode,
   pollMachine,
 });
 
@@ -10708,39 +10718,7 @@ async function runJobControl(action) {
 }
 
 async function runPausedJobCommand(action, options = {}) {
-  if (state.activeGcodePending) return;
-  const body = { action, ...options };
-  if (action === "raise_z") {
-    const distance = Number(document.getElementById("paused-job-raise-distance")?.value);
-    if (!Number.isFinite(distance) || distance <= 0 || distance > 50) {
-      setActiveFeedback("Raise distance must be greater than 0 and at most 50 mm.", "error");
-      return;
-    }
-    body.distance_mm = distance;
-  }
-  state.activeGcodePending = action;
-  const pendingText = {
-    raise_z: "Raising Z while the job is paused...",
-    stop_spindle: "Stopping spindle while the job is paused...",
-    start_spindle: "Starting spindle from the paused job context...",
-  };
-  setActiveFeedback(pendingText[action] || "Sending paused job command...", "");
-  renderActiveGcode();
-  try {
-    const response = await request("/api/gcode/active/paused-command", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const result = await response.json();
-    setActiveFeedback(result.message, result.verified ? "ok" : "error");
-    await pollMachine();
-  } catch (error) {
-    setActiveFeedback("Paused command failed: " + error.message, "error");
-  } finally {
-    state.activeGcodePending = "";
-    renderActiveGcode();
-  }
+  return pausedJobCommand.runPausedJobCommand(action, options);
 }
 
 async function setFeedOverride(percent) {

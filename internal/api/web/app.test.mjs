@@ -12,7 +12,7 @@ import vm from "node:vm";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { request } from "./modules/api.js";
-import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobRunner, mountActiveJobSelection } from "./modules/active-job.js";
+import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobRunner, mountActiveJobSelection, mountPausedJobCommand } from "./modules/active-job.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
@@ -6194,6 +6194,31 @@ test("active job control preserves pause/resume guards and pending lifecycle", a
   pending = "run";
   assert.equal(await control.runActiveJobControl("pause_job"), false);
   assert.deepEqual(feedback.at(-1), ["Another active job action is still in progress.", "error"]);
+});
+
+test("paused job command preserves validation, payload, pending, and polling", async () => {
+  let pending = "";
+  let distance = "12.5";
+  const calls = [];
+  const feedback = [];
+  const command = mountPausedJobCommand({
+    request: async (url, options) => { calls.push([url, options]); return { json: async () => ({ message: "Raised", verified: true }) }; },
+    getActiveGcodePending: () => pending,
+    setActiveGcodePending: (value) => { pending = value; calls.push(["pending", value]); },
+    getRaiseDistance: () => distance,
+    setActiveFeedback: (...args) => feedback.push(args),
+    renderActiveGcode: () => calls.push("render"),
+    pollMachine: async () => calls.push("poll"),
+  });
+  await command.runPausedJobCommand("raise_z");
+  assert.deepEqual(calls, [["pending", "raise_z"], "render", ["/api/gcode/active/paused-command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "raise_z", distance_mm: 12.5 }) }], "poll", ["pending", ""], "render"]);
+  assert.deepEqual(feedback, [["Raising Z while the job is paused...", ""], ["Raised", "ok"]]);
+  distance = "51";
+  await command.runPausedJobCommand("raise_z");
+  assert.deepEqual(feedback.at(-1), ["Raise distance must be greater than 0 and at most 50 mm.", "error"]);
+  pending = "run";
+  await command.runPausedJobCommand("stop_spindle");
+  assert.equal(pending, "run");
 });
 
 test("file row renderer preserves keyed unchanged and locally owned rows", () => {

@@ -167,3 +167,51 @@ export function mountActiveJobControl({
 
   return { runActiveJobControl };
 }
+
+export function mountPausedJobCommand({
+  request,
+  getActiveGcodePending,
+  setActiveGcodePending,
+  getRaiseDistance,
+  setActiveFeedback,
+  renderActiveGcode,
+  pollMachine,
+}) {
+  async function runPausedJobCommand(action, options = {}) {
+    if (getActiveGcodePending()) return;
+    const body = { action, ...options };
+    if (action === "raise_z") {
+      const distance = Number(getRaiseDistance());
+      if (!Number.isFinite(distance) || distance <= 0 || distance > 50) {
+        setActiveFeedback("Raise distance must be greater than 0 and at most 50 mm.", "error");
+        return;
+      }
+      body.distance_mm = distance;
+    }
+    setActiveGcodePending(action);
+    const pendingText = {
+      raise_z: "Raising Z while the job is paused...",
+      stop_spindle: "Stopping spindle while the job is paused...",
+      start_spindle: "Starting spindle from the paused job context...",
+    };
+    setActiveFeedback(pendingText[action] || "Sending paused job command...", "");
+    renderActiveGcode();
+    try {
+      const response = await request("/api/gcode/active/paused-command", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const result = await response.json();
+      setActiveFeedback(result.message, result.verified ? "ok" : "error");
+      await pollMachine();
+    } catch (error) {
+      setActiveFeedback("Paused command failed: " + error.message, "error");
+    } finally {
+      setActiveGcodePending("");
+      renderActiveGcode();
+    }
+  }
+
+  return { runPausedJobCommand };
+}
