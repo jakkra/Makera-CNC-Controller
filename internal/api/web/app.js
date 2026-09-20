@@ -1,6 +1,6 @@
 import * as THREE from "./three.module.min.js";
 import { request } from "./modules/api.js";
-import { mountActiveJobLoader, mountActiveJobSelection } from "./modules/active-job.js";
+import { mountActiveJobLoader, mountActiveJobRunner, mountActiveJobSelection } from "./modules/active-job.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
@@ -313,6 +313,22 @@ const activeJobLoader = mountActiveJobLoader({
   renderActiveGcode,
   getMachine: () => state.machine,
   renderAttention,
+});
+
+const activeJobRunner = mountActiveJobRunner({
+  request,
+  getActiveGcode: () => state.activeGcode,
+  getActiveGcodePending: () => state.activeGcodePending,
+  setActiveGcodePending: (value) => { state.activeGcodePending = value; },
+  machineActionState,
+  confirmRef: (message) => confirm(message),
+  relPath,
+  setActiveFeedback,
+  renderActiveGcode,
+  clearNotice,
+  pollMachine,
+  appendGcodeLine,
+  setNotice,
 });
 
 const filesRows = mountFilesRows({
@@ -10638,39 +10654,7 @@ function syncActiveGcodeFromMachine(machine) {
 }
 
 async function runActiveGcode() {
-  const active = state.activeGcode || {};
-  if (!active.path) {
-    setActiveFeedback("Select an active gcode before running.", "error");
-    return;
-  }
-  if (!active.runnable) {
-    setActiveFeedback(active.message || "Active gcode is not runnable.", "error");
-    return;
-  }
-  if (machineActionState() !== "Idle") {
-    setActiveFeedback("Machine must be Idle before running active gcode.", "error");
-    return;
-  }
-  if (state.activeGcodePending) return;
-  if (!confirm("Start " + relPath(active.path) + "?")) return;
-  state.activeGcodePending = "run";
-  setActiveFeedback("Sending run command for " + relPath(active.path) + "...", "");
-  renderActiveGcode();
-  try {
-    const r = await request("/api/gcode/active/run", { method: "POST" });
-    const result = await r.json();
-    setActiveFeedback(result.message || "Run command sent; machine confirmation was not available.", result.verified ? "ok" : "");
-    clearNotice("active-gcode-run");
-    pollMachine();
-    setTimeout(pollMachine, 1200);
-  } catch (e) {
-    appendGcodeLine({ seq: "local-" + Date.now(), dir: "recv", source: "api", text: "error: " + e.message });
-    setActiveFeedback("Run failed: " + e.message, "error");
-    setNotice("Run failed: " + e.message, "error", "active-gcode-run");
-  } finally {
-    state.activeGcodePending = "";
-    renderActiveGcode();
-  }
+  return activeJobRunner.runActiveGcode();
 }
 
 async function runActiveJobControl(action) {

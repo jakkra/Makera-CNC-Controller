@@ -12,7 +12,7 @@ import vm from "node:vm";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { request } from "./modules/api.js";
-import { mountActiveJobLoader, mountActiveJobSelection } from "./modules/active-job.js";
+import { mountActiveJobLoader, mountActiveJobRunner, mountActiveJobSelection } from "./modules/active-job.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
@@ -6094,6 +6094,64 @@ test("active job loader enforces single flight and terminal render order", async
   });
   await failed.loadActiveGcode();
   assert.deepEqual(events.at(-1), ["error", "active-gcode", "Active gcode unavailable: offline"]);
+});
+
+test("active job runner preserves pending, request, polling, and error behavior", async () => {
+  let pending = "";
+  const feedback = [];
+  const notices = [];
+  const renders = [];
+  const polls = [];
+  const log = [];
+  const timers = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, delay) => { timers.push([fn, delay]); return 1; };
+  try {
+    const runner = mountActiveJobRunner({
+      request: async () => ({ json: async () => ({ message: "Run accepted", verified: true }) }),
+      getActiveGcode: () => ({ path: "/sd/gcodes/part.nc", runnable: true }),
+      getActiveGcodePending: () => pending,
+      setActiveGcodePending: (value) => { pending = value; log.push(["pending", value]); },
+      machineActionState: () => "Idle",
+      confirmRef: () => true,
+      relPath: (path) => path.replace("/sd/gcodes/", ""),
+      setActiveFeedback: (...args) => feedback.push(args),
+      renderActiveGcode: () => renders.push("active"),
+      clearNotice: (key) => notices.push(["clear", key]),
+      pollMachine: () => polls.push("poll"),
+      appendGcodeLine: (line) => log.push(line),
+      setNotice: (...args) => notices.push(args),
+    });
+    await runner.runActiveGcode();
+    assert.deepEqual(log.slice(0, 2), [["pending", "run"], ["pending", ""]]);
+    assert.deepEqual(renders, ["active", "active"]);
+    assert.deepEqual(polls, ["poll"]);
+    assert.equal(timers.length, 1);
+    assert.equal(timers[0][1], 1200);
+    assert.deepEqual(notices, [["clear", "active-gcode-run"]]);
+    assert.deepEqual(feedback, [["Sending run command for part.nc...", ""], ["Run accepted", "ok"]]);
+
+    const failed = mountActiveJobRunner({
+      request: async () => { throw new Error("offline"); },
+      getActiveGcode: () => ({ path: "/sd/gcodes/part.nc", runnable: true }),
+      getActiveGcodePending: () => "",
+      setActiveGcodePending: (value) => { pending = value; },
+      machineActionState: () => "Idle",
+      confirmRef: () => true,
+      relPath: (path) => path.replace("/sd/gcodes/", ""),
+      setActiveFeedback: (...args) => feedback.push(args),
+      renderActiveGcode: () => renders.push("active"),
+      clearNotice: () => {},
+      pollMachine: () => {},
+      appendGcodeLine: (line) => log.push(line),
+      setNotice: (...args) => notices.push(args),
+    });
+    await failed.runActiveGcode();
+    assert.match(log.at(-1).text, /^error: offline$/);
+    assert.deepEqual(notices.at(-1), ["Run failed: offline", "error", "active-gcode-run"]);
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
 });
 
 test("file row renderer preserves keyed unchanged and locally owned rows", () => {

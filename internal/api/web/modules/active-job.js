@@ -64,3 +64,57 @@ export function mountActiveJobLoader({
 
   return { loadActiveGcode };
 }
+
+export function mountActiveJobRunner({
+  request,
+  getActiveGcode,
+  getActiveGcodePending,
+  setActiveGcodePending,
+  machineActionState,
+  confirmRef,
+  relPath,
+  setActiveFeedback,
+  renderActiveGcode,
+  clearNotice,
+  pollMachine,
+  appendGcodeLine,
+  setNotice,
+}) {
+  async function runActiveGcode() {
+    const active = getActiveGcode() || {};
+    if (!active.path) {
+      setActiveFeedback("Select an active gcode before running.", "error");
+      return;
+    }
+    if (!active.runnable) {
+      setActiveFeedback(active.message || "Active gcode is not runnable.", "error");
+      return;
+    }
+    if (machineActionState() !== "Idle") {
+      setActiveFeedback("Machine must be Idle before running active gcode.", "error");
+      return;
+    }
+    if (getActiveGcodePending()) return;
+    if (!confirmRef("Start " + relPath(active.path) + "?")) return;
+    setActiveGcodePending("run");
+    setActiveFeedback("Sending run command for " + relPath(active.path) + "...", "");
+    renderActiveGcode();
+    try {
+      const r = await request("/api/gcode/active/run", { method: "POST" });
+      const result = await r.json();
+      setActiveFeedback(result.message || "Run command sent; machine confirmation was not available.", result.verified ? "ok" : "");
+      clearNotice("active-gcode-run");
+      pollMachine();
+      setTimeout(pollMachine, 1200);
+    } catch (e) {
+      appendGcodeLine({ seq: "local-" + Date.now(), dir: "recv", source: "api", text: "error: " + e.message });
+      setActiveFeedback("Run failed: " + e.message, "error");
+      setNotice("Run failed: " + e.message, "error", "active-gcode-run");
+    } finally {
+      setActiveGcodePending("");
+      renderActiveGcode();
+    }
+  }
+
+  return { runActiveGcode };
+}
