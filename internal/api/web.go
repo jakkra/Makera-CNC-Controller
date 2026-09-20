@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-//go:embed web/index.html web/app.js web/three.module.min.js web/modules/*.js
+//go:embed web/index.html web/app.js web/three.module.min.js web/modules/*.js web/styles/*.css
 var webFS embed.FS
 
 // webHandler serves the embedded single-page app. Each operator tab has a real

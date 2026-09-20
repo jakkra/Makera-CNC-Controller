@@ -20,7 +20,8 @@ import { beginFileAction, createFileCatalog, createFileHelpers, endFileAction, f
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
-const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.html"), "utf8");
+const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.html"), "utf8")
+  + readFileSync(join(dirname(fileURLToPath(import.meta.url)), "styles/app.css"), "utf8");
 
 test("shared helpers are imported as production ES modules", async () => {
   assert.equal(fmtCoord(1.2345), "1.234");

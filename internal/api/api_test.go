@@ -969,6 +969,22 @@ func TestWebUIServed(t *testing.T) {
 	resp := get(t, srv.URL+"/")
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
+	if !bytes.Contains(body, []byte(`href="styles/app.css"`)) {
+		t.Fatal("index missing external stylesheet")
+	}
+	style := get(t, srv.URL+"/styles/app.css")
+	styleBody, _ := io.ReadAll(style.Body)
+	style.Body.Close()
+	if style.StatusCode != http.StatusOK || !strings.HasPrefix(style.Header.Get("Content-Type"), "text/css") || style.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("stylesheet status=%d type=%q cache=%q", style.StatusCode, style.Header.Get("Content-Type"), style.Header.Get("Cache-Control"))
+	}
+	missingStyle := get(t, srv.URL+"/styles/missing.css")
+	missingStyle.Body.Close()
+	if missingStyle.StatusCode != http.StatusNotFound {
+		t.Errorf("missing stylesheet status=%d, want 404", missingStyle.StatusCode)
+	}
+	// Existing mixed markup/layout checks cover the document and its served CSS.
+	body = append(body, styleBody...)
 	bodyText := string(body)
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "<!DOCTYPE html>") {
 		t.Errorf("index status=%d body-start=%.30q", resp.StatusCode, body)
