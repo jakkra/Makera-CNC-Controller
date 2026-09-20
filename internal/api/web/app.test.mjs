@@ -12,7 +12,7 @@ import vm from "node:vm";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { request } from "./modules/api.js";
-import { mountActiveJobSelection } from "./modules/active-job.js";
+import { mountActiveJobLoader, mountActiveJobSelection } from "./modules/active-job.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
@@ -6051,6 +6051,49 @@ test("active job selection preserves request and pending render lifecycle", asyn
   assert.deepEqual(failedFeedback, [["Loading preview for broken.nc...", ""], ["Preview failed: offline", "error"]]);
   assert.deepEqual(failedNotices, [["Select gcode failed: offline", "error", "active-gcode"]]);
   assert.deepEqual(failedRenders, ["files", "files", "active"]);
+});
+
+test("active job loader enforces single flight and terminal render order", async () => {
+  let loading = false;
+  let resolveResponse;
+  const requests = [];
+  const events = [];
+  let active = null;
+  const loader = mountActiveJobLoader({
+    request: async (url) => {
+      requests.push(url);
+      return { json: () => new Promise((resolve) => { resolveResponse = resolve; }) };
+    },
+    getActiveGcodeLoading: () => loading,
+    setActiveGcodeLoading: (value) => { loading = value; events.push(["loading", value]); },
+    setActiveGcode: (value) => { active = value; events.push("set-active"); },
+    clearConnectivityIssue: (key) => events.push(["clear", key]),
+    setConnectivityIssue: (...args) => events.push(["error", ...args]),
+    renderActiveGcode: () => events.push("active"),
+    getMachine: () => ({ state: "Idle" }),
+    renderAttention: (machine) => events.push(["attention", machine.state]),
+  });
+  const first = loader.loadActiveGcode();
+  await loader.loadActiveGcode();
+  assert.deepEqual(requests, ["/api/gcode/active"]);
+  resolveResponse({ path: "/sd/gcodes/part.nc" });
+  await first;
+  assert.deepEqual(active, { path: "/sd/gcodes/part.nc" });
+  assert.deepEqual(events, [["loading", true], "set-active", ["clear", "active-gcode"], "active", ["attention", "Idle"], ["loading", false]]);
+
+  const failed = mountActiveJobLoader({
+    request: async () => { throw new Error("offline"); },
+    getActiveGcodeLoading: () => false,
+    setActiveGcodeLoading: () => {},
+    setActiveGcode: () => { throw new Error("must not replace active gcode"); },
+    clearConnectivityIssue: () => {},
+    setConnectivityIssue: (...args) => events.push(["error", ...args]),
+    renderActiveGcode: () => { throw new Error("must not render active gcode"); },
+    getMachine: () => ({}),
+    renderAttention: () => { throw new Error("must not render attention"); },
+  });
+  await failed.loadActiveGcode();
+  assert.deepEqual(events.at(-1), ["error", "active-gcode", "Active gcode unavailable: offline"]);
 });
 
 test("file row renderer preserves keyed unchanged and locally owned rows", () => {

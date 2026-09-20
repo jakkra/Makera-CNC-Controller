@@ -34,3 +34,33 @@ export function mountActiveJobSelection({
 
   return { selectActiveGcode };
 }
+
+export function mountActiveJobLoader({
+  request,
+  getActiveGcodeLoading,
+  setActiveGcodeLoading,
+  setActiveGcode,
+  clearConnectivityIssue,
+  setConnectivityIssue,
+  renderActiveGcode,
+  getMachine,
+  renderAttention,
+}) {
+  async function loadActiveGcode() {
+    if (getActiveGcodeLoading()) return;
+    setActiveGcodeLoading(true);
+    try {
+      const r = await request("/api/gcode/active");
+      setActiveGcode(await r.json());
+      clearConnectivityIssue("active-gcode");
+      renderActiveGcode();
+      renderAttention(getMachine() || {});
+    } catch (e) {
+      setConnectivityIssue("active-gcode", "Active gcode unavailable: " + e.message);
+    } finally {
+      setActiveGcodeLoading(false);
+    }
+  }
+
+  return { loadActiveGcode };
+}

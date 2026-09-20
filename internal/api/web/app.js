@@ -1,6 +1,6 @@
 import * as THREE from "./three.module.min.js";
 import { request } from "./modules/api.js";
-import { mountActiveJobSelection } from "./modules/active-job.js";
+import { mountActiveJobLoader, mountActiveJobSelection } from "./modules/active-job.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
@@ -301,6 +301,18 @@ const activeJobSelection = mountActiveJobSelection({
   renderFiles: () => renderFiles(),
   renderActiveGcode,
   showTab,
+});
+
+const activeJobLoader = mountActiveJobLoader({
+  request,
+  getActiveGcodeLoading: () => state.activeGcodeLoading,
+  setActiveGcodeLoading: (loading) => { state.activeGcodeLoading = loading; },
+  setActiveGcode: (active) => { state.activeGcode = active; },
+  clearConnectivityIssue,
+  setConnectivityIssue,
+  renderActiveGcode,
+  getMachine: () => state.machine,
+  renderAttention,
 });
 
 const filesRows = mountFilesRows({
@@ -10616,19 +10628,7 @@ function renderGcodeScene() {
 }
 
 async function loadActiveGcode() {
-  if (state.activeGcodeLoading) return;
-  state.activeGcodeLoading = true;
-  try {
-    const r = await request("/api/gcode/active");
-    state.activeGcode = await r.json();
-    clearConnectivityIssue("active-gcode");
-    renderActiveGcode();
-    renderAttention(state.machine || {});
-  } catch (e) {
-    setConnectivityIssue("active-gcode", "Active gcode unavailable: " + e.message);
-  } finally {
-    state.activeGcodeLoading = false;
-  }
+  return activeJobLoader.loadActiveGcode();
 }
 
 function syncActiveGcodeFromMachine(machine) {

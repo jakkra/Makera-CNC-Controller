@@ -1280,6 +1280,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/maintenance.js", "export function mountMaintenance"},
 		{"/modules/files.js", "export function fileRowLocallyOwned"},
 		{"/modules/active-job.js", "export function mountActiveJobSelection"},
+		{"/modules/active-job.js", "export function mountActiveJobLoader"},
 	} {
 		module := get(t, srv.URL+asset.path)
 		moduleBody, _ := io.ReadAll(module.Body)
