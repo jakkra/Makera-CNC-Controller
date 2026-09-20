@@ -1,6 +1,6 @@
 import * as THREE from "./three.module.min.js";
 import { request } from "./modules/api.js";
-import { mountActiveJobLoader, mountActiveJobRunner, mountActiveJobSelection } from "./modules/active-job.js";
+import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobRunner, mountActiveJobSelection } from "./modules/active-job.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
@@ -329,6 +329,17 @@ const activeJobRunner = mountActiveJobRunner({
   pollMachine,
   appendGcodeLine,
   setNotice,
+});
+
+const activeJobControl = mountActiveJobControl({
+  request,
+  getActiveGcodePending: () => state.activeGcodePending,
+  setActiveGcodePending: (value) => { state.activeGcodePending = value; },
+  machineActionState,
+  confirmRef: (message) => confirm(message),
+  setActiveFeedback,
+  renderMachine,
+  pollMachine,
 });
 
 const filesRows = mountFilesRows({
@@ -10658,39 +10669,7 @@ async function runActiveGcode() {
 }
 
 async function runActiveJobControl(action) {
-  if (state.activeGcodePending) {
-    setActiveFeedback("Another active job action is still in progress.", "error");
-    return false;
-  }
-  const machineState = machineActionState();
-  const expectedState = action === "pause_job" ? "Run" : (action === "resume_job" ? "Pause" : "");
-  if (!expectedState || machineState !== expectedState) {
-    setActiveFeedback(action === "resume_job"
-      ? `Resume is unavailable while the machine is ${machineState}.`
-      : `Pause is unavailable while the machine is ${machineState}.`, "error");
-    return false;
-  }
-  if (action === "pause_job" && !confirm("Pause the running job and enable manual paused controls?")) return;
-  state.activeGcodePending = action;
-  setActiveFeedback(action === "pause_job" ? "Pausing job..." : "Restoring the paused job...", "");
-  renderMachine();
-  try {
-    const response = await request("/api/control", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
-    });
-    const result = await response.json();
-    setActiveFeedback(result.message, result.verified ? "ok" : "error");
-    await pollMachine();
-    return !!result.verified;
-  } catch (error) {
-    setActiveFeedback((action === "pause_job" ? "Pause failed: " : "Resume failed: ") + error.message, "error");
-    return false;
-  } finally {
-    state.activeGcodePending = "";
-    renderMachine();
-  }
+  return activeJobControl.runActiveJobControl(action);
 }
 
 async function resumeActiveJob() {

@@ -118,3 +118,52 @@ export function mountActiveJobRunner({
 
   return { runActiveGcode };
 }
+
+export function mountActiveJobControl({
+  request,
+  getActiveGcodePending,
+  setActiveGcodePending,
+  machineActionState,
+  confirmRef,
+  setActiveFeedback,
+  renderMachine,
+  pollMachine,
+}) {
+  async function runActiveJobControl(action) {
+    if (getActiveGcodePending()) {
+      setActiveFeedback("Another active job action is still in progress.", "error");
+      return false;
+    }
+    const machineState = machineActionState();
+    const expectedState = action === "pause_job" ? "Run" : (action === "resume_job" ? "Pause" : "");
+    if (!expectedState || machineState !== expectedState) {
+      setActiveFeedback(action === "resume_job"
+        ? `Resume is unavailable while the machine is ${machineState}.`
+        : `Pause is unavailable while the machine is ${machineState}.`, "error");
+      return false;
+    }
+    if (action === "pause_job" && !confirmRef("Pause the running job and enable manual paused controls?")) return;
+    setActiveGcodePending(action);
+    setActiveFeedback(action === "pause_job" ? "Pausing job..." : "Restoring the paused job...", "");
+    renderMachine();
+    try {
+      const response = await request("/api/control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const result = await response.json();
+      setActiveFeedback(result.message, result.verified ? "ok" : "error");
+      await pollMachine();
+      return !!result.verified;
+    } catch (error) {
+      setActiveFeedback((action === "pause_job" ? "Pause failed: " : "Resume failed: ") + error.message, "error");
+      return false;
+    } finally {
+      setActiveGcodePending("");
+      renderMachine();
+    }
+  }
+
+  return { runActiveJobControl };
+}

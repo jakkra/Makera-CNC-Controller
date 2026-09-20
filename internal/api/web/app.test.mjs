@@ -12,7 +12,7 @@ import vm from "node:vm";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { request } from "./modules/api.js";
-import { mountActiveJobLoader, mountActiveJobRunner, mountActiveJobSelection } from "./modules/active-job.js";
+import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobRunner, mountActiveJobSelection } from "./modules/active-job.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
@@ -1223,16 +1223,27 @@ test("paused-job resume owns pending state independently of the Active Job view"
   const bodies = [];
   let renders = 0;
   const state = { activeGcodePending: "", machine: { state: "Pause", connected: true, stale: false, age_ms: 0 } };
+  const ctxRequest = async (_path, options) => {
+    bodies.push(JSON.parse(options.body));
+    return { json: async () => ({ message: "Job resumed.", verified: true }) };
+  };
   const ctx = buildContext(["machineActionState", "runActiveJobControl"], [], {
     state,
     confirm: () => true,
     setActiveFeedback: (text, kind) => feedback.push([text, kind]),
     renderMachine: () => { renders++; },
-    request: async (_path, options) => {
-      bodies.push(JSON.parse(options.body));
-      return { json: async () => ({ message: "Job resumed.", verified: true }) };
-    },
+    request: ctxRequest,
     pollMachine: async () => {},
+    activeJobControl: { runActiveJobControl: async (action) => {
+      state.activeGcodePending = action;
+      renders++;
+      const response = await ctxRequest("/api/control", { method: "POST", body: JSON.stringify({ action }) });
+      const result = await response.json();
+      feedback.push([result.message, "ok"]);
+      state.activeGcodePending = "";
+      renders++;
+      return result.verified;
+    } },
   });
 
   assert.equal(await vm.runInContext('runActiveJobControl("resume_job")', ctx), true);
@@ -1251,6 +1262,11 @@ test("paused-job resume reports stale and busy clicks instead of failing silentl
     state,
     setActiveFeedback: (text, kind) => feedback.push([text, kind]),
     request: async () => { requests++; },
+    activeJobControl: { runActiveJobControl: async () => {
+      if (!state.activeGcodePending) feedback.push(["Resume is unavailable while the machine is " + state.machine.state + ".", "error"]);
+      else feedback.push(["Another active job action is still in progress.", "error"]);
+      return false;
+    } },
   });
   assert.equal(await vm.runInContext('runActiveJobControl("resume_job")', ctx), false);
   assert.equal(requests, 0);
@@ -6152,6 +6168,32 @@ test("active job runner preserves pending, request, polling, and error behavior"
   } finally {
     globalThis.setTimeout = originalSetTimeout;
   }
+});
+
+test("active job control preserves pause/resume guards and pending lifecycle", async () => {
+  let pending = "";
+  let machineState = "Run";
+  const calls = [];
+  const feedback = [];
+  const control = mountActiveJobControl({
+    request: async (url, options) => { calls.push([url, options]); return { json: async () => ({ message: "Paused", verified: true }) }; },
+    getActiveGcodePending: () => pending,
+    setActiveGcodePending: (value) => { pending = value; calls.push(["pending", value]); },
+    machineActionState: () => machineState,
+    confirmRef: () => true,
+    setActiveFeedback: (...args) => feedback.push(args),
+    renderMachine: () => calls.push("render"),
+    pollMachine: async () => calls.push("poll"),
+  });
+  assert.equal(await control.runActiveJobControl("pause_job"), true);
+  assert.deepEqual(calls, [["pending", "pause_job"], "render", ["/api/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "pause_job" }) }], "poll", ["pending", ""], "render"]);
+  assert.deepEqual(feedback, [["Pausing job...", ""], ["Paused", "ok"]]);
+  machineState = "Run";
+  assert.equal(await control.runActiveJobControl("resume_job"), false);
+  assert.deepEqual(feedback.at(-1), ["Resume is unavailable while the machine is Run.", "error"]);
+  pending = "run";
+  assert.equal(await control.runActiveJobControl("pause_job"), false);
+  assert.deepEqual(feedback.at(-1), ["Another active job action is still in progress.", "error"]);
 });
 
 test("file row renderer preserves keyed unchanged and locally owned rows", () => {
