@@ -1273,6 +1273,9 @@ func TestWebUIServed(t *testing.T) {
 	if js.StatusCode != http.StatusOK || !strings.Contains(string(jsBody), "EventSource") {
 		t.Errorf("app.js status=%d", js.StatusCode)
 	}
+	geometryModule := get(t, srv.URL+"/modules/outline-geometry.js")
+	geometryBody, _ := io.ReadAll(geometryModule.Body)
+	geometryModule.Body.Close()
 	filesModule := get(t, srv.URL+"/modules/files.js")
 	filesModuleBody, _ := io.ReadAll(filesModule.Body)
 	filesModule.Body.Close()
@@ -1291,6 +1294,7 @@ func TestWebUIServed(t *testing.T) {
 		mark string
 	}{
 		{"/modules/api.js", "export async function request"},
+		{"/modules/outline-geometry.js", "export function buildFieldProbePreview"},
 		{"/modules/dom.js", "export function setSoftDisabled"},
 		{"/modules/format.js", "export function fmtCoord"},
 		{"/modules/maintenance.js", "export function mountMaintenance"},
@@ -1388,7 +1392,7 @@ func TestWebUIServed(t *testing.T) {
 		t.Errorf("app.js missing work area, tap move, jog status messaging, or cache-only status polling")
 	}
 	for _, want := range []string{"defaultOutlineState", "startOutlineCapture", "endOutlineCapture", "addOutlinePoint", "undoOutline", "redoOutline", "closeOutline", "toggleOutlineCurveFit", "traceOutline", "traceOutlineMachinePoints", "/api/outline/trace", "probeFloor", "rebaseOutlineToFloor", "/api/probe/floor", "floor_machine_z", "runFieldProbe", "probeZAtWorkPoint", "currentOutlineCapturePosition", "retractZMM: startZMM", "/api/probe/z", "PROBE_SPOT_DIAMETER_MM", "OUTLINE_CURVE_TOLERANCE_MM", "MAX_EFFECTIVE_OUTLINE_POINTS", "effectiveOutlineGeometry", "outlineEffectiveExportPoints", "buildBoundaryProbePoints", "buildRelaxedProbePoints", "relaxProbeDistribution", "probeSpotFitsPolygon", "renderWorkAreaOutline", "renderWorkAreaFieldProbePreview", "outlinePathD", "outlineCubicSegments", "buildOutlineDXF", "outlineJSONDocument", "saveOutlineJSON", "loadOutlineFile", "outlineStateFromJSON", "application/json", "application/dxf", "$INSUNITS", "AC1009", "POLYLINE", "VERTEX", "SEQEND", "buildHeightMeshVertices", "exportHeightOBJ", "exportHeightImage", "safe_z_enabled", "safe_z_disabled"} {
-		if !strings.Contains(string(jsBody), want) {
+		if !strings.Contains(string(jsBody), want) && !strings.Contains(string(geometryBody), want) {
 			t.Errorf("app.js missing outline capture behavior %s", want)
 		}
 	}

@@ -20,6 +20,8 @@ import { beginFileAction, createFileCatalog, createFileHelpers, endFileAction, f
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
+const geometryModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-geometry.js"), "utf8").replace(/^export /gm, "");
+const geometryHelpers = new Set(["triangulationEdgeKey","triangleCross","pointInTriangle2D","triangleCCW","pointInPolygonOrBoundary","effectiveOutlineGeometry","flattenCurveSegment","flattenCubic","cubicFlatEnough","midpoint","buildFieldProbePreview","normalizedClosedPolygon","buildBoundaryProbePoints","buildCornerPartitionedBoundary","buildClosedMinimaxBoundary","buildOutlineEdgeProbePoints","projectPointToProbePath","closedPathSegments","sampleClosedPath","sampleClosedPathAtDistance","closedPathMaxSampleGap","createProbeSpacingIndex","addProbeSpacingPoint","probeSpacingIndexAllows","buildRelaxedProbePoints","optimizeProbeMesh","buildBoundaryInteriorTargets","selectGapSafeBoundaryInteriorSeeds","projectBoundaryInteriorTarget","largestExactFeasibleProbeHole","improveProbeCovering","probeCoverageCertificateBetter","buildProbeDomainSamples","buildBestProbeLattice","buildProbeLatticeCandidate","probeCoverageScore","probeCoverageCertificate","probeMeshQualityCertificate","probeBoundaryLayerCertificate","probeDelaunayTriangles","probePointInCircumcircle","triangleCircumcenter","nearestProbeSet","exactBoundaryProbeCriticalPoints","largestProbeCoverageHole","relaxProbeDistribution","createProbeNearestIndex","nearestIndexedProbe","projectProbeSpacingConstraints","probePointInsideAlongMove","probeDistributionValid","pointBounds","probeSpotFitsPolygon","distancePointToSegment","polygonCentroid","averagePoint","distance2","pointInPolygon"]);
 const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.html"), "utf8")
   + readFileSync(join(dirname(fileURLToPath(import.meta.url)), "styles/app.css"), "utf8");
 
@@ -154,7 +156,10 @@ test("dashboard layout controls are hidden and expose their expanded state", () 
   assert.equal(focused, true);
 });
 
+function globalSource() { return source; }
+
 function extractFunction(name) {
+  const source = geometryHelpers.has(name) ? geometryModuleSource : globalSource();
   let start = source.indexOf("\nfunction " + name + "(");
   if (start < 0) start = source.indexOf("\nasync function " + name + "(");
   if (start < 0) throw new Error("function not found in app.js: " + name);
