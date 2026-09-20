@@ -1276,6 +1276,9 @@ func TestWebUIServed(t *testing.T) {
 	geometryModule := get(t, srv.URL+"/modules/outline-geometry.js")
 	geometryBody, _ := io.ReadAll(geometryModule.Body)
 	geometryModule.Body.Close()
+	feedbackModule := get(t, srv.URL+"/modules/feedback.js")
+	feedbackBody, _ := io.ReadAll(feedbackModule.Body)
+	feedbackModule.Body.Close()
 	filesModule := get(t, srv.URL+"/modules/files.js")
 	filesModuleBody, _ := io.ReadAll(filesModule.Body)
 	filesModule.Body.Close()
@@ -1294,6 +1297,7 @@ func TestWebUIServed(t *testing.T) {
 		mark string
 	}{
 		{"/modules/api.js", "export async function request"},
+		{"/modules/feedback.js", "export function createFeedback"},
 		{"/modules/outline-geometry.js", "export function buildFieldProbePreview"},
 		{"/modules/dom.js", "export function setSoftDisabled"},
 		{"/modules/format.js", "export function fmtCoord"},
@@ -1348,15 +1352,15 @@ func TestWebUIServed(t *testing.T) {
 			t.Errorf("Surface controller shell missing marker %s", want)
 		}
 	}
-	if !strings.Contains(string(jsBody), "function setStatusMessage") || !strings.Contains(string(jsBody), "function clearVisibleNotices") || !strings.Contains(string(jsBody), "NOTICE_REPEAT_SUPPRESS_MS") || !strings.Contains(string(jsBody), `consumeJogAlertFeedback("tap-move"`) || !strings.Contains(string(jsBody), `setStatusMessage("jog-availability"`) {
+	if !strings.Contains(string(feedbackBody), "function setStatusMessage") || !strings.Contains(string(feedbackBody), "function clearVisibleNotices") || !strings.Contains(string(feedbackBody), "NOTICE_REPEAT_SUPPRESS_MS") || !strings.Contains(string(jsBody), `consumeJogAlertFeedback("tap-move"`) || !strings.Contains(string(jsBody), `setStatusMessage("jog-availability"`) {
 		t.Errorf("app.js missing shared transient status message routing")
 	}
 	if strings.Contains(string(jsBody), `return { text: "Jog input active.", kind: "ok" }`) || strings.Contains(string(jsBody), `return { text: "Armed.", kind: "ok" }`) {
 		t.Errorf("app.js still exposes routine jog state as a success alert")
 	}
 	for _, want := range []string{"function dismissNotice", "function noticeItemRects", "function animateNoticeReflow", `for (const notice of notices)`, `dismiss.onclick = () => clearNotice(row.dataset.noticeKey)`} {
-		if !strings.Contains(string(jsBody), want) {
-			t.Errorf("app.js missing overlay notification stack behavior %s", want)
+		if !strings.Contains(string(feedbackBody), want) {
+			t.Errorf("feedback.js missing overlay notification stack behavior %s", want)
 		}
 	}
 	for _, want := range []string{"function mobileWorkAreaJogEnabled", "function mobileWorkAreaJogAxes", "function startMobileWorkAreaJog", "function updateMobileWorkAreaJog", "function stopMobileWorkAreaJog", `if (state.workarea?.mobileJogActive)`, `sendJog({ type: "input", deadman: false`} {

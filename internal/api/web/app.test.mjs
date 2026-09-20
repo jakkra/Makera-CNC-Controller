@@ -22,6 +22,8 @@ const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.j
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
 const geometryModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-geometry.js"), "utf8").replace(/^export /gm, "");
 const geometryHelpers = new Set(["triangulationEdgeKey","triangleCross","pointInTriangle2D","triangleCCW","pointInPolygonOrBoundary","effectiveOutlineGeometry","flattenCurveSegment","flattenCubic","cubicFlatEnough","midpoint","buildFieldProbePreview","normalizedClosedPolygon","buildBoundaryProbePoints","buildCornerPartitionedBoundary","buildClosedMinimaxBoundary","buildOutlineEdgeProbePoints","projectPointToProbePath","closedPathSegments","sampleClosedPath","sampleClosedPathAtDistance","closedPathMaxSampleGap","createProbeSpacingIndex","addProbeSpacingPoint","probeSpacingIndexAllows","buildRelaxedProbePoints","optimizeProbeMesh","buildBoundaryInteriorTargets","selectGapSafeBoundaryInteriorSeeds","projectBoundaryInteriorTarget","largestExactFeasibleProbeHole","improveProbeCovering","probeCoverageCertificateBetter","buildProbeDomainSamples","buildBestProbeLattice","buildProbeLatticeCandidate","probeCoverageScore","probeCoverageCertificate","probeMeshQualityCertificate","probeBoundaryLayerCertificate","probeDelaunayTriangles","probePointInCircumcircle","triangleCircumcenter","nearestProbeSet","exactBoundaryProbeCriticalPoints","largestProbeCoverageHole","relaxProbeDistribution","createProbeNearestIndex","nearestIndexedProbe","projectProbeSpacingConstraints","probePointInsideAlongMove","probeDistributionValid","pointBounds","probeSpotFitsPolygon","distancePointToSegment","polygonCentroid","averagePoint","distance2","pointInPolygon"]);
+const feedbackModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/feedback.js"), "utf8");
+const feedbackHelpers = new Set(["setNotice", "noticeTimeoutMs", "statusMessageSignature", "setStatusMessage", "consumeStatusFeedback", "clearNotice", "setConnectivityIssue", "clearConnectivityIssue", "renderConnectivityNotice", "noticeItemRects", "animateNoticeReflow", "dismissNotice", "renderNoticeBar"]);
 const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.html"), "utf8")
   + readFileSync(join(dirname(fileURLToPath(import.meta.url)), "styles/app.css"), "utf8");
 
@@ -159,7 +161,7 @@ test("dashboard layout controls are hidden and expose their expanded state", () 
 function globalSource() { return source; }
 
 function extractFunction(name) {
-  const source = geometryHelpers.has(name) ? geometryModuleSource : globalSource();
+  const source = feedbackHelpers.has(name) ? feedbackModuleSource.replace(/^  /gm, "") : geometryHelpers.has(name) ? geometryModuleSource : globalSource();
   let start = source.indexOf("\nfunction " + name + "(");
   if (start < 0) start = source.indexOf("\nasync function " + name + "(");
   if (start < 0) throw new Error("function not found in app.js: " + name);
@@ -191,7 +193,7 @@ function extractConst(name) {
 }
 
 function buildContext(functionNames, constNames = [], globals = {}) {
-  const context = vm.createContext(globals);
+  const context = vm.createContext({ documentRef: globals.document, ...globals });
   const code = constNames.map(extractConst).concat(functionNames.map(extractFunction)).join("\n");
   vm.runInContext(code, context);
   return context;
@@ -1948,6 +1950,8 @@ test("distinct notifications coexist and timeout starts an individual downward e
     renderNoticeBar: () => {},
     clearTimeout: () => {},
     setTimeout: (callback, delay) => { timers.push({ callback, delay }); return timers.length; },
+    clearTimeoutRef: () => {},
+    setTimeoutRef: (callback, delay) => { timers.push({ callback, delay }); return timers.length; },
     noticeItemRects: () => new Map([["second", 10]]),
     animateNoticeReflow: () => {},
     NOTICE_EXIT_MS: 180,
