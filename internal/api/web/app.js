@@ -1483,51 +1483,6 @@ function setWorkAreaToolRadius() {
   }
 }
 
-function renderWorkAreaBoundary() {
-  const boundary = document.getElementById("workarea-boundary");
-  if (!boundary) return;
-  const r = workAreaRect();
-  boundary.setAttribute("x", r.x.toFixed(2));
-  boundary.setAttribute("y", r.y.toFixed(2));
-  boundary.setAttribute("width", r.width.toFixed(2));
-  boundary.setAttribute("height", r.height.toFixed(2));
-}
-
-function renderWorkAreaGrid() {
-  const grid = document.getElementById("workarea-grid");
-  if (!grid) return;
-  const r = workAreaRect();
-  const lines = [];
-  for (let i = 1; i < 4; i++) {
-    const x = r.x + (r.width * i) / 4;
-    const y = r.y + (r.height * i) / 4;
-    lines.push(`<line x1="${x.toFixed(2)}" y1="${r.y.toFixed(2)}" x2="${x.toFixed(2)}" y2="${(r.y + r.height).toFixed(2)}"></line>`);
-    lines.push(`<line x1="${r.x.toFixed(2)}" y1="${y.toFixed(2)}" x2="${(r.x + r.width).toFixed(2)}" y2="${y.toFixed(2)}"></line>`);
-  }
-  grid.innerHTML = lines.join("");
-}
-
-function renderWorkAreaOrigin() {
-  const origin = visualWorkOrigin();
-  const ox = axisValue(origin, "x");
-  const oy = axisValue(origin, "y");
-  document.getElementById("workarea-origin-x")?.setAttribute("display", "none");
-  document.getElementById("workarea-origin-y")?.setAttribute("display", "none");
-  setWorkAreaMarker("workarea-origin", ox !== null && oy !== null ? { x: ox, y: oy } : null);
-}
-
-function setWorkAreaMarker(id, machinePoint) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const p = machineToWorkAreaPoint(machinePoint);
-  if (!p) {
-    el.setAttribute("display", "none");
-    return;
-  }
-  el.setAttribute("transform", `translate(${p.x.toFixed(2)} ${p.y.toFixed(2)})`);
-  el.removeAttribute("display");
-}
-
 function cloneOutlinePoint(p) {
   const out = {
     id: p.id,
