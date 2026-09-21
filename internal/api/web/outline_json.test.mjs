@@ -6,16 +6,37 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
+const outlineModuleSource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "modules/outline.js"),
+  "utf8",
+);
+const outlineHelpers = new Set([
+  "fieldProbeSpotGap",
+  "fieldProbeCenterSpacing",
+  "outlineWorkPoints",
+  "fieldProbePlanPointMatchesResult",
+  "selectedFieldProbePoint",
+  "selectedFieldProbeResult",
+  "selectFieldProbePoint",
+  "outlinePointLabel",
+  "outlineSummaryText",
+  "setOutlineFeedback",
+  "isProbeToolActive",
+  "is3DProbeToolActive",
+]);
 
 function extractFunction(name) {
-  let start = source.indexOf("\nfunction " + name + "(");
-  if (start < 0) start = source.indexOf("\nasync function " + name + "(");
-  if (start < 0) throw new Error("function not found in app.js: " + name);
-  const bodyStart = source.indexOf("{", source.indexOf(")", source.indexOf("(", start)));
+  const functionSource = outlineHelpers.has(name)
+    ? outlineModuleSource.replace(/^export /gm, "").replace(/^  /gm, "")
+    : source;
+  let start = functionSource.indexOf("\nfunction " + name + "(");
+  if (start < 0) start = functionSource.indexOf("\nasync function " + name + "(");
+  if (start < 0) throw new Error("function not found in app.js or outline.js: " + name);
+  const bodyStart = functionSource.indexOf("{", functionSource.indexOf(")", functionSource.indexOf("(", start)));
   let depth = 0;
-  for (let i = bodyStart; i < source.length; i++) {
-    if (source[i] === "{") depth++;
-    else if (source[i] === "}" && --depth === 0) return source.slice(start + 1, i + 1);
+  for (let i = bodyStart; i < functionSource.length; i++) {
+    if (functionSource[i] === "{") depth++;
+    else if (functionSource[i] === "}" && --depth === 0) return functionSource.slice(start + 1, i + 1);
   }
   throw new Error("unbalanced function body: " + name);
 }

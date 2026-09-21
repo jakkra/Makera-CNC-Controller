@@ -16,6 +16,7 @@ import { createOriginProbing } from "./modules/origin-probing.js";
 import { createFilesFeature } from "./modules/files.js";
 import { createMachineStatusFeature } from "./modules/machine-status.js";
 import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive } from "./modules/jog.js";
+import { createOutlineFeature } from "./modules/outline.js";
 import { mountWorkareaOutline } from "./modules/workarea-outline.js";
 import {
   createSettingsFeature,
@@ -379,7 +380,9 @@ const originProbing = createOriginProbing({
   renderMachineSettings, refreshMachineLearnedSettings, queueSaveUISettings,
   normalizeMachineSettings, defaultMachineSettings, normalizeMachineLearned,
   currentWorkOrigin, currentAxisValues, axisValue, fmtCoord, finiteOr, newID,
-  tapMoveTargetBusy, isProbeToolActive, is3DProbeToolActive,
+  tapMoveTargetBusy,
+  isProbeToolActive: (...args) => outlineFeature.isProbeToolActive(...args),
+  is3DProbeToolActive: (...args) => outlineFeature.is3DProbeToolActive(...args),
   controlLocallyOwned, setSoftDisabled, setTextIfChanged, setElementBusy, setStatusMessage,
   setTapFeedback, clampNumber,
 });
@@ -682,6 +685,33 @@ const {
   clearFieldProbeData,
   outlineEditingMarkersVisible,
 } = workareaOutline;
+
+const outlineFeature = createOutlineFeature({
+  getOutline: () => state.outline,
+  getMachine: () => state.machine,
+  getWorkarea: () => state.workarea,
+  renderOutlineCapture,
+  renderWorkArea: (...args) => renderWorkArea(...args),
+  setTapFeedback,
+  fmtCoord,
+  axisValue,
+  normalizedClosedPolygon,
+  pointInPolygonOrBoundary,
+  workAreaToMachinePoint,
+  workAreaLocalToContentPoint,
+  cloneOutlineOrigin,
+  currentWorkOrigin,
+});
+const {
+  fieldProbeSpotGap, fieldProbeCenterSpacing, outlineWorkPoints,
+  fieldProbePlanPointMatchesResult, selectedFieldProbePoint,
+  selectedFieldProbeResult, selectFieldProbePoint, outlinePointLabel,
+  outlineSummaryText, setOutlineFeedback, isProbeToolActive,
+  is3DProbeToolActive,
+} = outlineFeature;
+const fieldProbeMoveCandidate = (local) => outlineFeature.fieldProbeMoveCandidate(
+  local, workAreaToMachinePoint, workAreaLocalToContentPoint, cloneOutlineOrigin, currentWorkOrigin,
+);
 
 
 const dashboardProfileState = {
@@ -2357,12 +2387,6 @@ function redoOutline() {
   renderWorkArea();
 }
 
-function setOutlineFeedback(text, kind = "") {
-  state.outline.feedback = text;
-  state.outline.feedbackKind = kind;
-  renderOutlineCapture();
-}
-
 function confirmProbeAction({ title, message, warning = "", confirmLabel = "Probe" }) {
   const dialog = document.getElementById("probe-confirm-modal");
   if (!dialog || dialog.open || probeConfirmResolve) return Promise.resolve(false);
@@ -2384,34 +2408,6 @@ function settleProbeConfirmation(accepted) {
   probeConfirmResolve = null;
   document.getElementById("probe-confirm-modal")?.close();
   if (resolve) resolve(!!accepted);
-}
-
-function outlinePointLabel(p) {
-  return "X " + fmtCoord(p.x) + " Y " + fmtCoord(p.y) + " Z " + fmtCoord(p.z);
-}
-
-function isProbeToolActive() {
-  return Number(state.machine?.tool?.active) === 0;
-}
-
-function is3DProbeToolActive() {
-  return Number(state.machine?.tool?.active) === 9999;
-}
-
-function outlineSummaryText() {
-  const o = state.outline;
-  if (!o.active) return Number.isFinite(o.floorMachineZ) ? "floor Z0 at M " + fmtCoord(o.floorMachineZ) : "";
-  const count = o.points.length;
-  const parts = [count + " point" + (count === 1 ? "" : "s")];
-  if (o.closed) parts.push("closed");
-  if (o.curveFit) parts.push("curve fit");
-  if (o.fieldProbePreview.length) parts.push(o.fieldProbePreview.length + " field probes");
-  if (o.fieldProbeResults.length) parts.push(o.fieldProbeResults.length + " Z samples");
-  if (Number.isFinite(o.floorMachineZ)) parts.push("floor Z0 at M " + fmtCoord(o.floorMachineZ));
-  else if (o.fieldProbeResults.length && Number.isFinite(o.fieldReferenceMachineZ)) {
-    parts.push("field Z0 at M " + fmtCoord(o.fieldReferenceMachineZ));
-  }
-  return parts.join(" | ");
 }
 
 function renderOutlineCapture() {
@@ -2596,23 +2592,8 @@ function scheduleOutlineFieldSpacingUpdate() {
   return true;
 }
 
-function fieldProbeSpotGap() {
-  const v = Number(state.outline.fieldSpotGapMM);
-  return Number.isFinite(v) ? Math.max(0, Math.min(250, v)) : DEFAULT_FIELD_SPOT_GAP_MM;
-}
-
 function buildFieldProbePreview(points, spotGap = fieldProbeSpotGap(), outlinePoints = points) {
   return computeFieldProbePreview(points, spotGap, outlinePoints);
-}
-
-function fieldProbeCenterSpacing(gap = fieldProbeSpotGap()) {
-  return PROBE_SPOT_DIAMETER_MM + Math.max(0, Number(gap) || 0);
-}
-
-function outlineWorkPoints() {
-  return state.outline.points
-    .map((p) => ({ x: Number(p.x), y: Number(p.y) }))
-    .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
 }
 
 function renderWorkAreaOutline() {
@@ -2667,33 +2648,6 @@ function renderWorkAreaFieldProbePreview() {
 
 function displayedFieldProbePoints(outline) {
   return outline?.fieldProbePreview?.length ? outline.fieldProbePreview : (outline?.fieldProbeResults || []);
-}
-
-function fieldProbePlanPointMatchesResult(plan, result) {
-  if (!plan || !result || plan.id !== result.id) return false;
-  return Math.hypot(Number(plan.x) - Number(result.x), Number(plan.y) - Number(result.y)) <= 0.05;
-}
-
-function selectedFieldProbePoint(outline = state.outline) {
-  const selectedID = String(outline?.fieldProbeSelectedID || "");
-  return (outline?.fieldProbePreview || []).find((point) => point.id === selectedID) || null;
-}
-
-function selectedFieldProbeResult(outline = state.outline) {
-  const point = selectedFieldProbePoint(outline);
-  return point
-    ? (outline?.fieldProbeResults || []).find((result) => fieldProbePlanPointMatchesResult(point, result)) || null
-    : null;
-}
-
-function selectFieldProbePoint(id) {
-  const o = state.outline;
-  const point = (o.fieldProbePreview || []).find((candidate) => candidate.id === id);
-  if (!point) return false;
-  o.fieldProbeSelectedID = point.id;
-  renderOutlineCapture();
-  renderWorkArea();
-  return true;
 }
 
 async function resetSelectedFieldProbeValue() {
@@ -2768,17 +2722,6 @@ function moveToSelectedFieldProbePoint() {
   state.jog.tapFeedbackKind = "";
   renderJog();
   renderOutlineCapture();
-}
-
-function fieldProbeMoveCandidate(local) {
-  const machinePoint = workAreaToMachinePoint(workAreaLocalToContentPoint(local));
-  const origin = cloneOutlineOrigin(state.outline.origin || currentWorkOrigin());
-  const ox = axisValue(origin, "x");
-  const oy = axisValue(origin, "y");
-  if (!machinePoint || ox === null || oy === null) return null;
-  const candidate = { x: machinePoint.x - ox, y: machinePoint.y - oy };
-  const polygon = normalizedClosedPolygon(outlineWorkPoints());
-  return polygon.length >= 3 && pointInPolygonOrBoundary(candidate, polygon) ? candidate : null;
 }
 
 function updateSelectedFieldProbeDrag(local) {
