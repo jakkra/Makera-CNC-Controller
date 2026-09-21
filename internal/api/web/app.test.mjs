@@ -15,7 +15,7 @@ import { request } from "./modules/api.js";
 import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountActiveJobSelection, mountPausedJobCommand, previewBoundsText } from "./modules/active-job.js";
 import { createActiveJobView } from "./modules/active-job-view.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
-import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
+import { fmtActiveFeed, fmtAge, fmtCoord, fmtDashboardFeed, fmtDashboardSpindle, fmtDuration, fmtPos, fmtSize, fmtSpindle, fmtTemperature, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
 import { dashboardExternalCameraIsSnapshot, normalizeDashboardExternalCameraView } from "./modules/camera.js";
 import { dashboardATCText, dashboardAlarmText, dashboardControllerText, dashboardLaserText, dashboardOnOff, dashboardOptionalNumber, dashboardRotaryText, createDashboardTelemetry } from "./modules/dashboard-telemetry.js";
@@ -147,7 +147,7 @@ test("shared helpers are imported as production ES modules", async () => {
   setSoftDisabled(node, false);
   setElementBusy(node, false);
   assert.equal(attributes.size, 0);
-  for (const [module, names] of [["api", "request"], ["dom", "setElementBusy, setSoftDisabled, setTextIfChanged"], ["format", "fmtCoord, fmtDuration, fmtPos, fmtTime"]]) {
+  for (const [module, names] of [["api", "request"], ["dom", "setElementBusy, setSoftDisabled, setTextIfChanged"], ["format", "fmtActiveFeed, fmtAge, fmtCoord, fmtDashboardFeed, fmtDashboardSpindle, fmtDuration, fmtPos, fmtSize, fmtSpindle, fmtTemperature, fmtTime"]]) {
     assert.match(source, new RegExp(`import \\{ ${names} \\} from "\\.\\/modules\\/${module}\\.js";`));
   }
   assert.match(source, /from "\.\/modules\/file-paths\.js";/);
@@ -545,9 +545,9 @@ test("Overview and Jog mount one shared machine readout with work and machine co
   assert.doesNotMatch(source, /[åäö]/i);
   assert.doesNotMatch(htmlSource, /\b(Jogga|Filer|STOPP|Stegvis|Riktning)\b/);
   const ctx = buildContext([
-    "fmtDashboardFeed", "fmtDashboardSpindle", "fmtActiveTool",
+    "fmtActiveTool",
     "gcodeToolMetadata", "gcodeToolLabel", "toolDisplayName", "axisValue", "machineReadoutModel",
-  ], [], { fmtCoord });
+  ], [], { fmtCoord, fmtDashboardFeed, fmtDashboardSpindle });
   const model = JSON.parse(vm.runInContext(`JSON.stringify(machineReadoutModel({
     wpos: {x: 190.29, y: 192.9, z: 78.5166, a: -11070},
     mpos: {x: -1, y: -1, z: -1, a: 0},

@@ -6,7 +6,7 @@ import { request } from "./modules/api.js";
 import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection, previewBoundsText as activeJobPreviewBoundsText } from "./modules/active-job.js";
 import { createActiveJobView } from "./modules/active-job-view.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
-import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
+import { fmtActiveFeed, fmtAge, fmtCoord, fmtDashboardFeed, fmtDashboardSpindle, fmtDuration, fmtPos, fmtSize, fmtSpindle, fmtTemperature, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
 import { mountDashboardCamera } from "./modules/camera.js";
 import { createDashboardTelemetry } from "./modules/dashboard-telemetry.js";
@@ -961,66 +961,6 @@ const dashboardProfiles = createDashboardProfiles({
   scheduleDashboardGcodeRender: () => gcodeViewer.scheduleDashboardGcodeRender(),
 });
 const { dashboardURLState, dashboardProfileByID, currentDashboardProfile, isWideSurfaceOverview, dashboardPanelVisible, resolveDashboardProfile, applyDashboardURLState, syncDashboardProfileURL, selectDashboardProfile, renderDashboardProfileControls, applyDashboardProfile, dashboardProfileSlug, renderDashboardPanelOrder, refreshDashboardPanelOrderButtons, openDashboardSettings, closeDashboardSettings, dashboardProfileFromForm, saveDashboardProfile, deleteDashboardProfile, copyDashboardURL } = dashboardProfiles;
-
-function fmtSize(n, isDir) {
-  if (isDir) return "-";
-  if (!Number.isFinite(n)) return "-";
-  if (n < 1024) return n + " B";
-  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
-  return (n / 1024 / 1024).toFixed(1) + " MB";
-}
-
-function fmtAge(ms) {
-  if (!Number.isFinite(ms) || ms < 0) return "-";
-  if (ms < 1000) return "now";
-  const sec = Math.round(ms / 1000);
-  if (sec < 60) return sec + "s";
-  const min = Math.round(sec / 60);
-  if (min < 60) return min + "m";
-  return Math.round(min / 60) + "h";
-}
-
-function fmtActiveFeed(f) {
-  const cur = Number(f?.current);
-  if (!Number.isFinite(cur)) return "-";
-  const value = Math.abs(cur) >= 100 ? Math.round(cur).toString() : cur.toFixed(1);
-  return value + " mm/min";
-}
-
-function fmtSpindle(s) {
-  if (!s) return "-";
-  const cur = Number.isFinite(s.current_rpm) ? Math.round(s.current_rpm) : "-";
-  const target = Number.isFinite(s.target_rpm) ? Math.round(s.target_rpm) : "-";
-  const over = Number.isFinite(s.override) ? Math.round(s.override) + "%" : "-";
-  return `${cur}/${target} rpm ${over}`;
-}
-
-function fmtDashboardFeed(f) {
-  if (!f) return { current: "-", detail: "-" };
-  const current = Number(f.current);
-  const target = Number(f.target);
-  const override = Number(f.override);
-  return {
-    current: Number.isFinite(current) ? `${Math.round(current)} mm/min` : "-",
-    detail: `${Number.isFinite(target) ? "Target " + Math.round(target) : "Target -"} · ${Number.isFinite(override) ? Math.round(override) + "%" : "-"}`,
-  };
-}
-
-function fmtDashboardSpindle(s) {
-  if (!s) return { current: "-", detail: "-" };
-  const current = Number(s.current_rpm);
-  const target = Number(s.target_rpm);
-  const override = Number(s.override);
-  return {
-    current: Number.isFinite(current) ? `${Math.round(current)} rpm` : "-",
-    detail: `${Number.isFinite(target) ? "Target " + Math.round(target) : "Target -"} · ${Number.isFinite(override) ? Math.round(override) + "%" : "-"}`,
-  };
-}
-
-function fmtTemperature(value, label) {
-  const number = Number(value);
-  return Number.isFinite(number) ? `${label} ${number.toFixed(1)} °C` : `${label} -`;
-}
 
 function fmtActiveTool(t) {
   return Number.isFinite(t?.active) ? toolDisplayName(t.active) : "-";
