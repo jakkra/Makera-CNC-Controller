@@ -42,6 +42,20 @@ export function syncJogAvailabilityFromMachine(machine, jog, movementOwnedElsewh
   }
 }
 
+export function movementArmAvailable(jog, machineReadyForOriginSet = () => false, movementOwnedElsewhere = () => false) {
+  if (jog.armed || movementOwnedElsewhere()) return true;
+  if (!jog.caps?.enabled || jog.link !== "online" || !machineReadyForOriginSet()) return false;
+  return !jog.availability || jog.availability.available !== false;
+}
+
+export function movementArmLabel(jog = {}) {
+  if (jog.armPending) return jog.armPendingAction === "arm" ? "Arming..." : "Disarming...";
+  if (jog.armQueuedAction) return "Connecting...";
+  if (jog.armed) return "Disarm Movement";
+  if (jog.availability?.reason === "busy") return "Disarm other controller";
+  return "Arm Movement";
+}
+
 export function createJogFeature({ jogState, surfaceState, documentRef = globalThis.document, windowRef = globalThis, WebSocketCtor = windowRef.WebSocket, performanceRef = globalThis.performance, setTimeoutRef = globalThis.setTimeout, clearTimeoutRef = globalThis.clearTimeout, renderJog, renderMachine, renderSurfaceMPGWheel, setStatusMessage, applyJogEvent, failOutlineCaptureIntents, completeCommandDisarm, cancelWorkCoordinateMove, clearFieldProbeMove, hasPendingOriginOperation, originTargetLabel, clearOriginVerification, setOriginFeedback, tapMoveArmFailureText, connectURL = null, clampAxis: clampAxisRef, currentGamepad, mappedAxis, buttonStates, buttonPressed, gamepadLabel, captureGamepadOutlineButton, handleGamepadOutlineButton, handleGamepadMacroButtons, sameButtonStates, resetMobileWorkAreaJog, getWorkarea, getUI, surfaceJogReady, sendSurfaceStep } = {}) {
   const state = { jog: jogState, surface: surfaceState, get ui() { return getUI?.() || {}; }, get workarea() { return getWorkarea?.() || {}; } }; const document = documentRef; const window = windowRef; const WebSocket = WebSocketCtor; const performance = performanceRef; const setTimeout = setTimeoutRef; const clearTimeout = clearTimeoutRef; const setStatus = setStatusMessage; const clampAxis = clampAxisRef || ((v) => Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0); const SURFACE_MPG_AUDIO_LOOKAHEAD_S = 0.01; const AudioContextCtor = windowRef.AudioContext || windowRef.webkitAudioContext; const navigatorRef = windowRef.navigator; let surfaceMPGAudioContext = null; let surfaceMPGAudioResume = null; let surfaceMPGNextClickTime = 0; let surfaceMPGFeedbackTimer = null;
   function jogURL() { return connectURL || ((window.location?.protocol === "https:" ? "wss:" : "ws:") + "//" + window.location?.host + "/api/jog/ws"); }

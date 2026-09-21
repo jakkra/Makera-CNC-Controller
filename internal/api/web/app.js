@@ -21,7 +21,7 @@ import { createFilesFeature } from "./modules/files.js";
 import { apiFileURL, basename, cleanRelPath, dirname, joinRelPath, parentRelPath, relPath, remotePathFromRel } from "./modules/file-paths.js";
 import { fmtActiveTool, toolDisplayName, validToolID } from "./modules/tooling.js";
 import { createMachineStatusFeature } from "./modules/machine-status.js";
-import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive, syncJogAvailabilityFromMachine as syncJogAvailabilityState } from "./modules/jog.js";
+import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive, movementArmAvailable as movementArmAvailableState, movementArmLabel as movementArmLabelState, syncJogAvailabilityFromMachine as syncJogAvailabilityState } from "./modules/jog.js";
 import { createJogView } from "./modules/jog-view.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
 import { createSurfaceJogFeature, loadSurfaceViewPreferences, saveSurfaceViewPreferences as persistSurfaceViewPreferences, isSurfaceKiosk } from "./modules/surface-jog.js";
@@ -1106,18 +1106,11 @@ function renderJog() {
 }
 
 function movementArmAvailable() {
-  const j = state.jog;
-  if (j.armed || movementOwnedElsewhere()) return true;
-  if (!j.caps?.enabled || j.link !== "online" || !machineReadyForOriginSet()) return false;
-  return !j.availability || j.availability.available !== false;
+  return movementArmAvailableState(state.jog, machineReadyForOriginSet, movementOwnedElsewhere);
 }
 
 function movementArmLabel(j = state.jog) {
-  if (j.armPending) return j.armPendingAction === "arm" ? "Arming..." : "Disarming...";
-  if (j.armQueuedAction) return "Connecting...";
-  if (j.armed) return "Disarm Movement";
-  if (movementOwnedElsewhere(j)) return "Disarm other controller";
-  return "Arm Movement";
+  return movementArmLabelState(j);
 }
 
 async function setAutoVacuum(enabled) {

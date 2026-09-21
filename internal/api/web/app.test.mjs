@@ -40,7 +40,7 @@ import { createProbeConfirmation } from "./modules/probe-confirm.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
-import { syncJogAvailabilityFromMachine as syncJogAvailabilityState } from "./modules/jog.js";
+import { movementArmAvailable as movementArmAvailableState, movementArmLabel as movementArmLabelState, syncJogAvailabilityFromMachine as syncJogAvailabilityState } from "./modules/jog.js";
 import { createJogView } from "./modules/jog-view.js";
 import { createWorkareaRenderers, displayedFieldProbePoints } from "./modules/workarea-render.js";
 import { cloneFloorProbe, cloneOutlineOrigin, cloneOutlinePoint, defaultOutlineState, defaultWorkAreaView } from "./modules/state-defaults.js";
@@ -1673,28 +1673,24 @@ test("movement arm stays locked until status is fresh Idle but disarm remains av
   const state = { jog: { caps: { enabled: true }, link: "online", armed: false, availability: { available: true } } };
   let machineReady = false;
   let externalOwner = false;
-  const ctx = buildContext(["movementArmAvailable"], [], {
-    state,
-    machineReadyForOriginSet: () => machineReady,
-    movementOwnedElsewhere: () => externalOwner,
-  });
-  assert.equal(vm.runInContext(`movementArmAvailable()`, ctx), false, "unknown or stale status cannot arm movement");
+  const movementOwnedElsewhere = () => externalOwner;
+  const available = () => movementArmAvailableState(state.jog, () => machineReady, movementOwnedElsewhere);
+  assert.equal(available(), false, "unknown or stale status cannot arm movement");
   machineReady = true;
-  assert.equal(vm.runInContext(`movementArmAvailable()`, ctx), true, "fresh Idle status can arm movement");
+  assert.equal(available(), true, "fresh Idle status can arm movement");
   state.jog.availability.available = false;
-  assert.equal(vm.runInContext(`movementArmAvailable()`, ctx), false, "busy jog ownership cannot arm movement");
+  assert.equal(available(), false, "busy jog ownership cannot arm movement");
   state.jog.armed = true;
-  assert.equal(vm.runInContext(`movementArmAvailable()`, ctx), true, "the current owner can always disarm");
+  assert.equal(available(), true, "the current owner can always disarm");
   state.jog.armed = false;
   externalOwner = true;
-  assert.equal(vm.runInContext(`movementArmAvailable()`, ctx), true, "an observing UI can request movement handoff/disarm");
+  assert.equal(available(), true, "an observing UI can request movement handoff/disarm");
 });
 
 test("movement arm labels an external owner before disarming it", () => {
-  const ctx = buildContext(["movementOwnedElsewhere", "movementArmLabel"], [], { state: { jog: {} } });
-  assert.equal(vm.runInContext(`movementArmLabel({armed:false,availability:{reason:"busy"}})`, ctx), "Disarm other controller");
-  assert.equal(vm.runInContext(`movementArmLabel({armed:true,availability:{reason:"busy"}})`, ctx), "Disarm Movement");
-  assert.equal(vm.runInContext(`movementArmLabel({armed:false,availability:{available:true}})`, ctx), "Arm Movement");
+  assert.equal(movementArmLabelState({ armed: false, availability: { reason: "busy" } }), "Disarm other controller");
+  assert.equal(movementArmLabelState({ armed: true, availability: { reason: "busy" } }), "Disarm Movement");
+  assert.equal(movementArmLabelState({ armed: false, availability: { available: true } }), "Arm Movement");
 });
 
 test("mobile jog options summarize the active precision and method", () => {
