@@ -9,6 +9,7 @@ import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
 import { mountDashboardCamera } from "./modules/camera.js";
 import { createDashboardTelemetry } from "./modules/dashboard-telemetry.js";
+import { createGcodeLogFeature } from "./modules/gcode-log.js";
 import { mountGcodeViewer } from "./modules/gcode-viewer.js";
 import { createFeedback } from "./modules/feedback.js";
 import { createMdiMacros } from "./modules/mdi-macros.js";
@@ -213,6 +214,26 @@ const state = {
   outline: defaultOutlineState(),
   workarea: defaultWorkAreaView(),
 };
+
+const gcodeLog = createGcodeLogFeature({
+  documentRef: document,
+  getLines: () => state.gcodeLines,
+  setLines: (value) => { state.gcodeLines = value; },
+  getSeqs: () => state.gcodeSeqs,
+  getFilter: () => state.logFilter,
+  getSearch: () => state.logSearch,
+  getAutoscroll: () => state.ui.log.autoscroll !== false,
+  maxLines: GCODE_MAX_LINES,
+  escapeHtml,
+});
+const {
+  appendGcodeLineElement,
+  clearGcodeLog,
+  formatLogLine,
+  lineMatchesFilter,
+  renderGcodeLog,
+  visibleGcodeLines,
+} = gcodeLog;
 
 const dashboardTelemetry = createDashboardTelemetry({
   documentRef: document,
@@ -4328,68 +4349,6 @@ function appendGcodeLine(ln) {
   appendGcodeLineElement(ln);
 }
 
-function lineMatchesFilter(ln) {
-  const q = state.logSearch.trim().toLowerCase();
-  if (q) {
-    const haystack = `${ln.source || ""} ${ln.dir || ""} ${ln.text || ""}`.toLowerCase();
-    if (!haystack.includes(q)) return false;
-  }
-  switch (state.logFilter) {
-  case "send":
-  case "recv":
-    return ln.dir === state.logFilter;
-  case "api":
-  case "controller":
-  case "jog":
-    return ln.source === state.logFilter;
-  case "error":
-    return /^(error|alarm)/i.test(ln.text || "");
-  default:
-    return true;
-  }
-}
-
-function renderGcodeLog() {
-  const log = document.getElementById("gcode-log");
-  const autoscroll = state.ui.log.autoscroll !== false;
-  const scrollTop = log.scrollTop;
-  log.innerHTML = "";
-  for (const ln of state.gcodeLines) {
-    if (lineMatchesFilter(ln)) appendGcodeLineElement(ln, false);
-  }
-  log.scrollTop = autoscroll ? log.scrollHeight : scrollTop;
-}
-
-function appendGcodeLineElement(ln, keepScroll = true) {
-  const log = document.getElementById("gcode-log");
-  const autoscroll = state.ui.log.autoscroll !== false;
-  const atBottom = autoscroll && (!keepScroll || log.scrollHeight - log.scrollTop - log.clientHeight < 8);
-  const div = document.createElement("div");
-  const isErr = ln.dir === "recv" && /^(error|alarm)/i.test(ln.text || "");
-  div.className = ln.dir + (isErr ? " err-line" : "");
-  const arrow = ln.dir === "send" ? ">" : "<";
-  div.innerHTML = `<span class="src">${escapeHtml(ln.source)} ${arrow}</span> ${escapeHtml(ln.text)}`;
-  log.appendChild(div);
-  while (log.childNodes.length > GCODE_MAX_LINES) log.removeChild(log.firstChild);
-  if (atBottom) log.scrollTop = log.scrollHeight;
-}
-
-function clearGcodeLog() {
-  state.gcodeSeqs.clear();
-  state.gcodeLines = [];
-  document.getElementById("gcode-log").innerHTML = "";
-}
-
-function visibleGcodeLines() {
-  return state.gcodeLines.filter(lineMatchesFilter);
-}
-
-function formatLogLine(ln) {
-  const when = ln.time ? new Date(ln.time).toISOString() : "";
-  const arrow = ln.dir === "send" ? ">" : "<";
-  return `${when} ${ln.source || ""} ${arrow} ${ln.text || ""}`.trim();
-}
-
 async function copyVisibleLog() {
   const text = visibleGcodeLines().map(formatLogLine).join("\n");
   try {
@@ -5901,9 +5860,7 @@ function applySnapshot(snap) {
   renderFiles();
   renderJobs();
   if (Array.isArray(snap.gcode)) {
-    state.gcodeSeqs.clear();
-    state.gcodeLines = [];
-    document.getElementById("gcode-log").innerHTML = "";
+    clearGcodeLog();
     for (const ln of snap.gcode) appendGcodeLine(ln);
   }
 }

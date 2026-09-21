@@ -1302,6 +1302,9 @@ func TestWebUIServed(t *testing.T) {
 	dashboardTelemetryModule := get(t, srv.URL+"/modules/dashboard-telemetry.js")
 	dashboardTelemetryBody, _ := io.ReadAll(dashboardTelemetryModule.Body)
 	dashboardTelemetryModule.Body.Close()
+	gcodeLogModule := get(t, srv.URL+"/modules/gcode-log.js")
+	gcodeLogBody, _ := io.ReadAll(gcodeLogModule.Body)
+	gcodeLogModule.Body.Close()
 	navigationModule := get(t, srv.URL+"/modules/navigation.js")
 	navigationBody, _ := io.ReadAll(navigationModule.Body)
 	navigationModule.Body.Close()
@@ -1326,13 +1329,13 @@ func TestWebUIServed(t *testing.T) {
 	workareaJogModule := get(t, srv.URL+"/modules/workarea-jog.js")
 	workareaJogBody, _ := io.ReadAll(workareaJogModule.Body)
 	workareaJogModule.Body.Close()
-	webSource := string(jsBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(dashboardTelemetryBody) + string(navigationBody) + string(surfaceJogBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody) + string(outlineCaptureBody) + string(workareaJogBody)
+	webSource := string(jsBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(dashboardTelemetryBody) + string(gcodeLogBody) + string(navigationBody) + string(surfaceJogBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody) + string(outlineCaptureBody) + string(workareaJogBody)
 	for _, want := range []string{"export function mountFilesCommands", "export function mountFilesTransitions", "export function mountFilesJobRefresh"} {
 		if filesModule.StatusCode != http.StatusOK || !strings.Contains(string(filesModuleBody), want) {
 			t.Errorf("modules/files.js missing %s (status=%d)", want, filesModule.StatusCode)
 		}
 	}
-	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`, `from "./modules/camera.js"`, `from "./modules/dashboard-telemetry.js"`, `from "./modules/navigation.js"`, `from "./modules/outline-io.js"`, `from "./modules/outline-capture.js"`, `from "./modules/workarea-jog.js"`} {
+	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`, `from "./modules/camera.js"`, `from "./modules/dashboard-telemetry.js"`, `from "./modules/gcode-log.js"`, `from "./modules/navigation.js"`, `from "./modules/outline-io.js"`, `from "./modules/outline-capture.js"`, `from "./modules/workarea-jog.js"`} {
 		if !strings.Contains(string(jsBody), want) {
 			t.Errorf("app.js missing shared module import %s", want)
 		}
@@ -1355,6 +1358,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/active-job.js", "export function mountActiveJobPreview"},
 		{"/modules/camera.js", "export function mountDashboardCamera"},
 		{"/modules/dashboard-telemetry.js", "export function createDashboardTelemetry"},
+		{"/modules/gcode-log.js", "export function createGcodeLogFeature"},
 		{"/modules/gcode-viewer.js", "export function mountGcodeViewer"},
 		{"/modules/feedback.js", "export function createFeedback"},
 		{"/modules/live-updates.js", "export function createLiveUpdates"},
