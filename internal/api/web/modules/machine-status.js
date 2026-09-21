@@ -223,6 +223,14 @@ function renderMachineReadouts(machine = state.machine || {}) {
   }
 }
 
+function mountMachineReadouts() {
+  const template = document.getElementById("machine-readout-template");
+  if (!template?.content) return;
+  for (const host of document.querySelectorAll("[data-machine-readout-host]")) {
+    if (!host.querySelector(".machine-readout")) host.appendChild(template.content.cloneNode(true));
+  }
+}
+
 function haltReason(m) {
   if (m?.halt_reason) return m.halt_reason;
   const h = m?.fields?.H;
@@ -475,7 +483,7 @@ function recoveryButtonText(recovery, reason = null) {
 
   return {
     gcodeToolMetadata, gcodeToolLabel, programToolListModel, renderProgramToolLists, toolChangeTargetLabel, toolChangeAttentionDetail,
-    machineReadoutModel, renderMachineReadouts, haltReason, recoveryText, machineActionState, jobControlModel,
+    machineReadoutModel, renderMachineReadouts, mountMachineReadouts, haltReason, recoveryText, machineActionState, jobControlModel,
     jobControlLabel, renderJobControls, renderMachine, renderAttention, attentionResumeAction, renderToolStatus,
     renderAlarmPanel, recoveryButtonText, machineFeedOverrideControlModel,
   };

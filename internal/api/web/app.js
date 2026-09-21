@@ -761,7 +761,7 @@ const machineStatus = createMachineStatusFeature({
 });
 const {
   gcodeToolMetadata, gcodeToolLabel, renderProgramToolLists, machineFeedOverrideControlModel, toolChangeTargetLabel,
-  toolChangeAttentionDetail, machineReadoutModel, renderMachineReadouts, haltReason,
+  toolChangeAttentionDetail, machineReadoutModel, renderMachineReadouts, mountMachineReadouts, haltReason,
   recoveryText, machineActionState, jobControlModel, jobControlLabel, renderJobControls,
   renderMachine, renderAttention, attentionResumeAction, renderToolStatus,
   renderAlarmPanel, recoveryButtonText,
@@ -1014,14 +1014,6 @@ const dashboardProfiles = createDashboardProfiles({
   scheduleDashboardGcodeRender: () => gcodeViewer.scheduleDashboardGcodeRender(),
 });
 const { dashboardURLState, dashboardProfileByID, currentDashboardProfile, isWideSurfaceOverview, dashboardPanelVisible, resolveDashboardProfile, applyDashboardURLState, syncDashboardProfileURL, selectDashboardProfile, renderDashboardProfileControls, applyDashboardProfile, dashboardProfileSlug, renderDashboardPanelOrder, refreshDashboardPanelOrderButtons, openDashboardSettings, closeDashboardSettings, dashboardProfileFromForm, saveDashboardProfile, deleteDashboardProfile, copyDashboardURL } = dashboardProfiles;
-
-function mountMachineReadouts() {
-  const template = document.getElementById("machine-readout-template");
-  if (!template?.content) return;
-  for (const host of document.querySelectorAll("[data-machine-readout-host]")) {
-    if (!host.querySelector(".machine-readout")) host.appendChild(template.content.cloneNode(true));
-  }
-}
 
 function loadCommandHistory() {
   return readCommandHistory();
