@@ -1317,13 +1317,16 @@ func TestWebUIServed(t *testing.T) {
 	outlineIOModule := get(t, srv.URL+"/modules/outline-io.js")
 	outlineIOBody, _ := io.ReadAll(outlineIOModule.Body)
 	outlineIOModule.Body.Close()
-	webSource := string(jsBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(navigationBody) + string(surfaceJogBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody)
+	outlineCaptureModule := get(t, srv.URL+"/modules/outline-capture.js")
+	outlineCaptureBody, _ := io.ReadAll(outlineCaptureModule.Body)
+	outlineCaptureModule.Body.Close()
+	webSource := string(jsBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(navigationBody) + string(surfaceJogBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody) + string(outlineCaptureBody)
 	for _, want := range []string{"export function mountFilesCommands", "export function mountFilesTransitions", "export function mountFilesJobRefresh"} {
 		if filesModule.StatusCode != http.StatusOK || !strings.Contains(string(filesModuleBody), want) {
 			t.Errorf("modules/files.js missing %s (status=%d)", want, filesModule.StatusCode)
 		}
 	}
-	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`, `from "./modules/camera.js"`, `from "./modules/navigation.js"`, `from "./modules/outline-io.js"`} {
+	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`, `from "./modules/camera.js"`, `from "./modules/navigation.js"`, `from "./modules/outline-io.js"`, `from "./modules/outline-capture.js"`} {
 		if !strings.Contains(string(jsBody), want) {
 			t.Errorf("app.js missing shared module import %s", want)
 		}
@@ -1358,6 +1361,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/workarea-outline.js", "export function mountWorkareaOutline"},
 		{"/modules/outline.js", "export function createOutlineFeature"},
 		{"/modules/outline-io.js", "export function outlineJSONDocument"},
+		{"/modules/outline-capture.js", "export function capturedOutlinePosition"},
 		{"/modules/surface-jog.js", "export function createSurfaceJogFeature"},
 	} {
 		module := get(t, srv.URL+asset.path)

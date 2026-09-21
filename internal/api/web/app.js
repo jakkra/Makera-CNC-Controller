@@ -18,6 +18,7 @@ import { createMachineStatusFeature } from "./modules/machine-status.js";
 import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive } from "./modules/jog.js";
 import { createSurfaceJogFeature, loadSurfaceViewPreferences, saveSurfaceViewPreferences as persistSurfaceViewPreferences, isSurfaceKiosk } from "./modules/surface-jog.js";
 import { createOutlineFeature } from "./modules/outline.js";
+import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
 import {
   addOutlinePolylineDXF,
   boundedOutlineNumber as boundOutlineNumber,
@@ -2035,20 +2036,7 @@ async function processOutlinePointQueue(o) {
 }
 
 function capturedOutlinePosition(position) {
-  const machine = {};
-  const work = {};
-  const origin = {};
-  for (const axis of ["x", "y", "z"]) {
-    const m = Number(position?.mpos?.[axis]);
-    const w = Number(position?.wpos?.[axis]);
-    if (!Number.isFinite(m) || !Number.isFinite(w)) {
-      throw new Error("captured machine and work positions must include X, Y, and Z");
-    }
-    machine[axis] = m;
-    work[axis] = w;
-    origin[axis] = m - w;
-  }
-  return { machine, work, origin };
+  return normalizeCapturedOutlinePosition(position);
 }
 
 function failOutlineCaptureIntents(message) {
