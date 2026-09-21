@@ -1,5 +1,10 @@
 import { DEFAULT_FIELD_SPOT_GAP_MM } from "./outline-geometry.js";
 
+export function newID(prefix) {
+  if (globalThis.crypto && globalThis.crypto.randomUUID) return prefix + "-" + globalThis.crypto.randomUUID();
+  return prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+}
+
 export function defaultOutlineState() {
   return {
     active: false,

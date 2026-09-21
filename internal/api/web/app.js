@@ -54,7 +54,7 @@ import {
 } from "./modules/outline-io.js";
 import { axisValue, mountWorkareaOutline } from "./modules/workarea-outline.js";
 import { createWorkareaRenderers } from "./modules/workarea-render.js";
-import { cloneFloorProbe, cloneOutlineOrigin, cloneOutlinePoint, defaultOutlineState, defaultWorkAreaView } from "./modules/state-defaults.js";
+import { cloneFloorProbe, cloneOutlineOrigin, cloneOutlinePoint, defaultOutlineState, defaultWorkAreaView, newID } from "./modules/state-defaults.js";
 import { createNavigationFeature, createLifecycleFeature, viewTabFromURL } from "./modules/navigation.js";
 import {
   createSettingsFeature,
@@ -1029,11 +1029,6 @@ function rememberCommand(line) {
   state.commandHistory = next;
   state.historyIndex = -1;
   saveCommandHistory();
-}
-
-function newID(prefix) {
-  if (globalThis.crypto && globalThis.crypto.randomUUID) return prefix + "-" + globalThis.crypto.randomUUID();
-  return prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
 }
 
 function saveSurfaceViewPreferences() {
