@@ -10,6 +10,38 @@ export function sameJogAxes(a, b) { return ["x", "y", "z", "a"].every((axis) => 
 export function sameJogInput(a, b) { return !!a && !!b && a.deadman === b.deadman && a.slow === b.slow && sameJogAxes(a.axes, b.axes); }
 export function jogInputActive(input) { return !!input?.deadman && ["x", "y", "z", "a"].some((axis) => Math.abs(Number(input.axes?.[axis] || 0)) > JOG_INPUT_DEADZONE); }
 
+export function syncJogAvailabilityFromMachine(machine, jog, movementOwnedElsewhere = () => false) {
+  if (!jog?.caps?.enabled) return;
+  if (movementOwnedElsewhere()) return;
+  if (jog.armed && (machine.state === "Idle" || machine.state === "Run")) {
+    jog.availability = { available: true, message: "Jog session active." };
+    if (jog.errorCode === "status_waiting") {
+      jog.error = "";
+      jog.errorCode = "";
+    }
+    return;
+  }
+  const hasMPos = !!machine.mpos && ["x", "y", "z"].some((axis) => Number.isFinite(Number(machine.mpos[axis])));
+  const stale = !!machine.stale || Number(machine.age_ms) > 10000;
+  let availability;
+  if (stale || !machine.state || machine.state === "Unknown") {
+    availability = { available: false, reason: "stale_status", message: "Machine status is stale. Wait for a fresh Idle status before jogging." };
+  } else if (machine.state !== "Idle") {
+    availability = { available: false, reason: "not_idle", message: `Machine is ${machine.state}. Jogging requires fresh Idle status.` };
+  } else if (!hasMPos) {
+    availability = { available: false, reason: "stale_status", message: "Machine position is unavailable. Wait for a status report with MPos before jogging." };
+  } else {
+    availability = { available: true, message: "Ready to arm jog." };
+  }
+  jog.availability = availability;
+  const error = jog.errorCode || jog.error;
+  const transient = ["busy", "not_idle", "stale_status", "controller_waiting", "machine_error"].includes(error) || String(error || "").toLowerCase().includes("machine left joggable state") || String(error || "").toLowerCase().includes("machine is not ready") || String(error || "").toLowerCase().includes("not idle") || String(error || "").toLowerCase().includes("status is too stale") || String(error || "").toLowerCase().includes("controller requested the machine");
+  if (availability.available && transient) {
+    jog.error = "";
+    jog.errorCode = "";
+  }
+}
+
 export function createJogFeature({ jogState, surfaceState, documentRef = globalThis.document, windowRef = globalThis, WebSocketCtor = windowRef.WebSocket, performanceRef = globalThis.performance, setTimeoutRef = globalThis.setTimeout, clearTimeoutRef = globalThis.clearTimeout, renderJog, renderMachine, renderSurfaceMPGWheel, setStatusMessage, applyJogEvent, failOutlineCaptureIntents, completeCommandDisarm, cancelWorkCoordinateMove, clearFieldProbeMove, hasPendingOriginOperation, originTargetLabel, clearOriginVerification, setOriginFeedback, tapMoveArmFailureText, connectURL = null, clampAxis: clampAxisRef, currentGamepad, mappedAxis, buttonStates, buttonPressed, gamepadLabel, captureGamepadOutlineButton, handleGamepadOutlineButton, handleGamepadMacroButtons, sameButtonStates, resetMobileWorkAreaJog, getWorkarea, getUI, surfaceJogReady, sendSurfaceStep } = {}) {
   const state = { jog: jogState, surface: surfaceState, get ui() { return getUI?.() || {}; }, get workarea() { return getWorkarea?.() || {}; } }; const document = documentRef; const window = windowRef; const WebSocket = WebSocketCtor; const performance = performanceRef; const setTimeout = setTimeoutRef; const clearTimeout = clearTimeoutRef; const setStatus = setStatusMessage; const clampAxis = clampAxisRef || ((v) => Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0); const SURFACE_MPG_AUDIO_LOOKAHEAD_S = 0.01; const AudioContextCtor = windowRef.AudioContext || windowRef.webkitAudioContext; const navigatorRef = windowRef.navigator; let surfaceMPGAudioContext = null; let surfaceMPGAudioResume = null; let surfaceMPGNextClickTime = 0; let surfaceMPGFeedbackTimer = null;
   function jogURL() { return connectURL || ((window.location?.protocol === "https:" ? "wss:" : "ws:") + "//" + window.location?.host + "/api/jog/ws"); }

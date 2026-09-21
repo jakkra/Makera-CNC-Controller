@@ -40,6 +40,7 @@ import { createProbeConfirmation } from "./modules/probe-confirm.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
+import { syncJogAvailabilityFromMachine as syncJogAvailabilityState } from "./modules/jog.js";
 import { createWorkareaRenderers, displayedFieldProbePoints } from "./modules/workarea-render.js";
 import { cloneFloorProbe, cloneOutlineOrigin, cloneOutlinePoint, defaultOutlineState, defaultWorkAreaView } from "./modules/state-defaults.js";
 
@@ -2336,16 +2337,11 @@ test("fresh machine status clears a terminal stale jog recovery error", () => {
       availability: null,
     },
   };
-  const ctx = buildContext(
-    ["hasMPos", "isTransientJogBlock", "movementOwnedElsewhere", "syncJogAvailabilityFromMachine"],
-    [],
-    { state },
-  );
-
-  vm.runInContext(`syncJogAvailabilityFromMachine({ state: "Idle", stale: true, age_ms: 12000, mpos: { x: 0, y: 0, z: 0 } })`, ctx);
+  const movementOwnedElsewhere = () => !state.jog.armed && state.jog.availability?.reason === "busy";
+  syncJogAvailabilityState({ state: "Idle", stale: true, age_ms: 12000, mpos: { x: 0, y: 0, z: 0 } }, state.jog, movementOwnedElsewhere);
   assert.equal(state.jog.errorCode, "stale_status", "the error remains until recovery is observed");
 
-  vm.runInContext(`syncJogAvailabilityFromMachine({ state: "Idle", stale: false, age_ms: 20, mpos: { x: 0, y: 0, z: 0 } })`, ctx);
+  syncJogAvailabilityState({ state: "Idle", stale: false, age_ms: 20, mpos: { x: 0, y: 0, z: 0 } }, state.jog, movementOwnedElsewhere);
   assert.equal(state.jog.error, "");
   assert.equal(state.jog.errorCode, "");
   assert.equal(state.jog.availability.available, true);
@@ -2365,13 +2361,7 @@ test("machine snapshots do not overwrite movement ownership from another UI", ()
       },
     },
   };
-  const ctx = buildContext(
-    ["hasMPos", "isTransientJogBlock", "movementOwnedElsewhere", "syncJogAvailabilityFromMachine"],
-    [],
-    { state },
-  );
-
-  vm.runInContext(`syncJogAvailabilityFromMachine({ state: "Idle", stale: false, age_ms: 10, mpos: { x: 0, y: 0, z: 0 } })`, ctx);
+  syncJogAvailabilityState({ state: "Idle", stale: false, age_ms: 10, mpos: { x: 0, y: 0, z: 0 } }, state.jog, () => !state.jog.armed && state.jog.availability?.reason === "busy");
   assert.equal(state.jog.availability.reason, "busy");
   assert.equal(state.jog.availability.available, false);
 });

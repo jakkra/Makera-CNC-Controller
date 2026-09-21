@@ -21,7 +21,7 @@ import { createFilesFeature } from "./modules/files.js";
 import { apiFileURL, basename, cleanRelPath, dirname, joinRelPath, parentRelPath, relPath, remotePathFromRel } from "./modules/file-paths.js";
 import { fmtActiveTool, toolDisplayName, validToolID } from "./modules/tooling.js";
 import { createMachineStatusFeature } from "./modules/machine-status.js";
-import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive } from "./modules/jog.js";
+import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive, syncJogAvailabilityFromMachine as syncJogAvailabilityState } from "./modules/jog.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
 import { createSurfaceJogFeature, loadSurfaceViewPreferences, saveSurfaceViewPreferences as persistSurfaceViewPreferences, isSurfaceKiosk } from "./modules/surface-jog.js";
 import { createOutlineFeature, workPointToMachinePoint } from "./modules/outline.js";
@@ -1073,62 +1073,7 @@ function pendingCount() {
 // for existing Pause/Resume/Stop endpoints, but it never guesses a spindle
 // speed or direction for Start.
 function syncJogAvailabilityFromMachine(m) {
-  if (!state.jog.caps?.enabled) return;
-  // Movement ownership comes from the jog service, not the shared machine
-  // status stream. Keep another UI's ownership visible until the service
-  // broadcasts that it has been released.
-  if (movementOwnedElsewhere()) return;
-  if (state.jog.armed && (m.state === "Idle" || m.state === "Run")) {
-    state.jog.availability = { available: true, message: "Jog session active." };
-    if (state.jog.errorCode === "status_waiting") {
-      state.jog.error = "";
-      state.jog.errorCode = "";
-    }
-    return;
-  }
-  const stale = !!m.stale || Number(m.age_ms) > 10000;
-  let availability;
-  if (stale || !m.state || m.state === "Unknown") {
-    availability = {
-      available: false,
-      reason: "stale_status",
-      message: "Machine status is stale. Wait for a fresh Idle status before jogging.",
-    };
-  } else if (m.state !== "Idle") {
-    availability = {
-      available: false,
-      reason: "not_idle",
-      message: `Machine is ${m.state}. Jogging requires fresh Idle status.`,
-    };
-  } else if (!hasMPos(m.mpos)) {
-    availability = {
-      available: false,
-      reason: "stale_status",
-      message: "Machine position is unavailable. Wait for a status report with MPos before jogging.",
-    };
-  } else {
-    availability = { available: true, message: "Ready to arm jog." };
-  }
-  state.jog.availability = availability;
-  if (availability.available && isTransientJogBlock(state.jog.errorCode || state.jog.error)) {
-    state.jog.error = "";
-    state.jog.errorCode = "";
-  }
-}
-
-function hasMPos(mpos) {
-  return !!mpos && ["x", "y", "z"].some((axis) => Number.isFinite(Number(mpos[axis])));
-}
-
-function isTransientJogBlock(err) {
-  if (!err) return false;
-  if (["busy", "not_idle", "stale_status", "controller_waiting", "machine_error"].includes(err)) return true;
-  const low = String(err).toLowerCase();
-  return low.includes("machine left joggable state") ||
-    low.includes("machine is not ready") ||
-    low.includes("not idle") ||
-    low.includes("status is too stale") ||
-    low.includes("controller requested the machine");
+  syncJogAvailabilityState(m, state.jog, () => movementOwnedElsewhere());
 }
 
 function movementOwnedElsewhere(j = state.jog) {
