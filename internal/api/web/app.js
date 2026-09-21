@@ -24,7 +24,7 @@ import { createMachineStatusFeature } from "./modules/machine-status.js";
 import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive } from "./modules/jog.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
 import { createSurfaceJogFeature, loadSurfaceViewPreferences, saveSurfaceViewPreferences as persistSurfaceViewPreferences, isSurfaceKiosk } from "./modules/surface-jog.js";
-import { createOutlineFeature } from "./modules/outline.js";
+import { createOutlineFeature, workPointToMachinePoint } from "./modules/outline.js";
 import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
 import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dxf.js";
 import { createOutlineFilesFeature } from "./modules/outline-files.js";
@@ -1984,16 +1984,6 @@ function updateFieldProbePreview() {
 // pair of physical boundary probes, choose the field probe that minimizes the
 // longer of its two incident triangle edges. This directly measures the
 // boundary-to-field moat that a global nearest-neighbour score can hide.
-
-function workPointToMachinePoint(p, origin) {
-  const ox = axisValue(origin, "x");
-  const oy = axisValue(origin, "y");
-  const oz = axisValue(origin, "z");
-  if (ox === null || oy === null) return null;
-  const out = { x: Number(p.x) + ox, y: Number(p.y) + oy };
-  if (axisValue(p, "z") !== null && oz !== null) out.z = Number(p.z) + oz;
-  return out;
-}
 
 async function probeZAtWorkPoint(workPoint, opts = {}) {
   const origin = cloneOutlineOrigin(opts.origin || state.outline.origin || currentWorkOrigin());

@@ -1,6 +1,20 @@
 // Outline/probe model and editing helpers. DOM and machine actions remain
 // late-bound through named callbacks so this slice can be integrated without a
 // whole-app context.
+export function workPointToMachinePoint(point, origin) {
+  const axisValue = (values, axis) => {
+    const value = Number(values?.[axis]);
+    return Number.isFinite(value) ? value : null;
+  };
+  const ox = axisValue(origin, "x");
+  const oy = axisValue(origin, "y");
+  const oz = axisValue(origin, "z");
+  if (ox === null || oy === null) return null;
+  const out = { x: Number(point.x) + ox, y: Number(point.y) + oy };
+  if (axisValue(point, "z") !== null && oz !== null) out.z = Number(point.z) + oz;
+  return out;
+}
+
 export function createOutlineFeature({
   getOutline,
   getMachine = () => ({}),
