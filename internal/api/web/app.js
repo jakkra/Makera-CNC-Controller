@@ -133,7 +133,7 @@ const state = {
   machine: { state: "", mode: "owner", age_ms: 0, connected: false },
   gcodeSeqs: new Set(),
   gcodeLines: [],
-  commandHistory: loadCommandHistory(),
+  commandHistory: readCommandHistory(),
   historyIndex: -1,
   logFilter: "all",
   logSearch: "",
@@ -1059,10 +1059,6 @@ const dashboardProfiles = createDashboardProfiles({
   scheduleDashboardGcodeRender: () => gcodeViewer.scheduleDashboardGcodeRender(),
 });
 const { dashboardURLState, dashboardProfileByID, currentDashboardProfile, isWideSurfaceOverview, dashboardPanelVisible, resolveDashboardProfile, applyDashboardURLState, syncDashboardProfileURL, selectDashboardProfile, renderDashboardProfileControls, applyDashboardProfile, dashboardProfileSlug, renderDashboardPanelOrder, refreshDashboardPanelOrderButtons, openDashboardSettings, closeDashboardSettings, dashboardProfileFromForm, saveDashboardProfile, deleteDashboardProfile, copyDashboardURL } = dashboardProfiles;
-
-function loadCommandHistory() {
-  return readCommandHistory();
-}
 
 function saveCommandHistory() {
   persistCommandHistory(state.commandHistory);
