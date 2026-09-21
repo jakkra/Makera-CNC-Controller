@@ -17,13 +17,13 @@ export const MAX_MACHINE_FEED_MM_MIN = 10000;
 export const DEFAULT_SAFE_Z_MM = -3;
 export const SAFE_Z_LIMIT_MARGIN_MM = 3;
 
-function finiteOr(value, fallback) {
+export function finiteOr(value, fallback) {
   if (value === "" || value === null || typeof value === "undefined") return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
 
-function clampNumber(n, min, max) {
+export function clampNumber(n, min, max) {
   if (!Number.isFinite(n)) return min;
   return Math.max(min, Math.min(max, n));
 }

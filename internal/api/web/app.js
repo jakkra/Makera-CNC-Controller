@@ -65,6 +65,8 @@ import {
   normalizeMachineLearned,
   feedBoundsFor,
   safeZForTapMove,
+  finiteOr,
+  clampNumber,
 } from "./modules/settings.js";
 
 const GCODE_MAX_LINES = 500;
@@ -1089,17 +1091,6 @@ function defaultWorkAreaView() {
     mobileJogAxes: { x: 0, y: 0, z: 0 },
     mobileJogActive: false,
   };
-}
-
-function finiteOr(value, fallback) {
-  if (value === "" || value === null || typeof value === "undefined") return fallback;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function clampNumber(n, min, max) {
-  if (!Number.isFinite(n)) return min;
-  return Math.max(min, Math.min(max, n));
 }
 
 // The server repeats this policy authoritatively for every proxy-managed safe
