@@ -708,8 +708,6 @@ const machineStatus = createMachineStatusFeature({
   fmtDashboardSpindle,
   fmtCoord,
   axisValue,
-  fmtActiveTool,
-  machineFeedOverrideControlModel,
   setTextIfChanged,
   fmtAge,
   pendingCount,
@@ -727,7 +725,7 @@ const machineStatus = createMachineStatusFeature({
   HALT_REASON,
 });
 const {
-  gcodeToolMetadata, gcodeToolLabel, renderProgramToolLists, toolChangeTargetLabel,
+  gcodeToolMetadata, gcodeToolLabel, renderProgramToolLists, machineFeedOverrideControlModel, toolChangeTargetLabel,
   toolChangeAttentionDetail, machineReadoutModel, renderMachineReadouts, haltReason,
   recoveryText, machineActionState, jobControlModel, jobControlLabel, renderJobControls,
   renderMachine, renderAttention, attentionResumeAction, renderToolStatus,
@@ -974,23 +972,6 @@ function mountMachineReadouts() {
   }
 }
 
-function machineFeedOverrideControlModel(machine, pendingAction = "", pendingPercent = null, readOnly = false) {
-  const rawReported = machine?.feed?.override;
-  const reported = rawReported === null || rawReported === undefined || rawReported === "" ? NaN : Number(rawReported);
-  const pending = pendingAction === "feed_override";
-  const shown = pending && Number.isFinite(pendingPercent) ? pendingPercent : reported;
-  const allowedState = ["Idle", "Run", "Hold", "Pause"].includes(String(machine?.state || ""));
-  const available = !readOnly && !!machine?.connected && !machine?.stale && Number.isFinite(reported) && allowedState;
-  const busy = !!pendingAction;
-  return {
-    value: Number.isFinite(shown) ? Math.round(shown) + "%" : "—",
-    pending,
-    available,
-    decreaseDisabled: busy || !available || reported <= 50,
-    increaseDisabled: busy || !available || reported >= 200,
-    resetDisabled: busy || !available || reported === 100,
-  };
-}
 function toolDisplayName(toolID) {
   switch (Number(toolID)) {
   case -1:

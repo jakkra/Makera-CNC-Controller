@@ -16,7 +16,6 @@ export function createMachineStatusFeature({
   fmtCoord = (value) => value == null ? "-" : String(value),
   axisValue = (values, axis) => values?.[axis] ?? null,
   fmtActiveTool = () => "-",
-  machineFeedOverrideControlModel = () => ({ pending: false, value: "-", decreaseDisabled: true, increaseDisabled: true, resetDisabled: true, available: false }),
   setTextIfChanged = (node, value) => { if (node && node.textContent !== value) node.textContent = value; },
   fmtAge = () => "-",
   pendingCount = () => 0,
@@ -45,6 +44,24 @@ export function createMachineStatusFeature({
     set lastControlResult(value) { setLastControlResult(value); },
   };
   const currentAxisValues = getCurrentAxisValues;
+
+function machineFeedOverrideControlModel(machine, pendingAction = "", pendingPercent = null, readOnly = false) {
+  const rawReported = machine?.feed?.override;
+  const reported = rawReported === null || rawReported === undefined || rawReported === "" ? NaN : Number(rawReported);
+  const pending = pendingAction === "feed_override";
+  const shown = pending && Number.isFinite(pendingPercent) ? pendingPercent : reported;
+  const allowedState = ["Idle", "Run", "Hold", "Pause"].includes(String(machine?.state || ""));
+  const available = !readOnly && !!machine?.connected && !machine?.stale && Number.isFinite(reported) && allowedState;
+  const busy = !!pendingAction;
+  return {
+    value: Number.isFinite(shown) ? Math.round(shown) + "%" : "—",
+    pending,
+    available,
+    decreaseDisabled: busy || !available || reported <= 50,
+    increaseDisabled: busy || !available || reported >= 200,
+    resetDisabled: busy || !available || reported === 100,
+  };
+}
 
 function gcodeToolMetadata(toolMetadata, toolID) {
   const number = Number(toolID);
@@ -460,6 +477,6 @@ function recoveryButtonText(recovery, reason = null) {
     gcodeToolMetadata, gcodeToolLabel, programToolListModel, renderProgramToolLists, toolChangeTargetLabel, toolChangeAttentionDetail,
     machineReadoutModel, renderMachineReadouts, haltReason, recoveryText, machineActionState, jobControlModel,
     jobControlLabel, renderJobControls, renderMachine, renderAttention, attentionResumeAction, renderToolStatus,
-    renderAlarmPanel, recoveryButtonText,
+    renderAlarmPanel, recoveryButtonText, machineFeedOverrideControlModel,
   };
 }
