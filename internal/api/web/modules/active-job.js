@@ -227,3 +227,31 @@ export function previewBoundsText(bounds) {
   if (Number.isFinite(da) && Math.abs(da) > 0.0001) return `${xyz} A ${Math.abs(da).toFixed(2)} deg`;
   return xyz;
 }
+
+export function mountActiveJobPreview({ cursorForPlayedLine }) {
+  function activeJobPreviewState(machine, preview, activePath) {
+    const job = machine?.active_job;
+    const segments = Array.isArray(preview?.segments) ? preview.segments : [];
+    if (!job) return null;
+    if (job.path && activePath && job.path !== activePath) return null;
+    const playedLines = Math.max(0, Math.trunc(Number(job.played_lines) || 0));
+    if (playedLines <= 0) return null;
+    const percent = Math.max(0, Math.min(100, Math.trunc(Number(job.percent) || 0)));
+    const elapsedMs = Math.max(0, Number(job.elapsed_ms) || 0);
+    const remainingValue = Number(job.remaining_ms);
+    const remainingMs = Number.isFinite(remainingValue) && remainingValue >= 0 ? remainingValue : null;
+    const wpos = machine?.wpos || {};
+    let position = null;
+    if ([wpos.x, wpos.y, wpos.z].every((value) => Number.isFinite(Number(value)))) {
+      position = [
+        Number(wpos.x),
+        Number(wpos.y),
+        Number(wpos.z),
+        Number.isFinite(Number(wpos.a)) ? -Number(wpos.a) : 0,
+      ];
+    }
+    return { playedLines, percent, elapsedMs, remainingMs, cursor: cursorForPlayedLine(segments, playedLines), position };
+  }
+
+  return { activeJobPreviewState };
+}

@@ -12,18 +12,27 @@ import vm from "node:vm";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { request } from "./modules/api.js";
-import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobRunner, mountActiveJobSelection, mountPausedJobCommand, previewBoundsText } from "./modules/active-job.js";
+import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountActiveJobSelection, mountPausedJobCommand, previewBoundsText } from "./modules/active-job.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
+import { dashboardExternalCameraIsSnapshot, normalizeDashboardExternalCameraView } from "./modules/camera.js";
 import { beginFileAction, createFileCatalog, createFileHelpers, endFileAction, fileRowLocallyOwned, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
+const cameraModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/camera.js"), "utf8");
 const geometryModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-geometry.js"), "utf8").replace(/^export /gm, "");
 const geometryHelpers = new Set(["triangulationEdgeKey","triangleCross","pointInTriangle2D","triangleCCW","pointInPolygonOrBoundary","effectiveOutlineGeometry","flattenCurveSegment","flattenCubic","cubicFlatEnough","midpoint","buildFieldProbePreview","normalizedClosedPolygon","buildBoundaryProbePoints","buildCornerPartitionedBoundary","buildClosedMinimaxBoundary","buildOutlineEdgeProbePoints","projectPointToProbePath","closedPathSegments","sampleClosedPath","sampleClosedPathAtDistance","closedPathMaxSampleGap","createProbeSpacingIndex","addProbeSpacingPoint","probeSpacingIndexAllows","buildRelaxedProbePoints","optimizeProbeMesh","buildBoundaryInteriorTargets","selectGapSafeBoundaryInteriorSeeds","projectBoundaryInteriorTarget","largestExactFeasibleProbeHole","improveProbeCovering","probeCoverageCertificateBetter","buildProbeDomainSamples","buildBestProbeLattice","buildProbeLatticeCandidate","probeCoverageScore","probeCoverageCertificate","probeMeshQualityCertificate","probeBoundaryLayerCertificate","probeDelaunayTriangles","probePointInCircumcircle","triangleCircumcenter","nearestProbeSet","exactBoundaryProbeCriticalPoints","largestProbeCoverageHole","relaxProbeDistribution","createProbeNearestIndex","nearestIndexedProbe","projectProbeSpacingConstraints","probePointInsideAlongMove","probeDistributionValid","pointBounds","probeSpotFitsPolygon","distancePointToSegment","polygonCentroid","averagePoint","distance2","pointInPolygon"]);
 const feedbackModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/feedback.js"), "utf8");
+const mdiModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/mdi-macros.js"), "utf8");
+const toolActionsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/tool-actions.js"), "utf8");
+const dashboardProfilesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/dashboard-profiles.js"), "utf8");
+// Transitional VM tests retain their assertions against these exact production helpers.
 const feedbackHelpers = new Set(["setNotice", "noticeTimeoutMs", "statusMessageSignature", "setStatusMessage", "consumeStatusFeedback", "clearNotice", "setConnectivityIssue", "clearConnectivityIssue", "renderConnectivityNotice", "noticeItemRects", "animateNoticeReflow", "dismissNotice", "renderNoticeBar"]);
+const mdiMacrosHelpers = new Set(["macroByID", "slotForMacro", "sortedSlots", "setMacroPlacement", "normalizeSlotOrder", "renderGcodeCommandState", "submitGcode", "navigateCommandHistory", "renderMacroButtons", "renderMacroRegion", "renderMacroEditor", "currentMacroFromForm", "saveMacroFromForm", "newMacro", "macroEditorDirty", "confirmDiscardMacroDraft", "deleteSelectedMacro", "moveSelectedMacro", "runMacro"]);
+const toolActionsHelpers = new Set(["customToolID", "resetToolSelects", "toggleToolCustomInput", "handleToolSelect", "selectedToolID", "setCurrentTool", "changeTool", "continueToolChange", "calibrateCurrentTool", "beginToolAction", "finishToolAction", "refreshMachineAfterToolAction", "renderToolActions", "setToolFeedback", "clearToolFeedback"]);
+const dashboardProfilesHelpers = new Set(["dashboardURLState", "dashboardProfileByID", "currentDashboardProfile", "isWideSurfaceOverview", "dashboardPanelVisible", "resolveDashboardProfile", "applyDashboardURLState", "syncDashboardProfileURL", "selectDashboardProfile", "renderDashboardProfileControls", "applyDashboardProfile", "dashboardProfileSlug", "renderDashboardPanelOrder", "refreshDashboardPanelOrderButtons", "openDashboardSettings", "closeDashboardSettings", "dashboardProfileFromForm", "saveDashboardProfile", "deleteDashboardProfile", "copyDashboardURL"]);
 const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.html"), "utf8")
   + readFileSync(join(dirname(fileURLToPath(import.meta.url)), "styles/app.css"), "utf8");
 
@@ -158,10 +167,8 @@ test("dashboard layout controls are hidden and expose their expanded state", () 
   assert.equal(focused, true);
 });
 
-function globalSource() { return source; }
-
 function extractFunction(name) {
-  const source = feedbackHelpers.has(name) ? feedbackModuleSource.replace(/^  /gm, "") : geometryHelpers.has(name) ? geometryModuleSource : globalSource();
+  const source = feedbackHelpers.has(name) ? feedbackModuleSource.replace(/^  /gm, "") : mdiMacrosHelpers.has(name) ? mdiModuleSource.replace(/^  /gm, "") : toolActionsHelpers.has(name) ? toolActionsModuleSource.replace(/^  /gm, "") : dashboardProfilesHelpers.has(name) ? dashboardProfilesModuleSource.replace(/^  /gm, "") : geometryHelpers.has(name) ? geometryModuleSource : globalSource();
   let start = source.indexOf("\nfunction " + name + "(");
   if (start < 0) start = source.indexOf("\nasync function " + name + "(");
   if (start < 0) throw new Error("function not found in app.js: " + name);
@@ -186,10 +193,13 @@ function extractFunction(name) {
   throw new Error("unbalanced braces extracting " + name);
 }
 
+function globalSource() { return source; }
+
 function extractConst(name) {
-  const m = source.match(new RegExp("^const " + name + " = .*;$", "m"));
+  const constSource = name === "DASHBOARD_PANEL_DEFS" ? dashboardProfilesModuleSource : source;
+  const m = constSource.match(new RegExp("^(?:export )?const " + name + " = .*;$", "m"));
   if (!m) throw new Error("const not found in app.js: " + name);
-  return m[0];
+  return m[0].replace(/^export /, "");
 }
 
 function buildContext(functionNames, constNames = [], globals = {}) {
@@ -200,22 +210,14 @@ function buildContext(functionNames, constNames = [], globals = {}) {
 }
 
 test("external camera refresh is limited to explicit snapshot sources", () => {
-  const ctx = buildContext(["dashboardExternalCameraIsSnapshot"]);
-  assert.equal(vm.runInContext('dashboardExternalCameraIsSnapshot({mode:"snapshot"})', ctx), true);
-  assert.equal(vm.runInContext('dashboardExternalCameraIsSnapshot({mode:"mjpeg"})', ctx), false);
-  assert.equal(vm.runInContext("dashboardExternalCameraIsSnapshot({})", ctx), false);
+  assert.equal(dashboardExternalCameraIsSnapshot({ mode: "snapshot" }), true);
+  assert.equal(dashboardExternalCameraIsSnapshot({ mode: "mjpeg" }), false);
+  assert.equal(dashboardExternalCameraIsSnapshot({}), false);
 });
 
 test("external camera framing clamps persisted zoom and focus", () => {
-  const ctx = buildContext(["normalizeDashboardExternalCameraView"], ["EXTERNAL_CAMERA_ZOOM_LEVELS"]);
-  assert.equal(
-    JSON.stringify(vm.runInContext("normalizeDashboardExternalCameraView({zoom:2,x:-20,y:140})", ctx)),
-    JSON.stringify({ zoom: 2, x: 0, y: 100 }),
-  );
-  assert.equal(
-    JSON.stringify(vm.runInContext("normalizeDashboardExternalCameraView({zoom:2.25,x:'bad',y:null})", ctx)),
-    JSON.stringify({ zoom: 1, x: 50, y: 50 }),
-  );
+  assert.deepEqual(normalizeDashboardExternalCameraView({ zoom: 2, x: -20, y: 140 }), { zoom: 2, x: 0, y: 100 });
+  assert.deepEqual(normalizeDashboardExternalCameraView({ zoom: 2.25, x: "bad", y: null }), { zoom: 1, x: 50, y: 50 });
 });
 
 test("tool-change attention identifies the Fusion tool requested by the machine", () => {
@@ -279,13 +281,13 @@ test("external camera snapshot captures the decoded frame and preserves its orie
   assert.match(htmlSource, /id="dashboard-camera-snapshot-modal"/);
   assert.match(htmlSource, /id="dashboard-camera-snapshot-viewport"/);
   assert.match(htmlSource, /id="dashboard-camera-snapshot-image"/);
-  assert.match(source, /image\.naturalWidth/);
-  assert.match(source, /context\.rotate\(Math\.PI\)/);
-  assert.match(source, /canvas\.toDataURL\("image\/jpeg", 0\.92\)/);
-  assert.match(source, /meta\.textContent = `\$\{width\}×\$\{height\} pixels/);
-  assert.match(source, /const CAMERA_SNAPSHOT_ZOOM = 2\.5;/);
-  assert.match(source, /toggleDashboardCameraSnapshotZoom\(clientX, clientY\)/);
-  assert.match(source, /transform = `scale\(\$\{zoomed \? CAMERA_SNAPSHOT_ZOOM : 1\}\)`/);
+  assert.match(cameraModuleSource, /image\.naturalWidth/);
+  assert.match(cameraModuleSource, /context\.rotate\(Math\.PI\)/);
+  assert.match(cameraModuleSource, /canvas\.toDataURL\("image\/jpeg", 0\.92\)/);
+  assert.match(cameraModuleSource, /meta\.textContent = `\$\{width\}×\$\{height\} pixels/);
+  assert.match(cameraModuleSource, /const CAMERA_SNAPSHOT_ZOOM = 2\.5;/);
+  assert.match(cameraModuleSource, /toggleDashboardCameraSnapshotZoom\(clientX, clientY\)/);
+  assert.match(cameraModuleSource, /transform = `scale\(\$\{zoomed \? CAMERA_SNAPSHOT_ZOOM : 1\}\)`/);
 });
 
 test("external camera focus controls expose auto/manual mode and a hardware-step slider", () => {
@@ -297,16 +299,16 @@ test("external camera focus controls expose auto/manual mode and a hardware-step
     'id="dashboard-camera-focus-apply"',
   ]) assert.match(htmlSource, new RegExp(marker));
   assert.match(htmlSource, /id="dashboard-camera-focus-value" type="range" min="0" max="250" step="5"/);
-  assert.match(source, /\/api\/camera\/external\/focus/);
-  assert.match(source, /focus\.draftAutofocus/);
-  assert.match(source, /focus\.draftAbsolute/);
+  assert.match(cameraModuleSource, /\/api\/camera\/external\/focus/);
+  assert.match(cameraModuleSource, /focus\.draftAutofocus/);
+  assert.match(cameraModuleSource, /focus\.draftAbsolute/);
 });
 
 test("built-in camera keeps the previous frame until the replacement has loaded", () => {
-  assert.match(source, /state\.cameras\.builtinObjectURLs\.add\(nextURL\);/);
-  assert.match(source, /image\.onload = \(\) => \{/);
-  assert.match(source, /if \(state\.cameras\.builtinObjectURL !== nextURL\) return;/);
-  assert.doesNotMatch(source, /setTimeout\(\(\) => URL\.revokeObjectURL\?\.\(previousURL\), 1000\)/);
+  assert.match(cameraModuleSource, /state\.cameras\.builtinObjectURLs\.add\(nextURL\);/);
+  assert.match(cameraModuleSource, /image\.onload = \(\) => \{/);
+  assert.match(cameraModuleSource, /if \(state\.cameras\.builtinObjectURL !== nextURL\) return;/);
+  assert.doesNotMatch(cameraModuleSource, /setTimeout\(\(\) => URL\.revokeObjectURL\?\.\(previousURL\), 1000\)/);
 });
 
 test("empty G-code viewers do not repeatedly clear their WebGL scenes", () => {
@@ -801,7 +803,9 @@ const fieldProbeConsts = [
 ];
 
 test("active job preview follows firmware line progress and the reported work position", () => {
-  const ctx = buildContext(["gcodeCursorForPlayedLine", "activeJobPreviewState"]);
+  const cursorContext = buildContext(["gcodeCursorForPlayedLine"]);
+  const cursorForPlayedLine = vm.runInContext("gcodeCursorForPlayedLine", cursorContext);
+  const previewState = mountActiveJobPreview({ cursorForPlayedLine }).activeJobPreviewState;
   const machine = {
     active_job: {
       path: "/sd/gcodes/part.nc",
@@ -820,10 +824,7 @@ test("active job preview follows firmware line progress and the reported work po
       { line: 10 },
     ],
   };
-  const live = JSON.parse(vm.runInContext(
-    `JSON.stringify(activeJobPreviewState(${JSON.stringify(machine)}, ${JSON.stringify(preview)}, "/sd/gcodes/part.nc"))`,
-    ctx,
-  ));
+  const live = previewState(machine, preview, "/sd/gcodes/part.nc");
   assert.deepEqual(live, {
     playedLines: 4,
     percent: 40,
@@ -835,14 +836,10 @@ test("active job preview follows firmware line progress and the reported work po
 });
 
 test("active job progress never drives a preview for a different file", () => {
-  const ctx = buildContext(["gcodeCursorForPlayedLine", "activeJobPreviewState"]);
-  const live = vm.runInContext(
-    `activeJobPreviewState(
-      { active_job: { path: "/sd/gcodes/other.nc", played_lines: 8 }, wpos: { x: 1, y: 2, z: 3 } },
-      { segments: [{ line: 2 }] },
-      "/sd/gcodes/part.nc"
-    )`,
-    ctx,
+  const live = mountActiveJobPreview({ cursorForPlayedLine: () => 0 }).activeJobPreviewState(
+    { active_job: { path: "/sd/gcodes/other.nc", played_lines: 8 }, wpos: { x: 1, y: 2, z: 3 } },
+    { segments: [{ line: 2 }] },
+    "/sd/gcodes/part.nc",
   );
   assert.equal(live, null);
 });
@@ -1242,16 +1239,16 @@ test("paused-job resume owns pending state independently of the Active Job view"
     renderMachine: () => { renders++; },
     request: ctxRequest,
     pollMachine: async () => {},
-    activeJobControl: { runActiveJobControl: async (action) => {
-      state.activeGcodePending = action;
-      renders++;
-      const response = await ctxRequest("/api/control", { method: "POST", body: JSON.stringify({ action }) });
-      const result = await response.json();
-      feedback.push([result.message, "ok"]);
-      state.activeGcodePending = "";
-      renders++;
-      return result.verified;
-    } },
+  });
+  ctx.activeJobControl = mountActiveJobControl({
+    request: ctxRequest,
+    getActiveGcodePending: () => state.activeGcodePending,
+    setActiveGcodePending: (value) => { state.activeGcodePending = value; },
+    machineActionState: () => vm.runInContext("machineActionState()", ctx),
+    confirmRef: () => true,
+    setActiveFeedback: (text, kind) => feedback.push([text, kind]),
+    renderMachine: () => { renders++; },
+    pollMachine: async () => {},
   });
 
   assert.equal(await vm.runInContext('runActiveJobControl("resume_job")', ctx), true);
@@ -1270,11 +1267,16 @@ test("paused-job resume reports stale and busy clicks instead of failing silentl
     state,
     setActiveFeedback: (text, kind) => feedback.push([text, kind]),
     request: async () => { requests++; },
-    activeJobControl: { runActiveJobControl: async () => {
-      if (!state.activeGcodePending) feedback.push(["Resume is unavailable while the machine is " + state.machine.state + ".", "error"]);
-      else feedback.push(["Another active job action is still in progress.", "error"]);
-      return false;
-    } },
+  });
+  ctx.activeJobControl = mountActiveJobControl({
+    request: async () => { requests++; },
+    getActiveGcodePending: () => state.activeGcodePending,
+    setActiveGcodePending: (value) => { state.activeGcodePending = value; },
+    machineActionState: () => vm.runInContext("machineActionState()", ctx),
+    confirmRef: () => true,
+    setActiveFeedback: (text, kind) => feedback.push([text, kind]),
+    renderMachine: () => {},
+    pollMachine: async () => {},
   });
   assert.equal(await vm.runInContext('runActiveJobControl("resume_job")', ctx), false);
   assert.equal(requests, 0);

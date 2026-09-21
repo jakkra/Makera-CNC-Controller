@@ -1273,15 +1273,19 @@ func TestWebUIServed(t *testing.T) {
 	if js.StatusCode != http.StatusOK || !strings.Contains(string(jsBody), "createLiveUpdates") {
 		t.Errorf("app.js status=%d", js.StatusCode)
 	}
-	geometryModule := get(t, srv.URL+"/modules/outline-geometry.js")
-	geometryBody, _ := io.ReadAll(geometryModule.Body)
-	geometryModule.Body.Close()
-	feedbackModule := get(t, srv.URL+"/modules/feedback.js")
-	feedbackBody, _ := io.ReadAll(feedbackModule.Body)
-	feedbackModule.Body.Close()
 	liveModule := get(t, srv.URL+"/modules/live-updates.js")
 	liveBody, _ := io.ReadAll(liveModule.Body)
 	liveModule.Body.Close()
+	feedbackModule := get(t, srv.URL+"/modules/feedback.js")
+	feedbackBody, _ := io.ReadAll(feedbackModule.Body)
+	feedbackModule.Body.Close()
+	geometryModule := get(t, srv.URL+"/modules/outline-geometry.js")
+	geometryBody, _ := io.ReadAll(geometryModule.Body)
+	geometryModule.Body.Close()
+	toolModule := get(t, srv.URL+"/modules/tool-actions.js")
+	toolBody, _ := io.ReadAll(toolModule.Body)
+	toolModule.Body.Close()
+	toolSource := string(jsBody) + string(toolBody)
 	filesModule := get(t, srv.URL+"/modules/files.js")
 	filesModuleBody, _ := io.ReadAll(filesModule.Body)
 	filesModule.Body.Close()
@@ -1290,7 +1294,7 @@ func TestWebUIServed(t *testing.T) {
 			t.Errorf("modules/files.js missing %s (status=%d)", want, filesModule.StatusCode)
 		}
 	}
-	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`} {
+	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`, `from "./modules/camera.js"`} {
 		if !strings.Contains(string(jsBody), want) {
 			t.Errorf("app.js missing shared module import %s", want)
 		}
@@ -1300,9 +1304,6 @@ func TestWebUIServed(t *testing.T) {
 		mark string
 	}{
 		{"/modules/api.js", "export async function request"},
-		{"/modules/live-updates.js", "export function createLiveUpdates"},
-		{"/modules/feedback.js", "export function createFeedback"},
-		{"/modules/outline-geometry.js", "export function buildFieldProbePreview"},
 		{"/modules/dom.js", "export function setSoftDisabled"},
 		{"/modules/format.js", "export function fmtCoord"},
 		{"/modules/maintenance.js", "export function mountMaintenance"},
@@ -1313,6 +1314,13 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/active-job.js", "export function mountActiveJobControl"},
 		{"/modules/active-job.js", "export function mountPausedJobCommand"},
 		{"/modules/active-job.js", "export function previewBoundsText"},
+		{"/modules/active-job.js", "export function mountActiveJobPreview"},
+		{"/modules/camera.js", "export function mountDashboardCamera"},
+		{"/modules/feedback.js", "export function createFeedback"},
+		{"/modules/live-updates.js", "export function createLiveUpdates"},
+		{"/modules/outline-geometry.js", "export function buildFieldProbePreview"},
+		{"/modules/tool-actions.js", "export function createToolActions"},
+		{"/modules/dashboard-profiles.js", "export function createDashboardProfiles"},
 	} {
 		module := get(t, srv.URL+asset.path)
 		moduleBody, _ := io.ReadAll(module.Body)
@@ -1432,12 +1440,12 @@ func TestWebUIServed(t *testing.T) {
 		t.Errorf("three.module.min.js Cache-Control = %q, want no-store", got)
 	}
 	for _, want := range []string{"rememberCommand", "navigateCommandHistory", "renderAlarmPanel", "HALT_REASON", "controlPendingText", "controlSuccessText", "confirmControl", "bindDataControlButtons", "data-control-action", "renderFileSummary", "lineMatchesFilter", "setHeaderCollapsed", "selectActiveGcode", "runActiveGcode", "renderDashboard", `classList.toggle("is-empty", !active.path)`, `document.querySelector(".active-gcode-workspace")?.classList.toggle("is-empty", !active.path);`, "drawDashboardGcodePreview", "ensureDashboardGcodeViewer", "populateGcodePathScene", "drawGcodePreview", "activeJobPreviewState", "gcodeCursorForPlayedLine", "syncActiveGcodeFromMachine", "ensureActiveGcodeGeometry", "ensureActiveGcodeSource", "fetchActiveGcodeSourcePage", "renderActiveGcodeSource", "gcodeSourceLineForCursor", "gcodeSourceWindow", "syncActiveGcodeSourceLine", "showActiveJobLeftTab", "activeJobLeftTabs", "activeJobSplitBounds", "setActiveJobSplitPercent", "bindActiveJobSplitter", "initializeResponsiveControlSections", "activeJobOverlayOriginFrom", "activeJobContextOverlayData", "interpolateOutlinePathZ", "activeJobFieldProbeComplete", "field_probe_complete", "syncGcodeContextOverlay", "rebuildGcodeContextOverlay", "combineGcodeBounds", "gcodeRenderPixelRatio", "viewCubeTargetComponents", "gcodeOrbitAnglesForDirection", `projection: "orthographic"`, `gcodeOrbitAnglesForDirection({ x: 1, y: 1, z: 1 })`, "onGcodeViewCubePointerMove", "rotateGcodeOrbitByDrag", "gcodeCubeDragStep", "THREE.WebGLRenderer", "gcodeWorldCoordinates", "gcodeWorldPoint", "panGcodeCamera", "/api/gcode/active/segments", "/api/gcode/active/source", "/api/files/", "/api/tool/current", "/api/tool/change", "/api/tool/continue", "/api/tool/calibrate", "/api/probe/3d", "runProbe3D", "is3DProbeToolActive"} {
-		if !strings.Contains(string(jsBody), want) {
+		if !strings.Contains(toolSource, want) {
 			t.Errorf("app.js missing %s", want)
 		}
 	}
 	for _, want := range []string{`function renderToolActions`, `const waitingForTool = m.state === "Tool"`, `const continueAvailable = waitingForTool`, `tool-wait-row`, `tool-wait-status`, `set.disabled = setPending || waitingForTool`, `change.disabled = changePending || waitingForTool`, `cont.disabled = continuePending`, `setSoftDisabled(cont, !continuePending && !continueAvailable)`, `cal.disabled = calibratePending || waitingForTool`, `function refreshMachineAfterToolAction`, `isProbeToolActive()`} {
-		if !strings.Contains(string(jsBody), want) {
+		if !strings.Contains(toolSource, want) {
 			t.Errorf("app.js missing tool wait-state UI policy %s", want)
 		}
 	}

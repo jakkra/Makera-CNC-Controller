@@ -1,12 +1,16 @@
+import { createDashboardProfiles, DASHBOARD_PANEL_DEFS } from "./modules/dashboard-profiles.js";
 import { createLiveUpdates } from "./modules/live-updates.js";
-import { createFeedback } from "./modules/feedback.js";
 import { triangulationEdgeKey, triangleCross, pointInTriangle2D, triangleCCW, pointInPolygonOrBoundary, effectiveOutlineGeometry, normalizedClosedPolygon, buildFieldProbePreview as computeFieldProbePreview } from "./modules/outline-geometry.js";
 import * as THREE from "./three.module.min.js";
 import { request } from "./modules/api.js";
-import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection, previewBoundsText as activeJobPreviewBoundsText } from "./modules/active-job.js";
+import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection, previewBoundsText as activeJobPreviewBoundsText } from "./modules/active-job.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
+import { mountDashboardCamera } from "./modules/camera.js";
+import { createFeedback } from "./modules/feedback.js";
+import { createMdiMacros } from "./modules/mdi-macros.js";
+import { createToolActions } from "./modules/tool-actions.js";
 import { beginFileAction as beginFileActionState, createFileCatalog, createFileHelpers, endFileAction as endFileActionState, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
 
 const ROOT = "/sd/gcodes";
@@ -38,14 +42,9 @@ const ACTIVE_JOB_SPLITTER_PX = 16;
 const VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files", "maintenance", "attention"];
 const NAV_VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files"];
 const SURFACE_VIEW_PREFERENCES_KEY = "cnc-proxy.surface-view-preferences.v1";
-const EXTERNAL_CAMERA_VIEW_KEY = "cnc-proxy.external-camera-view.v1";
-const EXTERNAL_CAMERA_ZOOM_LEVELS = [1, 1.5, 2, 3];
-const CAMERA_SNAPSHOT_ZOOM = 2.5;
-const DASHBOARD_PANEL_DEFS = [{ id: "machine", label: "Machine" }, { id: "job", label: "Current job" }, { id: "telemetry", label: "Machine telemetry" }, { id: "gcode", label: "Gcode stream" }];
 const JOG_INPUT_HEARTBEAT_MS = 100;
 const JOG_INPUT_DEADZONE = 0.12;
 const JOG_PREDICTION_TOLERANCE_MM = 0.02;
-const EXTERNAL_SNAPSHOT_REFRESH_MS = 1500;
 const FOREGROUND_PAGE_RELOAD_MS = 60000;
 const PULL_TO_REFRESH_DISTANCE_PX = 88;
 const PULL_TO_REFRESH_DIRECTION_SLOP_PX = 16;
@@ -102,32 +101,6 @@ const state = {
   dashboardEmbed: false,
   dashboardSettingsLoaded: false,
   dashboardDraftProfileID: "",
-  dashboardCameraPrimary: loadDashboardCameraPrimary(),
-  dashboardExternalCameraView: loadDashboardExternalCameraView(),
-  dashboardCameraSnapshotZoomed: false,
-  dashboardCameraSnapshotFocus: { x: 50, y: 50 },
-  cameraFocus: {
-    loaded: false,
-    available: false,
-    autofocus: true,
-    absolute: 5,
-    min: 0,
-    max: 250,
-    step: 5,
-    pending: false,
-    draftAutofocus: true,
-    draftAbsolute: 5,
-  },
-  cameras: {
-    loaded: false,
-    sources: { builtin: { configured: false }, external: { configured: false } },
-    builtinWS: null,
-    builtinReconnectTimer: null,
-    builtinObjectURL: "",
-    builtinObjectURLs: new Set(),
-    externalURL: "",
-    externalRetryTimer: null,
-  },
 	filesLoaded: false,
 	fileActions: new Map(),
 	fileRenderTimer: null,
@@ -213,12 +186,6 @@ const state = {
   workarea: defaultWorkAreaView(),
 };
 
-const fileCatalog = createFileCatalog({
-  getFiles: () => state.files,
-  paths: { relPath, cleanRelPath, joinRelPath, remotePathFromRel },
-});
-const fileHelpers = createFileHelpers({ getJobs: () => state.jobs });
-
 const {
   clearConnectivityIssue,
   clearNotice,
@@ -240,6 +207,80 @@ const { resetEventStream, connectControlSSE, connectFilesSSE, pollMachine } = cr
   setConnectivityIssue,
   refreshJobs,
 });
+
+const mdiMacros = createMdiMacros({
+  documentRef: document,
+  getUI: () => state.ui,
+  newID,
+  escapeHtml,
+  bindButtonAction,
+  clearControlDrafts,
+  setControlValueIfIdle,
+  setSoftDisabled,
+  setNotice,
+  clearNotice,
+  queueSaveUISettings,
+  renderGamepadSettings,
+  confirmRef: (message) => confirm(message),
+  sendGcode,
+  rememberCommand,
+  setStatusMessage,
+  getSelectedMacroId: () => state.selectedMacroId,
+  setSelectedMacroId: (value) => { state.selectedMacroId = value; },
+  getMacroRunning: () => state.macroRunning,
+  setMacroRunning: (value) => { state.macroRunning = value; },
+  getGcodePending: () => state.gcodePending,
+  setGcodePending: (value) => { state.gcodePending = value; },
+  getCommandHistory: () => state.commandHistory,
+  getHistoryIndex: () => state.historyIndex,
+  setHistoryIndex: (value) => { state.historyIndex = value; },
+});
+const {
+  macroByID, slotForMacro, sortedSlots, setMacroPlacement, normalizeSlotOrder,
+  renderGcodeCommandState, submitGcode, navigateCommandHistory, renderMacroButtons,
+  renderMacroRegion, renderMacroEditor, currentMacroFromForm, saveMacroFromForm,
+  newMacro, macroEditorDirty, confirmDiscardMacroDraft, deleteSelectedMacro,
+  moveSelectedMacro, runMacro,
+} = mdiMacros;
+const toolActions = createToolActions({
+  documentRef: document,
+  request,
+  validToolID,
+  toolDisplayName,
+  getMachine: () => state.machine,
+  getPending: () => state.toolPending,
+  setPending: (value) => { state.toolPending = value; },
+  setSoftDisabled,
+  setElementBusy,
+  setStatusMessage,
+  disarmTapMoveForCommand,
+  appendGcodeLine,
+  pollMachine,
+});
+const {
+  customToolID, resetToolSelects, toggleToolCustomInput, handleToolSelect,
+  selectedToolID, setCurrentTool, changeTool, continueToolChange,
+  calibrateCurrentTool, beginToolAction, finishToolAction,
+  refreshMachineAfterToolAction, renderToolActions, setToolFeedback,
+  clearToolFeedback,
+} = toolActions;
+
+const dashboardCamera = mountDashboardCamera({
+  getActiveTab: () => state.activeTab,
+  getReadOnly: () => state.readOnly,
+  documentRef: document,
+  windowRef: window,
+  request,
+  setStatusMessage,
+  bindButtonAction,
+  setTextIfChanged,
+});
+
+const fileCatalog = createFileCatalog({
+  getFiles: () => state.files,
+  paths: { relPath, cleanRelPath, joinRelPath, remotePathFromRel },
+});
+const fileHelpers = createFileHelpers({ getJobs: () => state.jobs });
 
 const filesNavigation = mountFilesNavigation({
   documentRef: document,
@@ -376,6 +417,8 @@ const pausedJobCommand = mountPausedJobCommand({
   pollMachine,
 });
 
+const activeJobPreview = mountActiveJobPreview({ cursorForPlayedLine: gcodeCursorForPlayedLine });
+
 const filesRows = mountFilesRows({
   documentRef: document,
   windowRef: window,
@@ -410,7 +453,6 @@ const filesRows = mountFilesRows({
   selectActiveGcode: activeJobSelection.selectActiveGcode,
   openDir,
 });
-
 
 const maintenance = mountMaintenance({
   request,
@@ -537,7 +579,6 @@ const SURFACE_MPG_DEAD_ZONE = 0.24;
 // Same axis palette as the Control tab work-area origin marker.
 const GCODE_AXIS_COLORS = { x: "#f05b5b", y: "#6fa3ff", z: "#44c27b" };
 
-
 const HALT_REASON = {
   1: "Halt manually",
   2: "Home fail",
@@ -562,6 +603,28 @@ const HALT_REASON = {
   26: "SD card read fail",
   41: "Spindle alarm",
 };
+
+const dashboardProfileState = {
+  get ui() { return state.ui; },
+  set ui(value) { state.ui = value; },
+  get dashboardProfileID() { return state.dashboardProfileID; },
+  set dashboardProfileID(value) { state.dashboardProfileID = value; },
+  get dashboardRequestedProfileID() { return state.dashboardRequestedProfileID; },
+  set dashboardRequestedProfileID(value) { state.dashboardRequestedProfileID = value; },
+  get dashboardEmbed() { return state.dashboardEmbed; },
+  set dashboardEmbed(value) { state.dashboardEmbed = value; },
+  get dashboardSettingsLoaded() { return state.dashboardSettingsLoaded; },
+  set dashboardSettingsLoaded(value) { state.dashboardSettingsLoaded = value; },
+  get dashboardDraftProfileID() { return state.dashboardDraftProfileID; },
+  set dashboardDraftProfileID(value) { state.dashboardDraftProfileID = value; },
+};
+const dashboardProfiles = createDashboardProfiles({
+  dashboardState: dashboardProfileState, documentRef: document, windowRef: window, navigatorRef: window.navigator,
+  confirmRef: (message) => window.confirm(message),
+  normalizeDashboardSettings, viewTabFromURL, setDashboardControlsOpen, renderDashboard, newID, saveUISettings, setNotice,
+  dashboardGcodeView, scheduleDashboardGcodeRender,
+});
+const { dashboardURLState, dashboardProfileByID, currentDashboardProfile, isWideSurfaceOverview, dashboardPanelVisible, resolveDashboardProfile, applyDashboardURLState, syncDashboardProfileURL, selectDashboardProfile, renderDashboardProfileControls, applyDashboardProfile, dashboardProfileSlug, renderDashboardPanelOrder, refreshDashboardPanelOrderButtons, openDashboardSettings, closeDashboardSettings, dashboardProfileFromForm, saveDashboardProfile, deleteDashboardProfile, copyDashboardURL } = dashboardProfiles;
 
 function relPath(p) {
   if (!p) return "";
@@ -1498,368 +1561,20 @@ async function saveUISettings(options = {}) {
   }
 }
 
-function dashboardURLState(locationLike = window.location) {
-  const query = new URLSearchParams(String(locationLike?.search || ""));
-  const embed = String(query.get("embed") || "").toLowerCase();
-  return {
-    profile: String(query.get("profile") || "").trim(),
-    embed: embed === "1" || embed === "true" || embed === "yes",
-  };
-}
-
-function dashboardProfileByID(id) {
-  return state.ui.dashboard?.profiles?.find((profile) => profile.id === id) || null;
-}
-
-function currentDashboardProfile() {
-  const settings = normalizeDashboardSettings(state.ui.dashboard);
-  const find = (id) => settings.profiles.find((profile) => profile.id === id) || null;
-  return find(state.dashboardProfileID) || find(settings.default_profile_id) || settings.profiles[0];
-}
-
-function isWideSurfaceOverview() {
-  return typeof window !== "undefined" && window.matchMedia?.("(min-width: 1320px)")?.matches === true;
-}
-
-function dashboardPanelVisible(panelID, profile, forceSurfaceOverview = isWideSurfaceOverview()) {
-  return profile.panels.includes(panelID) || (forceSurfaceOverview && (panelID === "machine" || panelID === "job"));
-}
-
-function resolveDashboardProfile() {
-  state.ui.dashboard = normalizeDashboardSettings(state.ui.dashboard);
-  const requested = state.dashboardRequestedProfileID;
-  const fallback = state.ui.dashboard.default_profile_id || state.ui.dashboard.profiles[0]?.id;
-  state.dashboardProfileID = dashboardProfileByID(requested) ? requested : fallback;
-  renderDashboardProfileControls();
-  applyDashboardProfile(currentDashboardProfile());
-  renderDashboard();
-}
-
-function applyDashboardURLState(locationLike = window.location) {
-  const urlState = dashboardURLState(locationLike);
-  state.dashboardRequestedProfileID = urlState.profile;
-  state.dashboardEmbed = urlState.embed && viewTabFromURL(locationLike) === "dashboard";
-  document.body.classList.toggle("dashboard-embed", state.dashboardEmbed);
-  if (state.dashboardEmbed) setDashboardControlsOpen(false);
-  if (state.dashboardSettingsLoaded || !state.dashboardProfileID) resolveDashboardProfile();
-  else applyDashboardProfile(currentDashboardProfile());
-}
-
-function syncDashboardProfileURL(profileID, embed = state.dashboardEmbed, mode = "push") {
-  const url = new URL(window.location.href);
-  url.pathname = "/dashboard";
-  url.searchParams.delete("tab");
-  if (profileID) url.searchParams.set("profile", profileID);
-  else url.searchParams.delete("profile");
-  if (embed) url.searchParams.set("embed", "1");
-  else url.searchParams.delete("embed");
-  url.hash = "";
-  const next = url.pathname + url.search;
-  const current = window.location.pathname + window.location.search;
-  if (mode === "push" && next === current) return;
-  window.history[mode === "replace" ? "replaceState" : "pushState"](
-    { tab: "dashboard", profile: profileID, embed: !!embed },
-    "",
-    next,
-  );
-}
-
-function selectDashboardProfile(profileID, urlMode = "push") {
-  const profile = dashboardProfileByID(profileID);
-  if (!profile) return false;
-  state.dashboardRequestedProfileID = profile.id;
-  state.dashboardProfileID = profile.id;
-  applyDashboardProfile(profile);
-  syncDashboardProfileURL(profile.id, state.dashboardEmbed, urlMode);
-  return true;
-}
-
-function renderDashboardProfileControls() {
-  const select = document.getElementById("dashboard-profile");
-  if (!select) return;
-  const prior = select.value;
-  const fragment = document.createDocumentFragment();
-  for (const profile of state.ui.dashboard.profiles) {
-    const option = document.createElement("option");
-    option.value = profile.id;
-    option.textContent = profile.name;
-    fragment.appendChild(option);
-  }
-  select.replaceChildren(fragment);
-  select.value = dashboardProfileByID(state.dashboardProfileID) ? state.dashboardProfileID : prior;
-}
-
-function applyDashboardProfile(profile) {
-  if (!profile) return;
-  const grid = document.querySelector(".dashboard-grid");
-  if (!grid) return;
-  grid.classList.remove(
-    "layout-grid",
-    "layout-job-focus",
-    "layout-stacked",
-    "dashboard-density-compact",
-    "dashboard-job-focus-split",
-    "dashboard-panel-count-1",
-    "dashboard-panel-count-2",
-    "dashboard-panel-count-3",
-    "dashboard-panel-count-4",
-  );
-  grid.classList.add("layout-" + profile.layout);
-  grid.classList.toggle("dashboard-density-compact", profile.density === "compact");
-  document.body.classList.toggle("dashboard-background-transparent", profile.background === "transparent");
-  const visible = new Set(profile.panels);
-  if (isWideSurfaceOverview()) {
-    visible.add("machine");
-    visible.add("job");
-  }
-  grid.classList.add(`dashboard-panel-count-${visible.size}`);
-  grid.classList.toggle(
-    "dashboard-job-focus-split",
-    profile.layout === "job-focus" && visible.has("job") && visible.size > 1,
-  );
-  const order = new Map(profile.panels.map((panel, index) => [panel, index]));
-  for (const panel of document.querySelectorAll("[data-dashboard-panel]")) {
-    const id = panel.dataset.dashboardPanel;
-    panel.hidden = !dashboardPanelVisible(id, profile, isWideSurfaceOverview());
-    panel.style.order = String(order.get(id) ?? DASHBOARD_PANEL_DEFS.length);
-  }
-  const select = document.getElementById("dashboard-profile");
-  if (select && select.value !== profile.id) select.value = profile.id;
-  if (dashboardGcodeView.renderer) {
-    dashboardGcodeView.renderer.setClearColor(0x202832, profile.background === "transparent" ? 0 : 1);
-  }
-  scheduleDashboardGcodeRender();
-}
-
-function dashboardProfileSlug(name, profiles = state.ui.dashboard.profiles) {
-  const stem = String(name || "dashboard").toLowerCase().normalize("NFKD")
-    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "dashboard";
-  const used = new Set(profiles.map((profile) => profile.id));
-  if (!used.has(stem)) return stem;
-  for (let suffix = 2; suffix < 1000; suffix++) {
-    const id = `${stem}-${suffix}`;
-    if (!used.has(id)) return id;
-  }
-  return newID("dashboard").toLowerCase().replace(/[^a-z0-9_-]/g, "-");
-}
-
-function renderDashboardPanelOrder(panels) {
-  const container = document.getElementById("dashboard-panel-order");
-  if (!container) return;
-  const selected = new Set(panels);
-  const ordered = [
-    ...panels.map((id) => DASHBOARD_PANEL_DEFS.find((panel) => panel.id === id)).filter(Boolean),
-    ...DASHBOARD_PANEL_DEFS.filter((panel) => !selected.has(panel.id)),
-  ];
-  const fragment = document.createDocumentFragment();
-  for (const definition of ordered) {
-    const row = document.createElement("div");
-    row.className = "dashboard-panel-row";
-    row.dataset.dashboardPanelOption = definition.id;
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = selected.has(definition.id);
-    checkbox.setAttribute("aria-label", `Show ${definition.label}`);
-    const label = document.createElement("span");
-    label.textContent = definition.label;
-    const up = document.createElement("button");
-    up.type = "button";
-    up.textContent = "↑";
-    up.setAttribute("aria-label", `Move ${definition.label} up`);
-    up.onclick = () => {
-      const previous = row.previousElementSibling;
-      if (previous) container.insertBefore(row, previous);
-      refreshDashboardPanelOrderButtons();
-    };
-    const down = document.createElement("button");
-    down.type = "button";
-    down.textContent = "↓";
-    down.setAttribute("aria-label", `Move ${definition.label} down`);
-    down.onclick = () => {
-      const next = row.nextElementSibling;
-      if (next) container.insertBefore(next, row);
-      refreshDashboardPanelOrderButtons();
-    };
-    row.append(checkbox, label, up, down);
-    fragment.appendChild(row);
-  }
-  container.replaceChildren(fragment);
-  refreshDashboardPanelOrderButtons();
-}
-
-function refreshDashboardPanelOrderButtons() {
-  const rows = Array.from(document.querySelectorAll("#dashboard-panel-order .dashboard-panel-row"));
-  rows.forEach((row, index) => {
-    const buttons = row.querySelectorAll("button");
-    if (buttons[0]) buttons[0].disabled = index === 0;
-    if (buttons[1]) buttons[1].disabled = index === rows.length - 1;
-  });
-}
-
-function openDashboardSettings(createNew = false) {
-  const profile = currentDashboardProfile();
-  state.dashboardDraftProfileID = createNew ? "" : profile.id;
-  document.getElementById("dashboard-profile-name").value = createNew ? "" : profile.name;
-  document.getElementById("dashboard-layout").value = profile.layout;
-  document.getElementById("dashboard-density").value = profile.density;
-  document.getElementById("dashboard-background").value = profile.background;
-  document.getElementById("dashboard-default").checked = !createNew && profile.id === state.ui.dashboard.default_profile_id;
-  document.getElementById("dashboard-gcode-lines-count").value = String(profile.gcode_lines);
-  document.getElementById("dashboard-delete").disabled = createNew || state.ui.dashboard.profiles.length <= 1;
-  renderDashboardPanelOrder(profile.panels);
-  document.getElementById("dashboard-settings-modal")?.showModal();
-  document.getElementById("dashboard-profile-name")?.focus();
-}
-
-function closeDashboardSettings() {
-  document.getElementById("dashboard-settings-modal")?.close();
-  state.dashboardDraftProfileID = "";
-}
-
-function dashboardProfileFromForm() {
-  const nameInput = document.getElementById("dashboard-profile-name");
-  const name = String(nameInput?.value || "").trim();
-  if (!name) {
-    nameInput?.setCustomValidity("Enter a dashboard name.");
-    nameInput?.reportValidity();
-    return null;
-  }
-  nameInput.setCustomValidity("");
-  const panels = Array.from(document.querySelectorAll("#dashboard-panel-order .dashboard-panel-row"))
-    .filter((row) => row.querySelector('input[type="checkbox"]')?.checked)
-    .map((row) => row.dataset.dashboardPanelOption);
-  if (!panels.length) {
-    setNotice("Dashboard layout requires at least one panel.", "error", "dashboard-settings");
-    return null;
-  }
-  const lines = Math.max(3, Math.min(30, Math.trunc(Number(document.getElementById("dashboard-gcode-lines-count")?.value) || 9)));
-  return {
-    id: state.dashboardDraftProfileID || dashboardProfileSlug(name),
-    name,
-    layout: document.getElementById("dashboard-layout")?.value || "job-focus",
-    density: document.getElementById("dashboard-density")?.value || "comfortable",
-    background: document.getElementById("dashboard-background")?.value || "solid",
-    panels,
-    gcode_lines: lines,
-  };
-}
-
-async function saveDashboardProfile() {
-  const profile = dashboardProfileFromForm();
-  if (!profile) return;
-  const modal = document.getElementById("dashboard-settings-modal");
-  const save = document.getElementById("dashboard-save");
-  const previousDashboard = normalizeDashboardSettings(state.ui.dashboard);
-  save.disabled = true;
-  modal?.setAttribute("aria-busy", "true");
-  const profiles = [...state.ui.dashboard.profiles];
-  const index = profiles.findIndex((candidate) => candidate.id === profile.id);
-  if (index >= 0) profiles[index] = profile;
-  else profiles.push(profile);
-  state.ui.dashboard.profiles = profiles;
-  if (document.getElementById("dashboard-default")?.checked || !dashboardProfileByID(state.ui.dashboard.default_profile_id)) {
-    state.ui.dashboard.default_profile_id = profile.id;
-  }
-  state.dashboardRequestedProfileID = profile.id;
-  state.dashboardProfileID = profile.id;
-  const saved = await saveUISettings({ successMessage: `Dashboard layout saved: ${profile.name}` });
-  save.disabled = false;
-  modal?.removeAttribute("aria-busy");
-  if (!saved) {
-    state.ui.dashboard = previousDashboard;
-    resolveDashboardProfile();
-    return;
-  }
-  closeDashboardSettings();
-  selectDashboardProfile(profile.id, "push");
-}
-
-async function deleteDashboardProfile() {
-  const profile = dashboardProfileByID(state.dashboardDraftProfileID);
-  if (!profile || state.ui.dashboard.profiles.length <= 1) return;
-  if (!confirm(`Delete dashboard layout “${profile.name}”?`)) return;
-  const button = document.getElementById("dashboard-delete");
-  const modal = document.getElementById("dashboard-settings-modal");
-  const previousDashboard = normalizeDashboardSettings(state.ui.dashboard);
-  button.disabled = true;
-  modal?.setAttribute("aria-busy", "true");
-  state.ui.dashboard.profiles = state.ui.dashboard.profiles.filter((candidate) => candidate.id !== profile.id);
-  if (state.ui.dashboard.default_profile_id === profile.id) {
-    state.ui.dashboard.default_profile_id = state.ui.dashboard.profiles[0].id;
-  }
-  state.dashboardRequestedProfileID = state.ui.dashboard.default_profile_id;
-  state.dashboardProfileID = state.dashboardRequestedProfileID;
-  const saved = await saveUISettings({ successMessage: `Dashboard layout deleted: ${profile.name}` });
-  button.disabled = false;
-  modal?.removeAttribute("aria-busy");
-  if (!saved) {
-    state.ui.dashboard = previousDashboard;
-    resolveDashboardProfile();
-    return;
-  }
-  closeDashboardSettings();
-  selectDashboardProfile(state.dashboardProfileID, "replace");
-}
-
-async function copyDashboardURL(embed) {
-  const profile = currentDashboardProfile();
-  const url = new URL(window.location.href);
-  url.pathname = "/dashboard";
-  url.search = "";
-  url.searchParams.set("profile", profile.id);
-  if (embed) url.searchParams.set("embed", "1");
-  try {
-    await navigator.clipboard.writeText(url.href);
-    setNotice(embed ? "OBS dashboard URL copied." : "Dashboard URL copied.", "ok", "dashboard-copy");
-  } catch (error) {
-    setNotice("Copying dashboard URL failed: " + error.message, "error", "dashboard-copy");
-  }
-}
-
-function macroByID(id) {
-  return state.ui.macros.find((m) => m.id === id) || null;
-}
-
-function slotForMacro(id) {
-  return state.ui.macro_buttons.find((s) => s.macro_id === id) || null;
-}
-
-function sortedSlots(region) {
-  return state.ui.macro_buttons
-    .filter((s) => s.region === region && macroByID(s.macro_id))
-    .sort((a, b) => a.order - b.order);
-}
-
-function setMacroPlacement(macroID, region) {
-  state.ui.macro_buttons = state.ui.macro_buttons.filter((s) => s.macro_id !== macroID);
-  if (region === "toolbar" || region === "panel") {
-    const order = sortedSlots(region).length;
-    state.ui.macro_buttons.push({ id: newID("slot"), macro_id: macroID, region, order });
-  }
-  normalizeSlotOrder();
-}
-
-function normalizeSlotOrder() {
-  for (const region of ["toolbar", "panel"]) {
-    sortedSlots(region).forEach((slot, i) => { slot.order = i; });
-  }
-}
 
 
 
 
 
-// Terminal action feedback lifecycle: callers set holder[textProp]/[kindProp]
-// on a terminal result, the render path displays it exactly once here, and the
-// stored feedback is cleared on that edge. The notice's own timeout removes it
-// from view; repeated renders never resurrect stale feedback or evict newer
-// notices.
 
 
 
-// Bootstrap, polling and event-stream failures often arrive together. Expose
-// one durable connection item in the bottom status bar, then clear it only
-// once every source has recovered.
+
+
+
+
+
+
 
 
 
@@ -4173,11 +3888,6 @@ function outlineWorkPoints() {
     .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
 }
 
-
-
-
-
-
 function renderWorkAreaOutline() {
   const group = document.getElementById("workarea-outline");
   const path = document.getElementById("workarea-outline-path");
@@ -4480,32 +4190,6 @@ function updateFieldProbePreview() {
   o.fieldProbeIssue = built.issue || "";
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // Return the exact covering radius for this finite probe set over the polygon.
 // In the interior, every local maximum of the nearest-site distance is a
 // Voronoi vertex, hence the circumcenter of a Delaunay triangle. On a polygon
@@ -4519,25 +4203,6 @@ function updateFieldProbePreview() {
 // pair of physical boundary probes, choose the field probe that minimizes the
 // longer of its two incident triangle edges. This directly measures the
 // boundary-to-field moat that a global nearest-neighbour score can hide.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 function workPointToMachinePoint(p, origin) {
   const ox = axisValue(origin, "x");
@@ -5559,8 +5224,6 @@ function insertTriangulationPoint(points, faces, pointIndex) {
   return nextFaces;
 }
 
-
-
 function pointOnSegment2D(point, a, b) {
   const length = Math.hypot(b.x - a.x, b.y - a.y);
   if (length <= 1e-12 || Math.abs(triangleCross(a, b, point)) > Math.max(1, length) * 1e-8) return false;
@@ -6259,573 +5922,37 @@ function renderDashboardGcodeStream(live = null) {
 }
 
 function dashboardCameraShouldRun() {
-  return state.activeTab === "dashboard" && !document.hidden;
-}
-
-function dashboardCameraSource(kind) {
-  return state.cameras.sources?.[kind] || { configured: false };
-}
-
-function dashboardExternalCameraIsSnapshot(source) {
-  return source?.mode === "snapshot";
-}
-
-function setDashboardCameraState(kind, status, title, detail = "") {
-  const root = document.getElementById(`dashboard-${kind}-camera`);
-  const image = document.getElementById(`dashboard-${kind}-camera-image`);
-  const stateText = document.getElementById(`dashboard-${kind}-camera-state`);
-  const detailText = document.getElementById(`dashboard-${kind}-camera-detail`);
-  const badge = document.getElementById(`dashboard-${kind}-camera-badge`);
-  if (!root) return;
-  if (kind === "external") document.querySelector(".dashboard-camera-stage")?.classList.toggle("external-camera-live", status === "live");
-  root.classList.toggle("is-live", status === "live");
-  root.classList.toggle("is-error", status === "error");
-  root.classList.toggle("is-connecting", status === "connecting");
-  root.classList.toggle("is-unconfigured", status === "unconfigured");
-  if (image) image.hidden = status !== "live";
-  if (stateText) stateText.textContent = title;
-  if (detailText) detailText.textContent = detail;
-  if (badge) badge.textContent = status === "live" ? "Live" :
-    (status === "connecting" ? "Connecting" : (status === "error" ? "Offline" : "Not configured"));
-  if (kind === "external") {
-    const snapshot = document.getElementById("dashboard-external-camera-snapshot");
-    if (snapshot) snapshot.disabled = status !== "live" || dashboardCameraPrimary() !== "external";
-    const focus = document.getElementById("dashboard-external-camera-focus-open");
-    if (focus) focus.disabled = status !== "live" || dashboardCameraPrimary() !== "external";
-  }
-}
-
-function loadDashboardCameraPrimary() {
-  try {
-    return window.localStorage?.getItem("sensei.dashboard.primary-camera") === "builtin" ? "builtin" : "external";
-  } catch {
-    return "external";
-  }
-}
-
-function normalizeDashboardExternalCameraView(value) {
-  const zoom = EXTERNAL_CAMERA_ZOOM_LEVELS.includes(Number(value?.zoom)) ? Number(value.zoom) : 1;
-  const clampPercent = (input) => {
-    if (input === null || input === undefined || input === "") return 50;
-    return Math.max(0, Math.min(100, Number.isFinite(Number(input)) ? Number(input) : 50));
-  };
-  return { zoom, x: clampPercent(value?.x), y: clampPercent(value?.y) };
-}
-
-function loadDashboardExternalCameraView() {
-  try {
-    return normalizeDashboardExternalCameraView(JSON.parse(window.localStorage?.getItem(EXTERNAL_CAMERA_VIEW_KEY) || "null"));
-  } catch {
-    return normalizeDashboardExternalCameraView(null);
-  }
-}
-
-function saveDashboardExternalCameraView() {
-  try {
-    window.localStorage?.setItem(EXTERNAL_CAMERA_VIEW_KEY, JSON.stringify(state.dashboardExternalCameraView));
-  } catch {
-    // Camera framing remains available for this page load without storage.
-  }
-}
-
-function renderDashboardExternalCameraView() {
-  const view = normalizeDashboardExternalCameraView(state.dashboardExternalCameraView);
-  state.dashboardExternalCameraView = view;
-  const frame = document.getElementById("dashboard-external-camera-frame");
-  const root = document.getElementById("dashboard-external-camera");
-  const value = document.getElementById("dashboard-external-camera-zoom-value");
-  const zoomOut = document.getElementById("dashboard-external-camera-zoom-out");
-  const zoomIn = document.getElementById("dashboard-external-camera-zoom-in");
-  const center = document.getElementById("dashboard-external-camera-zoom-center");
-  frame?.style.setProperty("--external-camera-zoom", String(view.zoom));
-  frame?.style.setProperty("--external-camera-focus-x", view.x + "%");
-  frame?.style.setProperty("--external-camera-focus-y", view.y + "%");
-  root?.classList.toggle("is-zoomed", view.zoom > 1);
-  if (root && dashboardCameraPrimary() === "external") {
-    root.setAttribute("aria-label", view.zoom > 1
-      ? "External camera main view; click to focus the zoomed image or use arrow keys to pan"
-      : "External camera is the main view");
-  }
-  setTextIfChanged(value, view.zoom.toFixed(view.zoom % 1 ? 1 : 0) + "×");
-  if (zoomOut) zoomOut.disabled = view.zoom === EXTERNAL_CAMERA_ZOOM_LEVELS[0];
-  if (zoomIn) zoomIn.disabled = view.zoom === EXTERNAL_CAMERA_ZOOM_LEVELS[EXTERNAL_CAMERA_ZOOM_LEVELS.length - 1];
-  if (center) center.disabled = view.zoom === 1 && view.x === 50 && view.y === 50;
-}
-
-function setDashboardExternalCameraView(next) {
-  state.dashboardExternalCameraView = normalizeDashboardExternalCameraView(next);
-  saveDashboardExternalCameraView();
-  renderDashboardExternalCameraView();
-}
-
-function stepDashboardExternalCameraZoom(direction) {
-  const view = normalizeDashboardExternalCameraView(state.dashboardExternalCameraView);
-  const current = EXTERNAL_CAMERA_ZOOM_LEVELS.indexOf(view.zoom);
-  const index = Math.max(0, Math.min(EXTERNAL_CAMERA_ZOOM_LEVELS.length - 1, current + (direction < 0 ? -1 : 1)));
-  setDashboardExternalCameraView({ ...view, zoom: EXTERNAL_CAMERA_ZOOM_LEVELS[index] });
-}
-
-function focusDashboardExternalCamera(clientX, clientY) {
-  const root = document.getElementById("dashboard-external-camera");
-  const view = normalizeDashboardExternalCameraView(state.dashboardExternalCameraView);
-  const rect = root?.getBoundingClientRect?.();
-  if (!root || view.zoom <= 1 || !rect || rect.width <= 0 || rect.height <= 0) return false;
-  setDashboardExternalCameraView({
-    ...view,
-    x: ((clientX - rect.left) / rect.width) * 100,
-    y: ((clientY - rect.top) / rect.height) * 100,
-  });
-  return true;
-}
-
-function panDashboardExternalCamera(dx, dy) {
-  const view = normalizeDashboardExternalCameraView(state.dashboardExternalCameraView);
-  if (view.zoom <= 1) return false;
-  setDashboardExternalCameraView({ ...view, x: view.x + dx, y: view.y + dy });
-  return true;
-}
-
-function captureDashboardExternalCameraSnapshot() {
-  const image = document.getElementById("dashboard-external-camera-image");
-  const modal = document.getElementById("dashboard-camera-snapshot-modal");
-  const snapshot = document.getElementById("dashboard-camera-snapshot-image");
-  const meta = document.getElementById("dashboard-camera-snapshot-meta");
-  if (!image || !modal || !snapshot || !meta || image.hidden || !image.complete || !image.naturalWidth || !image.naturalHeight) {
-    setStatusMessage("dashboard-camera-snapshot", "Snapshot unavailable: the external camera has no decoded frame.", "error", { force: true });
-    return false;
-  }
-  try {
-    const width = image.naturalWidth;
-    const height = image.naturalHeight;
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("canvas is unavailable");
-    // The live external camera is mounted upside down. Keep the snapshot in
-    // the same orientation as the operator sees in the dashboard.
-    context.translate(width, height);
-    context.rotate(Math.PI);
-    context.drawImage(image, 0, 0, width, height);
-    snapshot.src = canvas.toDataURL("image/jpeg", 0.92);
-    meta.textContent = `${width}×${height} pixels · captured from the current frame`;
-    const viewport = document.getElementById("dashboard-camera-snapshot-viewport");
-    if (viewport) viewport.style.aspectRatio = `${width} / ${height}`;
-    state.dashboardCameraSnapshotZoomed = false;
-    state.dashboardCameraSnapshotFocus = { x: 50, y: 50 };
-    renderDashboardCameraSnapshotView();
-    setStatusMessage("dashboard-camera-snapshot", "");
-    if (typeof modal.showModal === "function" && !modal.open) modal.showModal();
-    else modal.setAttribute("open", "");
-    return true;
-  } catch (error) {
-    setStatusMessage("dashboard-camera-snapshot", `Snapshot failed: ${error?.message || "the frame could not be read"}.`, "error", { force: true });
-    return false;
-  }
-}
-
-function renderDashboardCameraSnapshotView() {
-  const image = document.getElementById("dashboard-camera-snapshot-image");
-  if (!image) return;
-  const focus = state.dashboardCameraSnapshotFocus || { x: 50, y: 50 };
-  const zoomed = state.dashboardCameraSnapshotZoomed === true;
-  image.style.transform = `scale(${zoomed ? CAMERA_SNAPSHOT_ZOOM : 1})`;
-  image.style.transformOrigin = `${focus.x}% ${focus.y}%`;
-  image.classList.toggle("is-zoomed", zoomed);
-  image.setAttribute("aria-pressed", String(zoomed));
-  image.setAttribute("aria-label", zoomed
-    ? "Reset snapshot zoom"
-    : `Zoom snapshot image ${CAMERA_SNAPSHOT_ZOOM} times`);
-}
-
-function toggleDashboardCameraSnapshotZoom(clientX, clientY) {
-  const image = document.getElementById("dashboard-camera-snapshot-image");
-  if (!image?.src) return false;
-  if (state.dashboardCameraSnapshotZoomed) {
-    state.dashboardCameraSnapshotZoomed = false;
-    renderDashboardCameraSnapshotView();
-    return true;
-  }
-  const rect = image.getBoundingClientRect?.();
-  if (rect && rect.width > 0 && rect.height > 0 && Number.isFinite(clientX) && Number.isFinite(clientY)) {
-    state.dashboardCameraSnapshotFocus = {
-      x: Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100)),
-      y: Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100)),
-    };
-  }
-  state.dashboardCameraSnapshotZoomed = true;
-  renderDashboardCameraSnapshotView();
-  return true;
-}
-
-function renderDashboardCameraFocusControls() {
-  const mode = document.getElementById("dashboard-camera-focus-mode");
-  const range = document.getElementById("dashboard-camera-focus-value");
-  const label = document.getElementById("dashboard-camera-focus-value-label");
-  const apply = document.getElementById("dashboard-camera-focus-apply");
-  const focus = state.cameraFocus;
-  const auto = focus.draftAutofocus === true;
-  if (mode && document.activeElement !== mode) mode.value = auto ? "auto" : "manual";
-  if (range) {
-    range.min = String(focus.min ?? 0);
-    range.max = String(focus.max ?? 250);
-    range.step = String(focus.step || 5);
-    if (document.activeElement !== range) range.value = String(focus.draftAbsolute);
-    range.disabled = auto || focus.pending || !focus.available;
-  }
-  if (label) label.textContent = String(focus.draftAbsolute);
-  if (apply) apply.disabled = focus.pending || !focus.available;
-}
-
-function normalizeDashboardCameraFocus(data) {
-  const min = Number.isFinite(Number(data?.min)) ? Number(data.min) : 0;
-  const max = Number.isFinite(Number(data?.max)) ? Number(data.max) : 250;
-  const step = Number.isFinite(Number(data?.step)) && Number(data.step) > 0 ? Number(data.step) : 5;
-  const rawAbsolute = Number.isFinite(Number(data?.absolute)) ? Number(data.absolute) : min;
-  const absolute = Math.max(min, Math.min(max, min + Math.round((rawAbsolute - min) / step) * step));
-  return {
-    available: data?.available === true,
-    autofocus: data?.autofocus === true,
-    absolute,
-    min,
-    max,
-    step,
-  };
-}
-
-async function loadDashboardCameraFocus() {
-  const focus = state.cameraFocus;
-  focus.pending = true;
-  focus.loaded = false;
-  focus.available = false;
-  renderDashboardCameraFocusControls();
-  setStatusMessage("dashboard-camera-focus", "Reading camera focus…");
-  try {
-    const response = await request("/api/camera/external/focus");
-    const data = normalizeDashboardCameraFocus(await response.json());
-    Object.assign(focus, data, {
-      loaded: true,
-      pending: false,
-      draftAutofocus: data.autofocus,
-      draftAbsolute: data.absolute,
-    });
-    setStatusMessage("dashboard-camera-focus", "");
-  } catch (error) {
-    focus.loaded = true;
-    focus.available = false;
-    setStatusMessage("dashboard-camera-focus", `Camera focus unavailable: ${error?.message || "the controls could not be read"}.`, "error", { force: true });
-  } finally {
-    focus.pending = false;
-    renderDashboardCameraFocusControls();
-  }
-}
-
-function openDashboardCameraFocus() {
-  const modal = document.getElementById("dashboard-camera-focus-modal");
-  if (!modal) return;
-  if (!modal.open && typeof modal.showModal === "function") modal.showModal();
-  else modal.setAttribute("open", "");
-  loadDashboardCameraFocus();
-}
-
-async function applyDashboardCameraFocus() {
-  const focus = state.cameraFocus;
-  const modal = document.getElementById("dashboard-camera-focus-modal");
-  if (focus.pending || !focus.available) return;
-  focus.pending = true;
-  renderDashboardCameraFocusControls();
-  setStatusMessage("dashboard-camera-focus", "Applying camera focus…");
-  try {
-    const response = await request("/api/camera/external/focus", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ autofocus: focus.draftAutofocus, absolute: focus.draftAbsolute }),
-    });
-    const data = normalizeDashboardCameraFocus(await response.json());
-    Object.assign(focus, data, { draftAutofocus: data.autofocus, draftAbsolute: data.absolute });
-    setStatusMessage("dashboard-camera-focus", "Camera focus updated.", "ok", { force: true });
-    if (modal?.open) modal.close();
-  } catch (error) {
-    setStatusMessage("dashboard-camera-focus", `Camera focus failed: ${error?.message || "the controls could not be updated"}.`, "error", { force: true });
-  } finally {
-    focus.pending = false;
-    renderDashboardCameraFocusControls();
-  }
+  return dashboardCamera.dashboardCameraShouldRun();
 }
 
 function dashboardCameraPrimary() {
-  const preferred = state.dashboardCameraPrimary;
-  const external = dashboardCameraSource("external");
-  const builtin = dashboardCameraSource("builtin");
-  if (preferred === "builtin" && builtin.configured) return "builtin";
-  if (preferred === "external" && external.configured) return "external";
-  if (external.configured) return "external";
-  return "builtin";
-}
-
-function setDashboardCameraPrimary(kind) {
-  if (kind !== "external" && kind !== "builtin") return;
-  if (!dashboardCameraSource(kind).configured) return;
-  state.dashboardCameraPrimary = kind;
-  try {
-    window.localStorage?.setItem("sensei.dashboard.primary-camera", kind);
-  } catch {
-    // The layout still works when browser storage is unavailable.
-  }
-  renderDashboardCameraConfig();
+  return dashboardCamera.dashboardCameraPrimary();
 }
 
 function renderDashboardCameraConfig() {
-  const external = dashboardCameraSource("external");
-  const builtin = dashboardCameraSource("builtin");
-  const stage = document.querySelector(".dashboard-camera-stage");
-  const primary = dashboardCameraPrimary();
-  renderDashboardExternalCameraView();
-  stage?.classList.toggle("builtin-primary", primary === "builtin");
-  for (const kind of ["external", "builtin"]) {
-    const root = document.getElementById(`dashboard-${kind}-camera`);
-    if (!root) continue;
-    const isPrimary = kind === primary;
-    const configured = dashboardCameraSource(kind).configured;
-    root.dataset.cameraPrimary = String(isPrimary);
-    root.tabIndex = configured ? 0 : -1;
-    root.setAttribute("aria-pressed", String(isPrimary));
-    const externalZoomed = kind === "external" && isPrimary && state.dashboardExternalCameraView.zoom > 1;
-    root.setAttribute("aria-label", externalZoomed
-      ? "External camera main view; click to focus the zoomed image or use arrow keys to pan"
-      : (isPrimary
-        ? `${kind === "external" ? "External" : "Z1"} camera is the main view`
-        : `Make ${kind === "external" ? "external" : "Z1"} camera the main view`));
-  }
-  if (!state.cameras.loaded) {
-    setDashboardCameraState("external", "connecting", "Loading camera configuration", "Cameras run only while Overview is visible.");
-    setDashboardCameraState("builtin", "connecting", "Loading Z1 camera", "Waiting for the camera service.");
-    return;
-  }
-  if (!external.configured) {
-    setDashboardCameraState("external", "unconfigured", "External camera not configured", "Connect a USB camera to the controller and configure its local stream source.");
-  }
-  if (!builtin.configured) {
-    setDashboardCameraState("builtin", "unconfigured", "Z1 camera not configured", "Configure the Z1 camera WebSocket or start the proxy with a fixed Z1 address.");
-  }
-  const snapshot = document.getElementById("dashboard-external-camera-snapshot");
-  if (snapshot) snapshot.disabled = !external.configured || dashboardCameraPrimary() !== "external" || !document.getElementById("dashboard-external-camera")?.classList.contains("is-live");
-  const focus = document.getElementById("dashboard-external-camera-focus-open");
-  if (focus) focus.disabled = state.readOnly || !external.configured || dashboardCameraPrimary() !== "external" || !document.getElementById("dashboard-external-camera")?.classList.contains("is-live");
-  renderDashboardCameraFocusControls();
-}
-
-function dashboardWebSocketURL(path) {
-  const url = new URL(path, window.location.href);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return url.href;
-}
-
-function stopDashboardBuiltinCamera() {
-  clearTimeout(state.cameras.builtinReconnectTimer);
-  state.cameras.builtinReconnectTimer = null;
-  const ws = state.cameras.builtinWS;
-  state.cameras.builtinWS = null;
-  if (ws) {
-    try { ws.close(1000, "overview hidden"); } catch { /* already closed */ }
-  }
-  const image = document.getElementById("dashboard-builtin-camera-image");
-  if (image) image.onload = null;
-  for (const objectURL of state.cameras.builtinObjectURLs) URL.revokeObjectURL?.(objectURL);
-  state.cameras.builtinObjectURLs.clear();
-  state.cameras.builtinObjectURL = "";
-}
-
-function startDashboardBuiltinCamera() {
-  const source = dashboardCameraSource("builtin");
-  if (!dashboardCameraShouldRun() || !source.configured || !source.stream_url || !("WebSocket" in window)) return;
-  const existing = state.cameras.builtinWS;
-  if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) return;
-  clearTimeout(state.cameras.builtinReconnectTimer);
-  setDashboardCameraState("builtin", "connecting", "Connecting to Z1 camera", "Video is relayed through Sensei for Tailscale access.");
-  const ws = new WebSocket(dashboardWebSocketURL(source.stream_url));
-  ws.binaryType = "blob";
-  state.cameras.builtinWS = ws;
-  ws.onmessage = (event) => {
-    if (state.cameras.builtinWS !== ws || !dashboardCameraShouldRun()) return;
-    if (typeof event.data === "string") {
-      setDashboardCameraState("builtin", "error", "Z1 camera is in use by another client", "Sensei will retry when the stream becomes available.");
-      return;
-    }
-    const blob = event.data instanceof Blob ? event.data : new Blob([event.data], { type: "image/jpeg" });
-    const nextURL = URL.createObjectURL(blob);
-    state.cameras.builtinObjectURLs.add(nextURL);
-    state.cameras.builtinObjectURL = nextURL;
-    const image = document.getElementById("dashboard-builtin-camera-image");
-    if (image) {
-      image.onload = () => {
-        // Keep the old frame alive until this frame has decoded. Revoking it on
-        // a timer causes a visible black flash when the Z1 stream slows down.
-        if (state.cameras.builtinObjectURL !== nextURL) return;
-        for (const objectURL of state.cameras.builtinObjectURLs) {
-          if (objectURL === nextURL) continue;
-          URL.revokeObjectURL?.(objectURL);
-          state.cameras.builtinObjectURLs.delete(objectURL);
-        }
-      };
-      image.src = nextURL;
-    }
-    setDashboardCameraState("builtin", "live", "Z1 camera live", "Video from the machine's built-in camera.");
-  };
-  ws.onerror = () => {
-    if (state.cameras.builtinWS === ws) setDashboardCameraState("builtin", "error", "Z1 camera is not responding", "Sensei will retry automatically.");
-  };
-  ws.onclose = () => {
-    if (state.cameras.builtinWS !== ws) return;
-    state.cameras.builtinWS = null;
-    if (!dashboardCameraShouldRun()) return;
-    setDashboardCameraState("builtin", "error", "Z1 camera offline", "Sensei will retry automatically.");
-    state.cameras.builtinReconnectTimer = setTimeout(startDashboardBuiltinCamera, 3000);
-  };
-}
-
-function stopDashboardExternalCamera() {
-  clearTimeout(state.cameras.externalRetryTimer);
-  state.cameras.externalRetryTimer = null;
-  const image = document.getElementById("dashboard-external-camera-image");
-  if (image) {
-    image.onload = null;
-    image.onerror = null;
-    image.removeAttribute("src");
-  }
-  state.cameras.externalURL = "";
-}
-
-function startDashboardExternalCamera() {
-  const source = dashboardCameraSource("external");
-  if (!dashboardCameraShouldRun() || !source.configured || !source.stream_url || state.cameras.externalURL) return;
-  const image = document.getElementById("dashboard-external-camera-image");
-  if (!image) return;
-  clearTimeout(state.cameras.externalRetryTimer);
-  const url = new URL(source.stream_url, window.location.href);
-  url.searchParams.set("v", String(Date.now()));
-  state.cameras.externalURL = url.href;
-  setDashboardCameraState("external", "connecting", "Connecting to external camera", "Video is relayed through Sensei for remote access.");
-  image.onload = () => {
-    if (state.cameras.externalURL !== url.href) return;
-    setDashboardCameraState("external", "live", "External camera live", "Controller primary camera.");
-    if (dashboardExternalCameraIsSnapshot(source)) {
-      state.cameras.externalRetryTimer = setTimeout(() => {
-        if (state.cameras.externalURL !== url.href || !dashboardCameraShouldRun()) return;
-        state.cameras.externalURL = "";
-        startDashboardExternalCamera();
-      }, EXTERNAL_SNAPSHOT_REFRESH_MS);
-    }
-  };
-  image.onerror = () => {
-    if (state.cameras.externalURL !== url.href) return;
-    state.cameras.externalURL = "";
-    setDashboardCameraState("external", "error", "External camera offline", "Sensei will retry automatically.");
-    state.cameras.externalRetryTimer = setTimeout(startDashboardExternalCamera, 4000);
-  };
-  image.src = url.href;
+  return dashboardCamera.renderDashboardCameraConfig();
 }
 
 function syncDashboardCameras() {
-  renderDashboardCameraConfig();
-  if (!dashboardCameraShouldRun()) {
-    stopDashboardBuiltinCamera();
-    stopDashboardExternalCamera();
-    return;
-  }
-  startDashboardBuiltinCamera();
-  startDashboardExternalCamera();
+  return dashboardCamera.syncDashboardCameras();
 }
 
-async function loadDashboardCameras() {
-  try {
-    const response = await request("/api/cameras");
-    const sources = await response.json();
-    state.cameras.sources = {
-      builtin: sources?.builtin || { configured: false },
-      external: sources?.external || { configured: false },
-    };
-  } catch {
-    state.cameras.sources = { builtin: { configured: false }, external: { configured: false } };
-  } finally {
-    state.cameras.loaded = true;
-    syncDashboardCameras();
-  }
+function loadDashboardCameras() {
+  return dashboardCamera.loadDashboardCameras();
 }
 
 function bindDashboardCameraSwitches() {
-  for (const kind of ["external", "builtin"]) {
-    const root = document.getElementById(`dashboard-${kind}-camera`);
-    if (!root) continue;
-    const select = () => setDashboardCameraPrimary(kind);
-    root.addEventListener("click", (event) => {
-      if (kind === "external" && dashboardCameraPrimary() === "external" && focusDashboardExternalCamera(event.clientX, event.clientY)) return;
-      select();
-    });
-    root.addEventListener("keydown", (event) => {
-      if (kind === "external" && dashboardCameraPrimary() === "external") {
-        const amount = event.shiftKey ? 10 : 4;
-        const moves = { ArrowLeft: [-amount, 0], ArrowRight: [amount, 0], ArrowUp: [0, -amount], ArrowDown: [0, amount] };
-        if (moves[event.key] && panDashboardExternalCamera(...moves[event.key])) {
-          event.preventDefault();
-          return;
-        }
-      }
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      select();
-    });
-  }
-  const bindZoom = (id, handler) => {
-    const button = document.getElementById(id);
-    if (!button) return;
-    bindButtonAction(button, (event) => {
-      event.stopPropagation();
-      handler();
-    });
-  };
-  bindZoom("dashboard-external-camera-zoom-out", () => stepDashboardExternalCameraZoom(-1));
-  bindZoom("dashboard-external-camera-zoom-in", () => stepDashboardExternalCameraZoom(1));
-  bindZoom("dashboard-external-camera-zoom-center", () => setDashboardExternalCameraView({ zoom: state.dashboardExternalCameraView.zoom, x: 50, y: 50 }));
-  bindZoom("dashboard-external-camera-snapshot", captureDashboardExternalCameraSnapshot);
-  bindZoom("dashboard-external-camera-focus-open", openDashboardCameraFocus);
-  const snapshotImage = document.getElementById("dashboard-camera-snapshot-image");
-  snapshotImage?.addEventListener("click", (event) => {
-    toggleDashboardCameraSnapshotZoom(event.clientX, event.clientY);
-  });
-  snapshotImage?.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    toggleDashboardCameraSnapshotZoom(NaN, NaN);
-  });
-  bindButtonAction(document.getElementById("dashboard-camera-snapshot-close"), () => {
-    const modal = document.getElementById("dashboard-camera-snapshot-modal");
-    if (modal?.open) modal.close();
-  });
-  bindButtonAction(document.getElementById("dashboard-camera-focus-close"), () => {
-    const modal = document.getElementById("dashboard-camera-focus-modal");
-    if (modal?.open) modal.close();
-  });
-  bindButtonAction(document.getElementById("dashboard-camera-focus-cancel"), () => {
-    const modal = document.getElementById("dashboard-camera-focus-modal");
-    if (modal?.open) modal.close();
-  });
-  bindButtonAction(document.getElementById("dashboard-camera-focus-apply"), applyDashboardCameraFocus);
-  const focusMode = document.getElementById("dashboard-camera-focus-mode");
-  focusMode?.addEventListener("change", () => {
-    state.cameraFocus.draftAutofocus = focusMode.value === "auto";
-    renderDashboardCameraFocusControls();
-  });
-  const focusRange = document.getElementById("dashboard-camera-focus-value");
-  focusRange?.addEventListener("input", () => {
-    const value = Number(focusRange.value);
-    if (Number.isFinite(value)) state.cameraFocus.draftAbsolute = value;
-    const label = document.getElementById("dashboard-camera-focus-value-label");
-    if (label) label.textContent = String(state.cameraFocus.draftAbsolute);
-  });
-  renderDashboardExternalCameraView();
-  renderDashboardCameraFocusControls();
+  return dashboardCamera.bindDashboardCameraSwitches();
 }
+
+function stopDashboardBuiltinCamera() {
+  return dashboardCamera.stopDashboardBuiltinCamera();
+}
+
+function stopDashboardExternalCamera() {
+  return dashboardCamera.stopDashboardExternalCamera();
+}
+
 
 function bindDashboardToolpathShortcut() {
   const preview = document.getElementById("dashboard-toolpath-fallback");
@@ -7570,34 +6697,7 @@ function renderActiveJobProgress(live, preview = {}, external = null) {
 }
 
 function activeJobPreviewState(machine, preview, activePath) {
-  const job = machine?.active_job;
-  const segments = Array.isArray(preview?.segments) ? preview.segments : [];
-  if (!job) return null;
-  if (job.path && activePath && job.path !== activePath) return null;
-  const playedLines = Math.max(0, Math.trunc(Number(job.played_lines) || 0));
-  if (playedLines <= 0) return null;
-  const percent = Math.max(0, Math.min(100, Math.trunc(Number(job.percent) || 0)));
-  const elapsedMs = Math.max(0, Number(job.elapsed_ms) || 0);
-  const remainingValue = Number(job.remaining_ms);
-  const remainingMs = Number.isFinite(remainingValue) && remainingValue >= 0 ? remainingValue : null;
-  const wpos = machine?.wpos || {};
-  let position = null;
-  if ([wpos.x, wpos.y, wpos.z].every((value) => Number.isFinite(Number(value)))) {
-    position = [
-      Number(wpos.x),
-      Number(wpos.y),
-      Number(wpos.z),
-      Number.isFinite(Number(wpos.a)) ? -Number(wpos.a) : 0,
-    ];
-  }
-  return {
-    playedLines,
-    percent,
-    elapsedMs,
-    remainingMs,
-    cursor: gcodeCursorForPlayedLine(segments, playedLines),
-    position,
-  };
+  return activeJobPreview.activeJobPreviewState(machine, preview, activePath);
 }
 
 function gcodeCursorForPlayedLine(segments, playedLine) {
@@ -8927,235 +8027,6 @@ function setActiveFeedback(text, kind) {
   setStatusMessage("active-gcode", text, kind, { force: true });
 }
 
-function customToolID(inputID) {
-  const input = document.getElementById(inputID);
-  const toolID = Number(input?.value);
-  if (!Number.isInteger(toolID) || toolID < 1 || toolID > 999) {
-    return null;
-  }
-  return toolID;
-}
-
-function resetToolSelects() {
-  const change = document.getElementById("tool-change-select");
-  const set = document.getElementById("tool-set-select");
-  if (change) change.value = "";
-  if (set) set.value = "";
-  toggleToolCustomInput("change", false);
-  toggleToolCustomInput("set", false);
-}
-
-function toggleToolCustomInput(kind, show) {
-  const row = document.getElementById("tool-" + kind + "-row");
-  const input = document.getElementById(kind === "change" ? "tool-change-id" : "tool-id");
-  if (!row || !input) return;
-  row.classList.toggle("has-custom", show);
-  input.hidden = !show;
-  if (show) {
-    input.focus();
-    input.select();
-  }
-}
-
-function handleToolSelect(kind, value) {
-  toggleToolCustomInput(kind, value === "other");
-  clearToolFeedback();
-}
-
-function selectedToolID(kind, allowEmpty) {
-  const select = document.getElementById("tool-" + kind + "-select");
-  const value = select?.value || "";
-  if (value === "other") {
-    return customToolID(kind === "change" ? "tool-change-id" : "tool-id");
-  }
-  if (value === "") return null;
-  const toolID = Number(value);
-  return validToolID(toolID, allowEmpty) ? toolID : null;
-}
-
-async function setCurrentTool(toolID = null) {
-  if (!beginToolAction("set")) return;
-  if (toolID == null) {
-    toolID = selectedToolID("set", true);
-  }
-  if (!validToolID(toolID, true)) {
-    finishToolAction("set");
-    setToolFeedback("Choose Empty, Probe, 3D Probe, Laser, or tool 1-999.", "error");
-    return;
-  }
-  const toolName = toolDisplayName(toolID);
-  setToolFeedback("Disarming Movement before setting " + toolName + "...", "");
-  try {
-    await disarmTapMoveForCommand();
-    setToolFeedback("Sending set-tool command for " + toolName + "...", "");
-    const r = await request("/api/tool/current", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tool_id: toolID }),
-    });
-    const result = await r.json();
-    setToolFeedback(result.message || "Set-tool command sent; machine confirmation was not available.", result.verified ? "ok" : "");
-    resetToolSelects();
-    refreshMachineAfterToolAction();
-  } catch (e) {
-    appendGcodeLine({ seq: "local-" + Date.now(), dir: "recv", source: "api", text: "error: " + e.message });
-    setToolFeedback("Set-tool failed: " + e.message, "error");
-  } finally {
-    finishToolAction("set");
-  }
-}
-
-async function changeTool(toolID = null) {
-  if (!beginToolAction("change")) return;
-  if (toolID == null) {
-    toolID = selectedToolID("change", false);
-  }
-  if (!validToolID(toolID, false)) {
-    finishToolAction("change");
-    setToolFeedback("Choose Probe, 3D Probe, Laser, or tool 1-999.", "error");
-    return;
-  }
-  const toolName = toolDisplayName(toolID);
-  setToolFeedback("Disarming Movement before changing to " + toolName + "...", "");
-  try {
-    await disarmTapMoveForCommand();
-    setToolFeedback("Sending change-tool command for " + toolName + "...", "");
-    const r = await request("/api/tool/change", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tool_id: toolID }),
-    });
-    const result = await r.json();
-    setToolFeedback(result.message || "Change-tool command sent; machine confirmation was not available.", result.verified ? "ok" : "");
-    resetToolSelects();
-    refreshMachineAfterToolAction();
-  } catch (e) {
-    appendGcodeLine({ seq: "local-" + Date.now(), dir: "recv", source: "api", text: "error: " + e.message });
-    setToolFeedback("Change-tool failed: " + e.message, "error");
-  } finally {
-    finishToolAction("change");
-  }
-}
-
-async function continueToolChange() {
-  const continueAvailable = state.machine?.state === "Tool";
-  if (!continueAvailable) {
-    setToolFeedback("Continue is only available while the machine is awaiting a tool.", "error");
-    renderToolActions();
-    return;
-  }
-  if (!beginToolAction("continue")) return;
-  setToolFeedback("Continuing tool change...", "");
-  try {
-    const r = await request("/api/tool/continue", { method: "POST" });
-    const result = await r.json();
-    setToolFeedback(result.message || "Tool-change continue command sent; machine confirmation was not available.", result.verified ? "ok" : "");
-    refreshMachineAfterToolAction();
-  } catch (e) {
-    appendGcodeLine({ seq: "local-" + Date.now(), dir: "recv", source: "api", text: "error: " + e.message });
-    setToolFeedback("Continue failed: " + e.message, "error");
-    refreshMachineAfterToolAction();
-  } finally {
-    finishToolAction("continue");
-  }
-}
-
-async function calibrateCurrentTool() {
-  if (!beginToolAction("calibrate")) return;
-  setToolFeedback("Sending calibration command...", "");
-  try {
-    const r = await request("/api/tool/calibrate", { method: "POST" });
-    const result = await r.json();
-    setToolFeedback(result.message || "Calibration command sent; machine confirmation was not available.", result.verified ? "ok" : "");
-    refreshMachineAfterToolAction();
-  } catch (e) {
-    appendGcodeLine({ seq: "local-" + Date.now(), dir: "recv", source: "api", text: "error: " + e.message });
-    setToolFeedback("Calibration failed: " + e.message, "error");
-  } finally {
-    finishToolAction("calibrate");
-  }
-}
-
-function beginToolAction(action) {
-  if (state.toolPending) {
-    setToolFeedback("Tool action already in progress.", "error");
-    renderToolActions();
-    return false;
-  }
-  state.toolPending = action;
-  renderToolActions();
-  return true;
-}
-
-function finishToolAction(action) {
-  if (state.toolPending === action) state.toolPending = "";
-  renderToolActions();
-}
-
-function refreshMachineAfterToolAction() {
-  pollMachine();
-  setTimeout(pollMachine, 1200);
-}
-
-function renderToolActions(m = state.machine || {}) {
-  const set = document.getElementById("tool-set");
-  const change = document.getElementById("tool-change-set");
-  const cont = document.getElementById("tool-continue");
-  const cal = document.getElementById("tool-calibrate");
-  const setSelect = document.getElementById("tool-set-select");
-  const changeSelect = document.getElementById("tool-change-select");
-  const setInput = document.getElementById("tool-id");
-  const changeInput = document.getElementById("tool-change-id");
-  const pendingAction = state.toolPending || "";
-  const setPending = pendingAction === "set";
-  const changePending = pendingAction === "change";
-  const continuePending = pendingAction === "continue";
-  const calibratePending = pendingAction === "calibrate";
-  const waitingForTool = m.state === "Tool";
-  const continueAvailable = waitingForTool;
-  const row = document.getElementById("tool-wait-row");
-  const label = document.getElementById("tool-wait-status");
-  if (row) row.classList.toggle("is-waiting", waitingForTool);
-  if (label) label.textContent = continueAvailable ? "Awaiting tool" : "Tool change";
-
-  if (setSelect) setSelect.disabled = setPending || waitingForTool;
-  if (changeSelect) changeSelect.disabled = changePending || waitingForTool;
-  if (setInput) setInput.disabled = setPending || waitingForTool;
-  if (changeInput) changeInput.disabled = changePending || waitingForTool;
-  if (set) {
-    set.disabled = setPending || waitingForTool;
-    setSoftDisabled(set, !!pendingAction && !setPending);
-    set.textContent = setPending ? "Setting..." : "Set";
-    setElementBusy(set, setPending);
-  }
-  if (change) {
-    change.disabled = changePending || waitingForTool;
-    setSoftDisabled(change, !!pendingAction && !changePending);
-    change.textContent = changePending ? "Changing..." : "Change";
-    setElementBusy(change, changePending);
-  }
-  if (cont) {
-    cont.textContent = continuePending ? "Continuing..." : "Continue";
-    cont.disabled = continuePending;
-    setSoftDisabled(cont, !continuePending && !continueAvailable);
-    setElementBusy(cont, continuePending);
-  }
-  if (cal) {
-    cal.disabled = calibratePending || waitingForTool;
-    setSoftDisabled(cal, !!pendingAction && !calibratePending);
-    cal.textContent = calibratePending ? "Calibrating..." : "Calibrate";
-    setElementBusy(cal, calibratePending);
-  }
-}
-
-function setToolFeedback(text, kind) {
-  setStatusMessage("tool", text, kind, { force: true });
-}
-
-function clearToolFeedback() {
-  setStatusMessage("tool", "");
-}
-
 function appendGcodeLine(ln) {
   if (!ln || state.gcodeSeqs.has(ln.seq)) return;
   state.gcodeSeqs.add(ln.seq);
@@ -9301,222 +8172,6 @@ function beginFileAction(path, buttonLabel, notice) {
 
 function endFileAction(path) {
 	endFileActionState(state.fileActions, path, renderFiles);
-}
-
-function renderGcodeCommandState() {
-  const form = document.getElementById("gcode-form");
-  const input = document.getElementById("gcode-input");
-  const submit = form?.querySelector('button[type="submit"]');
-  form?.setAttribute("aria-busy", String(state.gcodePending));
-  if (input) input.disabled = state.gcodePending;
-  if (submit) submit.disabled = state.gcodePending;
-}
-
-async function submitGcode(line) {
-  line = String(line || "").trim();
-  if (!line) return;
-  if (state.gcodePending) {
-    setStatusMessage("gcode-command", "Another manual command is still in progress.", "error", { force: true });
-    return false;
-  }
-  rememberCommand(line);
-  state.gcodePending = true;
-  renderGcodeCommandState();
-  setStatusMessage("gcode-command", `Sending manual command: ${line}`, "", { force: true, timeoutMs: 0 });
-  try {
-    const sent = await sendGcode(line, { feedback: true });
-    if (sent) setStatusMessage("gcode-command", `Manual command sent: ${line}`, "ok", { force: true });
-    return sent;
-  } finally {
-    state.gcodePending = false;
-    renderGcodeCommandState();
-  }
-}
-
-function navigateCommandHistory(input, dir) {
-  if (!state.commandHistory.length) return;
-  if (dir < 0 && state.historyIndex < state.commandHistory.length - 1) {
-    state.historyIndex++;
-  } else if (dir > 0 && state.historyIndex >= 0) {
-    state.historyIndex--;
-  }
-  input.value = state.historyIndex >= 0 ? state.commandHistory[state.historyIndex] : "";
-  input.setSelectionRange(input.value.length, input.value.length);
-}
-
-function renderMacroButtons() {
-  renderMacroRegion("toolbar", document.getElementById("macro-toolbar"));
-  renderMacroRegion("panel", document.getElementById("macro-panel"));
-}
-
-function renderMacroRegion(region, box) {
-  box.innerHTML = "";
-  for (const slot of sortedSlots(region)) {
-    const macro = macroByID(slot.macro_id);
-    if (!macro) continue;
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "macro-button " + region;
-    btn.textContent = macro.name;
-    btn.title = macro.description || macro.lines.join("\n");
-    if (macro.color) btn.style.borderColor = macro.color;
-    btn.disabled = state.macroRunning;
-    bindButtonAction(btn, () => runMacro(macro));
-    box.appendChild(btn);
-  }
-}
-
-function renderMacroEditor() {
-  const list = document.getElementById("macro-list");
-  list.innerHTML = "";
-  for (const macro of state.ui.macros) {
-    const row = document.createElement("div");
-    row.className = "macro-row" + (macro.id === state.selectedMacroId ? " active" : "");
-    row.innerHTML = `<button type="button" class="chip">${escapeHtml(macro.name)}</button><span class="muted">${escapeHtml(slotForMacro(macro.id)?.region || "none")}</span>`;
-    row.querySelector("button").onclick = () => {
-      if (macro.id !== state.selectedMacroId && !confirmDiscardMacroDraft()) return;
-      clearControlDrafts(MACRO_EDITOR_IDS);
-      state.selectedMacroId = macro.id;
-      renderMacroEditor();
-    };
-    list.appendChild(row);
-  }
-  const macro = macroByID(state.selectedMacroId);
-  setControlValueIfIdle("macro-name", macro?.name || "");
-  setControlValueIfIdle("macro-description", macro?.description || "");
-  setControlValueIfIdle("macro-color", macro?.color || "");
-  setControlValueIfIdle("macro-lines", macro ? macro.lines.join("\n") : "");
-  setControlValueIfIdle("macro-placement", macro ? (slotForMacro(macro.id)?.region || "none") : "none");
-  document.getElementById("macro-save").disabled = false;
-  const run = document.getElementById("macro-run");
-  run.disabled = !!state.macroRunning;
-  setSoftDisabled(run, !state.macroRunning && !macro);
-  document.getElementById("macro-up").disabled = !macro || !slotForMacro(macro.id);
-  document.getElementById("macro-down").disabled = !macro || !slotForMacro(macro.id);
-  document.getElementById("macro-delete").disabled = !macro;
-}
-
-function currentMacroFromForm() {
-  const existing = macroByID(state.selectedMacroId);
-  const name = document.getElementById("macro-name").value.trim();
-  const lines = document.getElementById("macro-lines").value.split(/\r?\n/).map((ln) => ln.trim()).filter(Boolean);
-  if (!name || !lines.length) return null;
-  const now = new Date().toISOString();
-  return {
-    id: existing?.id || newID("macro"),
-    name,
-    description: document.getElementById("macro-description").value.trim(),
-    color: document.getElementById("macro-color").value.trim(),
-    lines,
-    created_at: existing?.created_at || now,
-    updated_at: now,
-  };
-}
-
-function saveMacroFromForm() {
-  const macro = currentMacroFromForm();
-  if (!macro) {
-    setNotice("Macro requires a name and at least one line.", "error", "macro-edit");
-    return;
-  }
-  const idx = state.ui.macros.findIndex((m) => m.id === macro.id);
-  if (idx >= 0) state.ui.macros[idx] = macro;
-  else state.ui.macros.push(macro);
-  state.selectedMacroId = macro.id;
-  setMacroPlacement(macro.id, document.getElementById("macro-placement").value);
-  clearControlDrafts(MACRO_EDITOR_IDS);
-  renderMacroButtons();
-  renderMacroEditor();
-  renderGamepadSettings();
-  clearNotice("macro-edit");
-  queueSaveUISettings();
-}
-
-function newMacro() {
-  if (!confirmDiscardMacroDraft()) return;
-  clearControlDrafts(MACRO_EDITOR_IDS);
-  state.selectedMacroId = "";
-  renderMacroEditor();
-  document.getElementById("macro-name").value = "";
-  document.getElementById("macro-description").value = "";
-  document.getElementById("macro-color").value = "";
-  document.getElementById("macro-lines").value = "";
-  document.getElementById("macro-placement").value = "panel";
-  document.getElementById("macro-name").focus();
-}
-
-function macroEditorDirty() {
-  return MACRO_EDITOR_IDS.some((id) => document.getElementById(id)?.dataset.dirty === "1");
-}
-
-function confirmDiscardMacroDraft() {
-  return !macroEditorDirty() || confirm("Discard unsaved macro edits?");
-}
-
-function deleteSelectedMacro() {
-  const macro = macroByID(state.selectedMacroId);
-  if (!macro || !confirm("Delete macro " + macro.name + "?")) return;
-  state.ui.macros = state.ui.macros.filter((m) => m.id !== macro.id);
-  state.ui.macro_buttons = state.ui.macro_buttons.filter((s) => s.macro_id !== macro.id);
-  state.ui.gamepad.macro_buttons = state.ui.gamepad.macro_buttons.filter((s) => s.macro_id !== macro.id);
-  state.selectedMacroId = state.ui.macros[0]?.id || "";
-  clearControlDrafts(MACRO_EDITOR_IDS);
-  renderMacroButtons();
-  renderMacroEditor();
-  renderGamepadSettings();
-  queueSaveUISettings();
-}
-
-function moveSelectedMacro(dir) {
-  const macro = macroByID(state.selectedMacroId);
-  const slot = macro && slotForMacro(macro.id);
-  if (!slot) return;
-  const slots = sortedSlots(slot.region);
-  const idx = slots.findIndex((s) => s.id === slot.id);
-  const next = idx + dir;
-  if (next < 0 || next >= slots.length) return;
-  const a = slots[idx].order;
-  slots[idx].order = slots[next].order;
-  slots[next].order = a;
-  normalizeSlotOrder();
-  renderMacroButtons();
-  renderMacroEditor();
-  queueSaveUISettings();
-}
-
-async function runMacro(macro, opts = {}) {
-  if (!macro) {
-    setNotice("Select a macro before running.", "error", "macro-run");
-    return;
-  }
-  if (!macro.lines.length) {
-    setNotice("Macro has no commands.", "error", "macro-run");
-    return;
-  }
-  if (state.macroRunning) {
-    setNotice("A macro is already running.", "error", "macro-run");
-    return;
-  }
-  if (macro.lines.length > 1 && !confirm("Run macro " + macro.name + "?")) return;
-  state.macroRunning = true;
-  renderMacroButtons();
-  renderMacroEditor();
-  setNotice((opts.source === "gamepad" ? "Gamepad macro: " : "Running macro: ") + macro.name, "info", "macro-run");
-  try {
-    for (const line of macro.lines) {
-      rememberCommand(line);
-      const ok = await sendGcode(line);
-      if (!ok) {
-        setNotice("Macro stopped after error: " + macro.name, "error", "macro-run");
-        return;
-      }
-    }
-    setNotice("Macro completed: " + macro.name, "ok", "macro-run");
-  } finally {
-    state.macroRunning = false;
-    renderMacroButtons();
-    renderMacroEditor();
-  }
 }
 
 function completeCommandDisarm(seq, message = "") {
