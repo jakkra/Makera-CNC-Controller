@@ -27,6 +27,7 @@ import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./m
 import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dxf.js";
 import { createOutlineFilesFeature } from "./modules/outline-files.js";
 import { buildHeightPGM as buildHeightPGMDocument, buildInterpolatedHeightGrid as buildInterpolatedHeightGridDocument, interpolateZ as interpolateZDocument } from "./modules/height-export.js";
+import { buildHeightMeshVertices as buildHeightMeshVerticesDocument, solidifyHeightMesh as solidifyHeightMeshDocument } from "./modules/height-mesh.js";
 import { closeCommandPopout, commandPanelPlacement, commandPopoutSummary, createCommandUI } from "./modules/command-ui.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
@@ -58,6 +59,7 @@ const outlineCaptureModuleSource = readFileSync(join(dirname(fileURLToPath(impor
 const outlineDXFModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-dxf.js"), "utf8");
 const outlineFilesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-files.js"), "utf8");
 const heightExportModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/height-export.js"), "utf8");
+const heightMeshModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/height-mesh.js"), "utf8");
 const commandUIModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/command-ui.js"), "utf8");
 const surfaceJogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-jog.js"), "utf8");
 // Transitional VM tests retain their assertions against these exact production helpers.
@@ -159,6 +161,11 @@ test("shared helpers are imported as production ES modules", async () => {
   assert.match(heightExportModuleSource, /export function buildHeightPGM/);
   assert.match(heightExportModuleSource, /export function buildInterpolatedHeightGrid/);
   assert.match(heightExportModuleSource, /export function interpolateZ/);
+  assert.equal(typeof buildHeightMeshVerticesDocument, "function");
+  assert.equal(typeof solidifyHeightMeshDocument, "function");
+  assert.match(source, /from "\.\/modules\/height-mesh\.js";/);
+  assert.match(heightMeshModuleSource, /export function buildHeightMeshVertices/);
+  assert.match(heightMeshModuleSource, /export function solidifyHeightMesh/);
   assert.doesNotMatch(source, /function fmtCoord\(/);
   assert.doesNotMatch(source, /function fmtPos\(/);
   assert.doesNotMatch(source, /function fmtDuration\(/);
@@ -338,6 +345,8 @@ function buildContext(functionNames, constNames = [], globals = {}) {
     buildHeightPGMDocument,
     buildInterpolatedHeightGridDocument,
     interpolateZDocument,
+    buildHeightMeshVerticesDocument,
+    solidifyHeightMeshDocument,
     ...globals,
   });
   const code = constNames.map(extractConst).concat(functionNames.map(extractFunction)).join("\n");
