@@ -727,7 +727,7 @@ const machineStatus = createMachineStatusFeature({
   HALT_REASON,
 });
 const {
-  gcodeToolMetadata, gcodeToolLabel, programToolListModel, toolChangeTargetLabel,
+  gcodeToolMetadata, gcodeToolLabel, renderProgramToolLists, toolChangeTargetLabel,
   toolChangeAttentionDetail, machineReadoutModel, renderMachineReadouts, haltReason,
   recoveryText, machineActionState, jobControlModel, jobControlLabel, renderJobControls,
   renderMachine, renderAttention, attentionResumeAction, renderToolStatus,
@@ -964,41 +964,6 @@ const { dashboardURLState, dashboardProfileByID, currentDashboardProfile, isWide
 
 function fmtActiveTool(t) {
   return Number.isFinite(t?.active) ? toolDisplayName(t.active) : "-";
-}
-
-function renderProgramToolLists(preview = {}, machine = state.machine) {
-  const tools = programToolListModel(preview, machine?.tool?.active);
-  const key = JSON.stringify(tools);
-  for (const root of document.querySelectorAll("[data-program-tool-list]")) {
-    if (root.dataset.programToolKey === key) continue;
-    root.dataset.programToolKey = key;
-    root.hidden = tools.length === 0;
-    const fragment = document.createDocumentFragment();
-    const heading = document.createElement("div");
-    heading.className = "program-tool-list-heading";
-    const title = document.createElement("span");
-    title.textContent = "Program tools";
-    const count = document.createElement("small");
-    count.textContent = `${tools.length} tool${tools.length === 1 ? "" : "s"}`;
-    heading.append(title, count);
-    fragment.appendChild(heading);
-    for (const tool of tools) {
-      const row = document.createElement("div");
-      row.className = "program-tool-row";
-      row.classList.toggle("is-current", tool.active);
-      const label = document.createElement("strong");
-      label.textContent = tool.label;
-      const detail = document.createElement("small");
-      detail.textContent = tool.detail || "No Fusion tool details";
-      const count = document.createElement("span");
-      count.className = "program-tool-count";
-      const changes = `${tool.changeCount} change${tool.changeCount === 1 ? "" : "s"}`;
-      count.textContent = tool.active ? `Current · ${changes}` : changes;
-      row.append(label, detail, count);
-      fragment.appendChild(row);
-    }
-    root.replaceChildren(fragment);
-  }
 }
 
 function mountMachineReadouts() {

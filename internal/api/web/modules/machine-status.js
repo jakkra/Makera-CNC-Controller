@@ -93,6 +93,41 @@ function programToolListModel(preview = {}, activeToolID = null) {
   });
 }
 
+function renderProgramToolLists(preview = {}, machine = state.machine) {
+  const tools = programToolListModel(preview, machine?.tool?.active);
+  const key = JSON.stringify(tools);
+  for (const root of document.querySelectorAll("[data-program-tool-list]")) {
+    if (root.dataset.programToolKey === key) continue;
+    root.dataset.programToolKey = key;
+    root.hidden = tools.length === 0;
+    const fragment = document.createDocumentFragment();
+    const heading = document.createElement("div");
+    heading.className = "program-tool-list-heading";
+    const title = document.createElement("span");
+    title.textContent = "Program tools";
+    const count = document.createElement("small");
+    count.textContent = `${tools.length} tool${tools.length === 1 ? "" : "s"}`;
+    heading.append(title, count);
+    fragment.appendChild(heading);
+    for (const tool of tools) {
+      const row = document.createElement("div");
+      row.className = "program-tool-row";
+      row.classList.toggle("is-current", tool.active);
+      const label = document.createElement("strong");
+      label.textContent = tool.label;
+      const detail = document.createElement("small");
+      detail.textContent = tool.detail || "No Fusion tool details";
+      const changes = document.createElement("span");
+      changes.className = "program-tool-count";
+      const changeText = `${tool.changeCount} change${tool.changeCount === 1 ? "" : "s"}`;
+      changes.textContent = tool.active ? `Current · ${changeText}` : changeText;
+      row.append(label, detail, changes);
+      fragment.appendChild(row);
+    }
+    root.replaceChildren(fragment);
+  }
+}
+
 function toolChangeTargetLabel(machine = state.machine, preview = state.activeGcode?.preview) {
   const target = Number(machine?.tool?.target);
   if (!Number.isFinite(target)) return "";
@@ -422,7 +457,7 @@ function recoveryButtonText(recovery, reason = null) {
 }
 
   return {
-    gcodeToolMetadata, gcodeToolLabel, programToolListModel, toolChangeTargetLabel, toolChangeAttentionDetail,
+    gcodeToolMetadata, gcodeToolLabel, programToolListModel, renderProgramToolLists, toolChangeTargetLabel, toolChangeAttentionDetail,
     machineReadoutModel, renderMachineReadouts, haltReason, recoveryText, machineActionState, jobControlModel,
     jobControlLabel, renderJobControls, renderMachine, renderAttention, attentionResumeAction, renderToolStatus,
     renderAlarmPanel, recoveryButtonText,
