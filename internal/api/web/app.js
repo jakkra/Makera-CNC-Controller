@@ -9,6 +9,7 @@ import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
 import { mountDashboardCamera } from "./modules/camera.js";
 import { createDashboardTelemetry } from "./modules/dashboard-telemetry.js";
+import { createDashboardView } from "./modules/dashboard-view.js";
 import { createGcodeLogFeature } from "./modules/gcode-log.js";
 import { mountGcodeViewer } from "./modules/gcode-viewer.js";
 import { createFeedback } from "./modules/feedback.js";
@@ -244,6 +245,7 @@ const {
   dashboardOptionalNumber,
   renderDashboardTelemetry,
 } = dashboardTelemetry;
+let dashboardView = null;
 
 // Navigation is mounted after the feature factories below. Keep callbacks
 // that are handed to those factories late-bound so module evaluation never
@@ -751,6 +753,21 @@ const gcodeViewer = mountGcodeViewer({
     toolDisplayName,
     fmtCoord,
   },
+});
+
+dashboardView = createDashboardView({
+  documentRef: document,
+  getMachine: () => state.machine,
+  getActiveGcode: () => state.activeGcode,
+  externalJobInfo,
+  activeGcodeDisplaySegments,
+  activeJobPreviewState,
+  renderMachineReadouts,
+  renderDashboardTelemetry,
+  renderDashboardGcodeStream,
+  drawDashboardGcodePreview,
+  relPath,
+  fmtDuration,
 });
 
 // Work-area viewport/state ownership lives in a feature module. The outline
@@ -3833,38 +3850,7 @@ function bindDashboardToolpathShortcut() {
 }
 
 function renderDashboard() {
-  const machine = state.machine || {};
-  const active = state.activeGcode || {};
-  const external = externalJobInfo(machine, active);
-  const preview = active.preview || {};
-  const dashboardPreview = { ...preview, segments: activeGcodeDisplaySegments(active) };
-  const live = active.path ? activeJobPreviewState(machine, dashboardPreview, active.path) : null;
-  const setText = (id, value) => {
-    const element = document.getElementById(id);
-    if (element) element.textContent = value;
-  };
-
-  document.querySelector(".dashboard-job")?.classList.toggle("is-empty", !active.path);
-
-  const machineState = document.getElementById("dashboard-state");
-  if (machineState) {
-    const labels = { Idle: "Ready", Run: "Running", Hold: "Held", Pause: "Paused", Wait: "Waiting", Tool: "Tool change", Alarm: "Alarm" };
-    machineState.textContent = labels[machine.state] || machine.state || "Unknown";
-    machineState.className = "badge state-" + (machine.state || "Unknown");
-  }
-  renderMachineReadouts(machine);
-  setText("dashboard-job-title", active.path ? relPath(active.path) : (external ? `External job · ${machine.state || "active"}` : "No active job"));
-
-  const progress = document.getElementById("dashboard-progress-bar");
-  if (progress) progress.value = live ? live.percent : 0;
-  const lineCount = Math.max(0, Number(preview.line_count) || 0);
-  setText("dashboard-progress-label", live ? `${live.percent}% · line ${live.playedLines}${lineCount ? " / " + lineCount : ""}` : (external ? external.progressText : "Progress"));
-  setText("dashboard-elapsed", live ? fmtDuration(live.elapsedMs) : (external ? external.observedText : "-"));
-  setText("dashboard-remaining", live && Number.isFinite(live.remainingMs) ? fmtDuration(live.remainingMs) : "-");
-  renderDashboardTelemetry(machine);
-  renderDashboardGcodeStream(live);
-  document.getElementById("dashboard-toolpath-fallback")?.classList.toggle("has-toolpath", dashboardPreview.segments.length > 0 && !!dashboardPreview.bounds);
-  drawDashboardGcodePreview(dashboardPreview, live);
+  return dashboardView?.renderDashboard();
 }
 
 function drawDashboardGcodePreview(...args) { return gcodeViewer.drawDashboardGcodePreview(...args); }
