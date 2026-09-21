@@ -1328,6 +1328,12 @@ func TestWebUIServed(t *testing.T) {
 	surfaceJogModule := get(t, srv.URL+"/modules/surface-jog.js")
 	surfaceJogBody, _ := io.ReadAll(surfaceJogModule.Body)
 	surfaceJogModule.Body.Close()
+	jogModule := get(t, srv.URL+"/modules/jog.js")
+	jogBody, _ := io.ReadAll(jogModule.Body)
+	jogModule.Body.Close()
+	jogViewModule := get(t, srv.URL+"/modules/jog-view.js")
+	jogViewBody, _ := io.ReadAll(jogViewModule.Body)
+	jogViewModule.Body.Close()
 	settingsModule := get(t, srv.URL+"/modules/settings.js")
 	settingsBody, _ := io.ReadAll(settingsModule.Body)
 	settingsModule.Body.Close()
@@ -1367,13 +1373,13 @@ func TestWebUIServed(t *testing.T) {
 	workareaJogModule := get(t, srv.URL+"/modules/workarea-jog.js")
 	workareaJogBody, _ := io.ReadAll(workareaJogModule.Body)
 	workareaJogModule.Body.Close()
-	webSource := string(jsBody) + string(activeJobViewBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(dashboardTelemetryBody) + string(dashboardViewBody) + string(gcodeLogBody) + string(navigationBody) + string(surfaceJogBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody) + string(outlineCaptureBody) + string(outlineDXFBody) + string(outlineFilesBody) + string(heightExportBody) + string(heightMeshBody) + string(heightTriangulationBody) + string(heightCoordinatesBody) + string(commandUIBody) + string(workareaJogBody)
+	webSource := string(jsBody) + string(activeJobViewBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(dashboardTelemetryBody) + string(dashboardViewBody) + string(gcodeLogBody) + string(navigationBody) + string(surfaceJogBody) + string(jogBody) + string(jogViewBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody) + string(outlineCaptureBody) + string(outlineDXFBody) + string(outlineFilesBody) + string(heightExportBody) + string(heightMeshBody) + string(heightTriangulationBody) + string(heightCoordinatesBody) + string(commandUIBody) + string(workareaJogBody)
 	for _, want := range []string{"export function mountFilesCommands", "export function mountFilesTransitions", "export function mountFilesJobRefresh"} {
 		if filesModule.StatusCode != http.StatusOK || !strings.Contains(string(filesModuleBody), want) {
 			t.Errorf("modules/files.js missing %s (status=%d)", want, filesModule.StatusCode)
 		}
 	}
-	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`, `from "./modules/active-job-view.js"`, `from "./modules/camera.js"`, `from "./modules/dashboard-telemetry.js"`, `from "./modules/dashboard-view.js"`, `from "./modules/gcode-log.js"`, `from "./modules/navigation.js"`, `from "./modules/outline-io.js"`, `from "./modules/outline-capture.js"`, `from "./modules/outline-dxf.js"`, `from "./modules/outline-files.js"`, `from "./modules/height-export.js"`, `from "./modules/height-mesh.js"`, `from "./modules/height-triangulation.js"`, `from "./modules/command-ui.js"`, `from "./modules/workarea-jog.js"`} {
+	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`, `from "./modules/active-job-view.js"`, `from "./modules/camera.js"`, `from "./modules/dashboard-telemetry.js"`, `from "./modules/dashboard-view.js"`, `from "./modules/gcode-log.js"`, `from "./modules/navigation.js"`, `from "./modules/outline-io.js"`, `from "./modules/outline-capture.js"`, `from "./modules/outline-dxf.js"`, `from "./modules/outline-files.js"`, `from "./modules/height-export.js"`, `from "./modules/height-mesh.js"`, `from "./modules/height-triangulation.js"`, `from "./modules/command-ui.js"`, `from "./modules/workarea-jog.js"`, `from "./modules/jog.js"`, `from "./modules/jog-view.js"`} {
 		if !strings.Contains(string(jsBody), want) {
 			t.Errorf("app.js missing shared module import %s", want)
 		}
@@ -1422,6 +1428,14 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/command-ui.js", "export function createCommandUI"},
 		{"/modules/surface-jog.js", "export function createSurfaceJogFeature"},
 		{"/modules/workarea-jog.js", "export function mobileWorkAreaJogAxes"},
+		{"/modules/jog.js", "export function createJogFeature"},
+		{"/modules/jog-view.js", "export function createJogView"},
+		{"/modules/ui-settings.js", "export function createUISettingsFeature"},
+		{"/modules/state-defaults.js", "export function defaultOutlineState"},
+		{"/modules/workarea-render.js", "export function createWorkareaRenderers"},
+		{"/modules/outline-view.js", "export function createOutlineView"},
+		{"/modules/probe-confirm.js", "export function createProbeConfirmation"},
+		{"/modules/command-history.js", "export function loadCommandHistory"},
 	} {
 		module := get(t, srv.URL+asset.path)
 		moduleBody, _ := io.ReadAll(module.Body)
@@ -1465,7 +1479,7 @@ func TestWebUIServed(t *testing.T) {
 			t.Errorf("Surface controller shell missing marker %s", want)
 		}
 	}
-	if !strings.Contains(string(feedbackBody), "function setStatusMessage") || !strings.Contains(string(feedbackBody), "function clearVisibleNotices") || !strings.Contains(string(feedbackBody), "NOTICE_REPEAT_SUPPRESS_MS") || !strings.Contains(string(jsBody), `consumeJogAlertFeedback("tap-move"`) || !strings.Contains(string(jsBody), `setStatusMessage("jog-availability"`) {
+	if !strings.Contains(string(feedbackBody), "function setStatusMessage") || !strings.Contains(string(feedbackBody), "function clearVisibleNotices") || !strings.Contains(string(feedbackBody), "NOTICE_REPEAT_SUPPRESS_MS") || (!strings.Contains(string(jsBody), `consumeJogAlertFeedback("tap-move"`) && !strings.Contains(string(jogViewBody), `consumeJogAlertFeedback("tap-move"`)) || (!strings.Contains(string(jsBody), `setStatusMessage("jog-availability"`) && !strings.Contains(string(jogViewBody), `setStatusMessage("jog-availability"`)) {
 		t.Errorf("app.js missing shared transient status message routing")
 	}
 	if strings.Contains(string(jsBody), `return { text: "Jog input active.", kind: "ok" }`) || strings.Contains(string(jsBody), `return { text: "Armed.", kind: "ok" }`) {
@@ -1489,7 +1503,7 @@ func TestWebUIServed(t *testing.T) {
 	if !strings.Contains(string(commandUIBody), "function setWorkAreaActionsOpen") || !strings.Contains(string(commandUIBody), "function initWorkAreaActionsMenu") || !strings.Contains(string(commandUIBody), `event.key !== "Escape"`) {
 		t.Errorf("command-ui.js missing accessible mobile work area actions behavior")
 	}
-	if !strings.Contains(string(jsBody), `availability.available && isTransientJogBlock(state.jog.errorCode || state.jog.error)`) {
+	if !strings.Contains(string(jsBody), `availability.available && isTransientJogBlock(state.jog.errorCode || state.jog.error)`) && !strings.Contains(string(jogBody), `if (availability.available && transient)`) {
 		t.Errorf("app.js does not retain stale jog recovery feedback until fresh machine status is observed")
 	}
 	for _, want := range []string{`function drawDashboardGcodePreview`, `function ensureDashboardGcodeViewer`, `function populateGcodePathScene`, `function rebuildGcodeContextOverlayForGroup`, `function activeGcodeDisplaySegments`, `overview_segments`, `function renderDashboardGcodeStream`, `function renderDashboardTelemetry`} {
