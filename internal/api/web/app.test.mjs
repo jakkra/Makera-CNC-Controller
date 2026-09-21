@@ -229,6 +229,9 @@ test("active job view preserves empty state and pending control presentation", (
   const node = (extra = {}) => ({ hidden: false, disabled: false, value: "", textContent: "", attrs: new Map(), setAttribute(name, value) { this.attrs.set(name, value); }, ...extra });
   nodes.set("active-gcode-title", node());
   nodes.set("active-gcode-meta", node());
+  nodes.set("active-gcode-progress", node());
+  nodes.set("active-gcode-elapsed", node());
+  nodes.set("active-gcode-remaining", node());
   nodes.set("active-gcode-run", node());
   nodes.set("paused-job-controls", node());
   nodes.set("paused-job-raise", node());
@@ -256,7 +259,7 @@ test("active job view preserves empty state and pending control presentation", (
     ensureActiveGcodeGeometry: (value) => calls.push(["geometry", value]),
     ensureActiveGcodeSource: (value) => calls.push(["source", value]),
     drawGcodePreview: (value) => calls.push(["preview", value]),
-    renderActiveJobProgress: (...args) => calls.push(["progress", ...args]),
+    fmtDuration,
     renderProgramToolLists: (...args) => calls.push(["tools", ...args]),
     renderDashboard: () => calls.push(["dashboard"]),
     renderJobControls: () => calls.push(["controls"]),
@@ -268,7 +271,10 @@ test("active job view preserves empty state and pending control presentation", (
   assert.equal(nodes.get("active-gcode-title").textContent, "No active gcode selected.");
   assert.equal(nodes.get("active-gcode-run").disabled, false, "empty-state rendering preserves the existing run-control reset");
   assert.deepEqual(workspace.classList.toggled, ["is-empty", true]);
-  assert.deepEqual(calls.map(([name]) => name), ["controls", "geometry", "source", "preview", "progress", "tools", "dashboard"]);
+  assert.deepEqual(calls.map(([name]) => name), ["controls", "geometry", "source", "preview", "tools", "dashboard"]);
+  assert.equal(nodes.get("active-gcode-progress").textContent, "-");
+  assert.equal(nodes.get("active-gcode-elapsed").textContent, "-");
+  assert.equal(nodes.get("active-gcode-remaining").textContent, "-");
   assert.equal(actions.attrs.get("data-machine-state"), "Run");
   assert.equal(nodes.get("feed-override-controls").attrs.get("aria-busy"), "true");
 });

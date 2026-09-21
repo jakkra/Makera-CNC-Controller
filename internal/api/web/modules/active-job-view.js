@@ -16,7 +16,7 @@ export function createActiveJobView({
   ensureActiveGcodeGeometry = () => {},
   ensureActiveGcodeSource = () => {},
   drawGcodePreview = () => {},
-  renderActiveJobProgress = () => {},
+  fmtDuration = (value) => String(value ?? ""),
   renderDashboard = () => {},
   activeJobPreviewState = () => null,
   activeGcodeDisplaySegments = () => [],
@@ -26,6 +26,24 @@ export function createActiveJobView({
   gcodeToolLabel = (tool) => tool?.name || "",
 } = {}) {
   const document = documentRef;
+
+  function renderActiveJobProgress(live, preview = {}, external = null) {
+    const progress = document.getElementById("active-gcode-progress");
+    const elapsed = document.getElementById("active-gcode-elapsed");
+    const remaining = document.getElementById("active-gcode-remaining");
+    if (!progress || !elapsed || !remaining) return;
+    if (!live) {
+      progress.textContent = external ? external.progressText : "-";
+      elapsed.textContent = external ? external.observedText : "-";
+      remaining.textContent = "-";
+      return;
+    }
+    const totalLines = Math.max(0, Number(preview.line_count) || 0);
+    const lineText = totalLines ? `line ${live.playedLines} / ${totalLines}` : `line ${live.playedLines}`;
+    progress.textContent = `${live.percent}% · ${lineText}`;
+    elapsed.textContent = fmtDuration(live.elapsedMs);
+    remaining.textContent = Number.isFinite(live.remainingMs) ? fmtDuration(live.remainingMs) : "-";
+  }
 
   function renderActiveGcode() {
     const active = getActiveGcode() || {};
