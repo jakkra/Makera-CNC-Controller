@@ -44,6 +44,7 @@ import { movementArmAvailable as movementArmAvailableState, movementArmLabel as 
 import { createJogView } from "./modules/jog-view.js";
 import { createWorkareaRenderers, displayedFieldProbePoints } from "./modules/workarea-render.js";
 import { cloneFloorProbe, cloneOutlineOrigin, cloneOutlinePoint, defaultOutlineState, defaultWorkAreaView } from "./modules/state-defaults.js";
+import { createAppState } from "./modules/state.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
@@ -69,6 +70,7 @@ const outlineModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.
 const workareaModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/workarea-outline.js"), "utf8");
 const workareaRenderModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/workarea-render.js"), "utf8");
 const stateDefaultsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/state-defaults.js"), "utf8").replace(/^import .*;\r?\n/, "");
+const stateModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/state.js"), "utf8");
 const navigationModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/navigation.js"), "utf8");
 const outlineCaptureModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-capture.js"), "utf8");
 const outlineDXFModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-dxf.js"), "utf8");
@@ -375,6 +377,27 @@ test("jog view keeps arm and feed controls synchronized with pending movement", 
   assert.equal(nodes.get("jog-arm").attrs.get("aria-pressed"), "true");
   assert.equal(nodes.get("tap-feed-mm-min").value, "100");
   assert.match(jogViewModuleSource, /data-feed-step/);
+});
+
+test("app state factory creates isolated machine and jog collections", () => {
+  const first = createAppState({
+    readCommandHistory: () => ["G0 X1"],
+    defaultGamepadSettings: () => ({ buttons: [] }),
+    defaultMachineSettings: () => ({ origin: { x: 0, y: 0, z: 0 } }),
+    defaultDashboardSettings: () => ({ panels: [] }),
+    loadSurfaceViewPreferences: () => ({ method: "mpg" }),
+    defaultOutlineState: () => ({ points: [] }),
+    defaultWorkAreaView: () => ({ zoom: 1 }),
+    activeJobSplitDefaultPercent: 32,
+  });
+  const second = createAppState();
+  first.gcodeLines.push({ text: "G0" });
+  first.jog.axes.x = 1;
+  assert.deepEqual(first.commandHistory, ["G0 X1"]);
+  assert.deepEqual(second.gcodeLines, []);
+  assert.equal(second.jog.axes.x, 0);
+  assert.equal(first.surface.method, "mpg");
+  assert.match(stateModuleSource, /createAppState/);
 });
 
 test("active job metadata stays operator-focused and mobile shows the preview first", () => {
