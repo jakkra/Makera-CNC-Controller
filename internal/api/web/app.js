@@ -26,6 +26,7 @@ import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive, movementArmAvaila
 import { createJogView } from "./modules/jog-view.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
 import { createSurfaceJogFeature, loadSurfaceViewPreferences, saveSurfaceViewPreferences as persistSurfaceViewPreferences, isSurfaceKiosk } from "./modules/surface-jog.js";
+import { createSurfaceRouting } from "./modules/surface-routing.js";
 import { createOutlineFeature, workPointToMachinePoint } from "./modules/outline.js";
 import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
 import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dxf.js";
@@ -182,6 +183,12 @@ let loadUISettings = async () => {};
 let loadAPICapabilities = async () => {};
 let outlineView;
 let jogView;
+const surfaceRouting = createSurfaceRouting({
+  getState: () => state,
+  isSurfaceKiosk,
+  showTab: (...args) => showTab(...args),
+  fmtDuration,
+});
 
 const {
   clearConnectivityIssue,
@@ -4288,21 +4295,8 @@ function applyMachineStatus(next, render = true) {
   if (render) renderMachine();
 }
 
-function externalJobState(machineState) {
-  return ["Run", "Hold", "Pause", "Wait", "Tool"].includes(String(machineState || ""));
-}
-
-function externalJobInfo(machine, active) {
-  if (active?.path || !externalJobState(machine?.state)) return null;
-  const rawProgress = String(machine?.fields?.P || "").trim();
-  const observedAt = Number(state.externalJobObservedAt) || Date.now();
-  return {
-    title: "External controller job " + String(machine.state).toLowerCase(),
-    detail: "File and G-code line are unavailable because this job was started outside CNC Proxy.",
-    progressText: rawProgress ? "Machine-reported progress P: " + rawProgress : "External job; machine progress is unavailable.",
-    observedText: "Observed " + fmtDuration(Date.now() - observedAt) + " ago",
-  };
-}
+function externalJobState(...args) { return surfaceRouting.externalJobState?.(...args) ?? false; }
+function externalJobInfo(...args) { return surfaceRouting.externalJobInfo(...args); }
 
 function applyChange(ev) {
   if (ev.kind === "reset") {
@@ -4359,22 +4353,7 @@ function runSurfaceShellAction(action) {
   }
 }
 
-function applySurfaceAutomaticView() {
-  if (!isSurfaceKiosk() || !state.surface.auto_switch || !state.machine?.state) return;
-  const machineState = String(state.machine.state);
-  if (state.surface.manual_view_state === machineState) return;
-  // A manual selection applies only to the current machine state. Let the next
-  // state transition route the operator to the corresponding Surface view.
-  state.surface.manual_view_state = "";
-  // A local jog step can briefly report Run. Do not route away from its armed
-  // Jog session: changing tabs would deliberately disarm that same session and
-  // make the next detent fail. Attention states still take priority below.
-  const localJogSession = state.activeTab === "jog" && state.jog?.armed === true;
-  const target = ["Tool", "Pause", "Wait", "Hold", "Alarm"].includes(machineState)
-    ? "attention"
-    : (machineState === "Run" && !localJogSession ? "dashboard" : (machineState === "Idle" ? state.surface.start_view : ""));
-  if (target && target !== state.activeTab) showTab(target, "replace");
-}
+function applySurfaceAutomaticView(...args) { return surfaceRouting.applySurfaceAutomaticView(...args); }
 
 function showActiveJobLeftTab(...args) { return activeJobLayout?.showActiveJobLeftTab(...args); }
 function activeJobSplitBounds(...args) { return activeJobLayout?.activeJobSplitBounds(...args) || calculateActiveJobSplitBounds(...args); }

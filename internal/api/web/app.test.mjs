@@ -40,6 +40,7 @@ import { createOutlineView } from "./modules/outline-view.js";
 import { createProbeConfirmation } from "./modules/probe-confirm.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
+import { createSurfaceRouting, externalJobState } from "./modules/surface-routing.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
 import { movementArmAvailable as movementArmAvailableState, movementArmLabel as movementArmLabelState, syncJogAvailabilityFromMachine as syncJogAvailabilityState } from "./modules/jog.js";
 import { createJogView } from "./modules/jog-view.js";
@@ -962,22 +963,21 @@ test("disabled jog capability does not schedule reconnects", () => {
 });
 
 test("external controller jobs are named without inventing a file or line", () => {
-  const ctx = buildContext(
-    ["externalJobState", "externalJobInfo"],
-    [],
-    {
-      state: { externalJobObservedAt: 90000 },
-      Date: { now: () => 120000 },
-      fmtDuration: (ms) => `${Math.round(ms / 1000)}s`,
-    },
-  );
-  const external = vm.runInContext(`externalJobInfo({state:"Run", fields:{P:"2325,4,238"}}, {path:""})`, ctx);
+  const state = { externalJobObservedAt: 90000 };
+  const routing = createSurfaceRouting({
+    getState: () => state,
+    now: () => 120000,
+    fmtDuration: (ms) => `${Math.round(ms / 1000)}s`,
+  });
+  const external = routing.externalJobInfo({state:"Run", fields:{P:"2325,4,238"}}, {path:""});
   assert.equal(external.title, "External controller job run");
   assert.match(external.detail, /started outside CNC Proxy/);
   assert.equal(external.progressText, "Machine-reported progress P: 2325,4,238");
   assert.equal(external.observedText, "Observed 30s ago");
-  assert.equal(vm.runInContext(`externalJobInfo({state:"Idle"}, {path:""})`, ctx), null);
-  assert.equal(vm.runInContext(`externalJobInfo({state:"Run"}, {path:"known.nc"})`, ctx), null);
+  assert.equal(routing.externalJobInfo({state:"Idle"}, {path:""}), null);
+  assert.equal(routing.externalJobInfo({state:"Run"}, {path:"known.nc"}), null);
+  assert.equal(externalJobState("Tool"), true);
+  assert.equal(externalJobState("Idle"), false);
 });
 
 function parseDXFPairs(text) {
@@ -6799,23 +6799,23 @@ test("3D probe action does not submit a predicted soft-limit conflict", async ()
 test("Surface automatic routing maps machine state without overriding an operator-selected tab", () => {
   const calls = [];
   const state = { surface: { auto_switch: true, start_view: "jog" }, machine: { state: "Idle" }, activeTab: "dashboard" };
-  const ctx = buildContext(["applySurfaceAutomaticView"], [], {
-    state,
+  const routing = createSurfaceRouting({
+    getState: () => state,
     isSurfaceKiosk: () => true,
     showTab: (...args) => calls.push(args),
   });
-  vm.runInContext("applySurfaceAutomaticView()", ctx);
+  routing.applySurfaceAutomaticView();
   assert.deepEqual(calls.pop(), ["jog", "replace"]);
   state.activeTab = "jog";
   state.machine.state = "Run";
-  vm.runInContext("applySurfaceAutomaticView()", ctx);
+  routing.applySurfaceAutomaticView();
   assert.deepEqual(calls.pop(), ["dashboard", "replace"]);
   state.activeTab = "dashboard";
   state.machine.state = "Tool";
-  vm.runInContext("applySurfaceAutomaticView()", ctx);
+  routing.applySurfaceAutomaticView();
   assert.deepEqual(calls.pop(), ["attention", "replace"]);
   state.surface.auto_switch = false;
-  vm.runInContext("applySurfaceAutomaticView()", ctx);
+  routing.applySurfaceAutomaticView();
   assert.equal(calls.length, 0);
 });
 
@@ -6826,15 +6826,15 @@ test("Surface automatic routing resumes after the machine state changes", () => 
     machine: { state: "Run" },
     activeTab: "active-job",
   };
-  const ctx = buildContext(["applySurfaceAutomaticView"], [], {
-    state,
+  const routing = createSurfaceRouting({
+    getState: () => state,
     isSurfaceKiosk: () => true,
     showTab: (...args) => calls.push(args),
   });
-  vm.runInContext("applySurfaceAutomaticView()", ctx);
+  routing.applySurfaceAutomaticView();
   assert.equal(calls.length, 0, "manual navigation remains visible during the same Run state");
   state.machine.state = "Idle";
-  vm.runInContext("applySurfaceAutomaticView()", ctx);
+  routing.applySurfaceAutomaticView();
   assert.deepEqual(calls.pop(), ["jog", "replace"]);
   assert.equal(state.surface.manual_view_state, "");
 });
@@ -6847,15 +6847,15 @@ test("Surface routing keeps an armed Jog session during its transient Run state"
     activeTab: "jog",
     jog: { armed: true },
   };
-  const ctx = buildContext(["applySurfaceAutomaticView"], [], {
-    state,
+  const routing = createSurfaceRouting({
+    getState: () => state,
     isSurfaceKiosk: () => true,
     showTab: (...args) => calls.push(args),
   });
-  vm.runInContext("applySurfaceAutomaticView()", ctx);
+  routing.applySurfaceAutomaticView();
   assert.equal(calls.length, 0, "a transient jog Run must not leave and disarm Jog");
   state.jog.armed = false;
-  vm.runInContext("applySurfaceAutomaticView()", ctx);
+  routing.applySurfaceAutomaticView();
   assert.deepEqual(calls.pop(), ["dashboard", "replace"]);
 });
 
