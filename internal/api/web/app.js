@@ -554,7 +554,7 @@ const filesFeature = createFilesFeature({
   getActiveSelectPendingPath: () => state.activeSelectPendingPath,
   selectActiveGcode: (...args) => activeJobSelection.selectActiveGcode(...args),
 });
-const { renderFiles, renderJobs, scheduleFileRender, uploadFiles, doMkdir, doDelete, retryJob, discardFile, doRename, openDir } = filesFeature;
+const { renderFiles, renderJobs, scheduleFileRender, uploadFiles, doMkdir, doDelete, retryJob, discardFile, doRename, openDir, queuePendingCount } = filesFeature;
 
 const activeJobSelection = mountActiveJobSelection({
   request,
@@ -1053,10 +1053,6 @@ function rememberCommand(line) {
 
 function saveSurfaceViewPreferences() {
   persistSurfaceViewPreferences(state.surface);
-}
-
-function queuePendingCount() {
-  return filesFeature.queuePendingCount();
 }
 
 async function refreshJobs() {
