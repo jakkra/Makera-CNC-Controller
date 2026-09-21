@@ -36,6 +36,7 @@ import { closeCommandPopout, commandPanelPlacement, commandPopoutSummary, create
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
+import { createWorkareaRenderers, displayedFieldProbePoints } from "./modules/workarea-render.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
@@ -59,6 +60,7 @@ const outlineIOModuleSource = readFileSync(join(dirname(fileURLToPath(import.met
 const jogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/jog.js"), "utf8");
 const outlineModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline.js"), "utf8");
 const workareaModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/workarea-outline.js"), "utf8");
+const workareaRenderModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/workarea-render.js"), "utf8");
 const navigationModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/navigation.js"), "utf8");
 const outlineCaptureModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-capture.js"), "utf8");
 const outlineDXFModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-dxf.js"), "utf8");
@@ -88,6 +90,7 @@ const toolingHelpers = new Set(["toolDisplayName", "validToolID"]);
 const domHelpers = new Set(["escapeHtml"]);
 const jogHelpers = new Set(["connectJog", "disableJogConnection", "scheduleJogReconnect", "sameJogInput", "jogInputActive", "sendJogInput", "sendJog", "sampleJog", "releaseJogInput", "scheduleJogSample", "surfaceMPGPointerSample", "surfaceMPGAngleDelta", "prepareSurfaceMPGFeedback", "playSurfaceMPGClick", "pulseSurfaceMPGDetent", "finishSurfaceMPGGesture", "bindSurfaceMPGWheel", "sameJogAxes"]);
 const workareaHelpers = new Set(["axisValue", "normalizeWorkAreaView", "workAreaViewCenter", "applyWorkAreaViewport", "resetWorkAreaView", "setWorkAreaZoom", "zoomWorkArea", "panWorkArea", "workAreaSVGPointFromClient", "workAreaLocalToContentPoint", "hideWorkAreaHoverPosition", "updateWorkAreaHoverPosition", "workAreaBounds", "workAreaRect", "workAreaMMToSVGUnits", "machineToWorkAreaPoint", "workAreaToMachinePoint", "renderWorkArea", "outlineSnapshot", "restoreOutlineSnapshot", "outlineCapturePositionsClose", "outlineCaptureIntentCount", "cancelOutlineCaptureIntents", "appendOutlineCapturedPosition", "resolveOutlineCaptureIntent", "clearFieldProbeData", "outlineEditingMarkersVisible"]);
+const workareaRenderHelpers = new Set(["displayedFieldProbePoints"]);
 const dashboardProfilesHelpers = new Set(["defaultDashboardSettings", "normalizeDashboardSettings", "dashboardURLState", "dashboardProfileByID", "currentDashboardProfile", "isWideSurfaceOverview", "dashboardPanelVisible", "resolveDashboardProfile", "applyDashboardURLState", "syncDashboardProfileURL", "selectDashboardProfile", "renderDashboardProfileControls", "applyDashboardProfile", "dashboardProfileSlug", "renderDashboardPanelOrder", "refreshDashboardPanelOrderButtons", "openDashboardSettings", "closeDashboardSettings", "dashboardProfileFromForm", "saveDashboardProfile", "deleteDashboardProfile", "copyDashboardURL"]);
 const dashboardTelemetryHelpers = new Set(["dashboardOptionalNumber", "dashboardOnOff", "dashboardRotaryText", "dashboardLaserText", "dashboardATCText", "dashboardControllerText", "dashboardAlarmText", "renderDashboardTelemetry"]);
 const dashboardViewHelpers = new Set(["renderDashboard"]);
@@ -338,7 +341,7 @@ test("dashboard presentation is owned by its feature module", () => {
 });
 
 function extractFunction(name) {
-  const source = feedbackHelpers.has(name) ? feedbackModuleSource.replace(/^  /gm, "") : mdiMacrosHelpers.has(name) ? mdiModuleSource.replace(/^  /gm, "") : toolActionsHelpers.has(name) ? toolActionsModuleSource.replace(/^  /gm, "") : originProbingHelpers.has(name) ? originProbingModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : machineStatusHelpers.has(name) ? machineStatusModuleSource.replace(/^  /gm, "") : outlineHelpers.has(name) ? outlineModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : outlineIOHelpers.has(name) ? outlineIOModuleSource.replace(/^export /gm, "") : navigationHelpers.has(name) ? navigationModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : settingsHelpers.has(name) ? settingsModuleSource.replace(/^export /gm, "") : toolingHelpers.has(name) ? "\n" + toolingModuleSource.replace(/^export /gm, "") : domHelpers.has(name) ? "\n" + domModuleSource.replace(/^export /gm, "") : jogHelpers.has(name) ? jogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : workareaHelpers.has(name) ? workareaModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : dashboardProfilesHelpers.has(name) ? dashboardProfilesModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : dashboardTelemetryHelpers.has(name) ? dashboardTelemetryModuleSource.replace(/^export /gm, "") : dashboardViewHelpers.has(name) ? dashboardViewModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : gcodeLogHelpers.has(name) ? gcodeLogModuleSource.replace(/^export /gm, "") : activeJobViewHelpers.has(name) ? activeJobViewModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : geometryHelpers.has(name) ? geometryModuleSource : gcodeHelpers.has(name) ? gcodeModuleSource.replace(/^  /gm, "") : outlineCaptureHelpers.has(name) ? outlineCaptureModuleSource.replace(/^export /gm, "") : outlineDXFHelpers.has(name) ? outlineDXFModuleSource.replace(/^export /gm, "") : surfaceJogHelpers.has(name) ? surfaceJogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : globalSource();
+  const source = feedbackHelpers.has(name) ? feedbackModuleSource.replace(/^  /gm, "") : mdiMacrosHelpers.has(name) ? mdiModuleSource.replace(/^  /gm, "") : toolActionsHelpers.has(name) ? toolActionsModuleSource.replace(/^  /gm, "") : originProbingHelpers.has(name) ? originProbingModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : machineStatusHelpers.has(name) ? machineStatusModuleSource.replace(/^  /gm, "") : outlineHelpers.has(name) ? outlineModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : outlineIOHelpers.has(name) ? outlineIOModuleSource.replace(/^export /gm, "") : navigationHelpers.has(name) ? navigationModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : settingsHelpers.has(name) ? settingsModuleSource.replace(/^export /gm, "") : toolingHelpers.has(name) ? "\n" + toolingModuleSource.replace(/^export /gm, "") : domHelpers.has(name) ? "\n" + domModuleSource.replace(/^export /gm, "") : jogHelpers.has(name) ? jogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : workareaHelpers.has(name) ? workareaModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : workareaRenderHelpers.has(name) ? "\n" + workareaRenderModuleSource.replace(/^export /gm, "") : dashboardProfilesHelpers.has(name) ? dashboardProfilesModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : dashboardTelemetryHelpers.has(name) ? dashboardTelemetryModuleSource.replace(/^export /gm, "") : dashboardViewHelpers.has(name) ? dashboardViewModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : gcodeLogHelpers.has(name) ? gcodeLogModuleSource.replace(/^export /gm, "") : activeJobViewHelpers.has(name) ? activeJobViewModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : geometryHelpers.has(name) ? geometryModuleSource : gcodeHelpers.has(name) ? gcodeModuleSource.replace(/^  /gm, "") : outlineCaptureHelpers.has(name) ? outlineCaptureModuleSource.replace(/^export /gm, "") : outlineDXFHelpers.has(name) ? outlineDXFModuleSource.replace(/^export /gm, "") : surfaceJogHelpers.has(name) ? surfaceJogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : globalSource();
   let start = source.indexOf("\nfunction " + name + "(");
   if (start < 0) start = source.indexOf("\nasync function " + name + "(");
   if (start < 0) throw new Error("function not found in app.js: " + name);
@@ -3374,25 +3377,23 @@ test("closed probe-plan render does not emit a second set of outline circles", (
       fieldProbeResults: [],
     },
   };
-  const ctx = buildContext([
-    "renderWorkAreaOutline",
-    "displayedFieldProbePoints",
-    "outlineEditingMarkersVisible",
-  ], ["SPINDLE_DIAMETER_MM", "OUTLINE_POINT_DIAMETER_MM"], {
-    state,
-    document: { getElementById: (id) => elements[id] },
+  const renderers = createWorkareaRenderers({
+    stateFacade: state,
+    documentRef: { getElementById: (id) => elements[id] },
+    constants: { OUTLINE_POINT_DIAMETER_MM: 3.675 },
     machineToWorkAreaPoint: (point) => point,
     outlinePathD: () => "M0,0Z",
     workAreaMMToSVGUnits: () => 1,
+    outlineEditingMarkersVisible: (outline, display) => !display.length,
   });
-  vm.runInContext("renderWorkAreaOutline()", ctx);
+  renderers.renderWorkAreaOutline();
   assert.equal(
     elements["workarea-outline-points"].innerHTML,
     "",
     "curve-control handles are absent while the physical probe plan is displayed",
   );
   state.outline.fieldProbePreview = [];
-  vm.runInContext("renderWorkAreaOutline()", ctx);
+  renderers.renderWorkAreaOutline();
   assert.match(
     elements["workarea-outline-points"].innerHTML,
     /<circle /,
@@ -3422,23 +3423,20 @@ test("physical outline probes remain visibly distinct from generated border prob
       fieldProbeSelectedID: "field-probe-0002",
     },
   };
-  const ctx = buildContext([
-    "renderWorkAreaFieldProbePreview",
-    "displayedFieldProbePoints",
-    "fieldProbePlanPointMatchesResult",
-    "escapeHtml",
-  ], ["PROBE_SPOT_DIAMETER_MM", "PROBE_SPOT_RADIUS_MM"], {
-    state,
-    document: { getElementById: () => group },
+  const renderers = createWorkareaRenderers({
+    stateFacade: state,
+    documentRef: { getElementById: () => group },
+    constants: { PROBE_SPOT_RADIUS_MM: 1 },
     cloneOutlineOrigin: (origin) => origin,
     currentWorkOrigin: () => ({ x: 0, y: 0, z: 0 }),
     visualWorkOrigin: () => ({ x: 0, y: 0, z: 0 }),
     workAreaMMRadius: () => 1,
     workPointToMachinePoint: (point) => point,
     machineToWorkAreaPoint: (point) => point,
+    fieldProbePlanPointMatchesResult: (point, result) => point.id === result.id && Math.abs(point.x - result.x) < 0.02 && Math.abs(point.y - result.y) < 0.02,
     fmtCoord: (value) => String(value),
   });
-  vm.runInContext("renderWorkAreaFieldProbePreview()", ctx);
+  renderers.renderWorkAreaFieldProbePreview();
   assert.match(group.innerHTML, /class="boundary outline"/, "captured outline probes retain the captured-point treatment");
   assert.match(group.innerHTML, /class="boundary selected"[^>]*cx="10\.00"/, "generated border probes remain a separate boundary class");
   assert.match(group.innerHTML, /class="boundary selected"[^>]*role="button"[^>]*aria-pressed="true"/, "the selected probe is keyboard-operable and visibly selected");

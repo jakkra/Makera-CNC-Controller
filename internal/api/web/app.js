@@ -51,6 +51,7 @@ import {
   pathPoint,
 } from "./modules/outline-io.js";
 import { axisValue, mountWorkareaOutline } from "./modules/workarea-outline.js";
+import { createWorkareaRenderers } from "./modules/workarea-render.js";
 import { createNavigationFeature, createLifecycleFeature, viewTabFromURL } from "./modules/navigation.js";
 import {
   createSettingsFeature,
@@ -825,6 +826,7 @@ dashboardView = createDashboardView({
 // and probe renderers still live here for now, so these callbacks intentionally
 // close over the late-bound feature instance.
 let workareaOutline;
+let workareaRender;
 workareaOutline = mountWorkareaOutline({
   stateFacade: state,
   documentRef: document,
@@ -846,8 +848,8 @@ workareaOutline = mountWorkareaOutline({
   markGcodeContextOverlayDirty,
   hasGcodeRenderer: () => !!gcodeViewer.getGcodeView()?.renderer,
   renderActiveGcode,
-  renderWorkAreaOutline: (...args) => renderWorkAreaOutline(...args),
-  renderWorkAreaFieldProbePreview: (...args) => renderWorkAreaFieldProbePreview(...args),
+  renderWorkAreaOutline: (...args) => workareaRender?.renderWorkAreaOutline(...args),
+  renderWorkAreaFieldProbePreview: (...args) => workareaRender?.renderWorkAreaFieldProbePreview(...args),
   visualWorkOrigin,
   tapMoveTargetBusy,
   jogEstimateActive,
@@ -915,6 +917,24 @@ const {
   outlineSummaryText, setOutlineFeedback, isProbeToolActive,
   is3DProbeToolActive,
 } = outlineFeature;
+workareaRender = createWorkareaRenderers({
+  stateFacade: state,
+  documentRef: document,
+  constants: { OUTLINE_POINT_DIAMETER_MM, PROBE_SPOT_RADIUS_MM },
+  machineToWorkAreaPoint,
+  workAreaMMToSVGUnits,
+  workAreaMMRadius: (...args) => workAreaMMRadius(...args),
+  outlinePathD,
+  outlineEditingMarkersVisible,
+  cloneOutlineOrigin,
+  currentWorkOrigin,
+  visualWorkOrigin,
+  workPointToMachinePoint,
+  fieldProbePlanPointMatchesResult,
+  fmtCoord,
+  escapeHtml,
+});
+const { renderWorkAreaOutline, renderWorkAreaFieldProbePreview, displayedFieldProbePoints } = workareaRender;
 const fieldProbeMoveCandidate = (local) => outlineFeature.fieldProbeMoveCandidate(
   local, workAreaToMachinePoint, workAreaLocalToContentPoint, cloneOutlineOrigin, currentWorkOrigin,
 );
@@ -2123,60 +2143,6 @@ function scheduleOutlineFieldSpacingUpdate() {
 
 function buildFieldProbePreview(points, spotGap = fieldProbeSpotGap(), outlinePoints = points) {
   return computeFieldProbePreview(points, spotGap, outlinePoints);
-}
-
-function renderWorkAreaOutline() {
-  const group = document.getElementById("workarea-outline");
-  const path = document.getElementById("workarea-outline-path");
-  const pointsGroup = document.getElementById("workarea-outline-points");
-  if (!group || !path || !pointsGroup) return;
-  const probeDisplay = state.outline.active && state.outline.closed
-    ? displayedFieldProbePoints(state.outline)
-    : [];
-  const points = state.outline.points
-    .map((point) => machineToWorkAreaPoint({ x: point.machine_x, y: point.machine_y }))
-    .filter(Boolean);
-  if (!points.length) {
-    group.setAttribute("display", "none");
-    path.removeAttribute("d");
-    pointsGroup.innerHTML = "";
-    return;
-  }
-  path.setAttribute("d", outlinePathD(points, state.outline.closed, state.outline.curveFit));
-  group.classList.toggle("closed", !!state.outline.closed);
-  group.removeAttribute("display");
-  const pointRadius = (OUTLINE_POINT_DIAMETER_MM / 2) * workAreaMMToSVGUnits();
-  const showEditingMarkers = outlineEditingMarkersVisible(state.outline, probeDisplay);
-  pointsGroup.innerHTML = points.filter(() => showEditingMarkers).map((point) =>
-    `<circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="${pointRadius.toFixed(3)}"></circle>`
-  ).join("");
-}
-
-function renderWorkAreaFieldProbePreview() {
-  const group = document.getElementById("workarea-field-probe-preview");
-  if (!group) return;
-  const o = state.outline;
-  const origin = cloneOutlineOrigin(o.origin || currentWorkOrigin() || visualWorkOrigin());
-  const display = displayedFieldProbePoints(o);
-  const r = workAreaMMRadius(PROBE_SPOT_RADIUS_MM);
-  const points = display.map((p) => ({ src: p, plot: machineToWorkAreaPoint(workPointToMachinePoint(p, origin)) }))
-    .filter((p) => p.plot);
-  if (!points.length || !o.active || !o.closed) {
-    group.setAttribute("display", "none");
-    group.innerHTML = "";
-    return;
-  }
-  group.innerHTML = points.map((p, i) => {
-    const done = o.fieldProbeResults.some((result) => fieldProbePlanPointMatchesResult(p.src, result));
-    const selected = p.src.id === o.fieldProbeSelectedID;
-    const label = "Field probe point " + (i + 1) + ", X " + fmtCoord(p.src.x) + ", Y " + fmtCoord(p.src.y) + ", " + (done ? "probed" : "not probed") + (selected ? "; use arrow keys to move" : "");
-    return `<circle class="${[p.src.probe_kind === "outline" || p.src.probe_kind === "border" ? "boundary" : "", p.src.probe_kind === "outline" ? "outline" : "", done ? "done" : "", selected ? "selected" : "", o.fieldProbePending && i === o.fieldProbeIndex ? "current" : ""].filter(Boolean).join(" ")}" data-field-probe-id="${escapeHtml(p.src.id)}" role="button" tabindex="0" aria-label="${escapeHtml(label)}" aria-pressed="${selected ? "true" : "false"}" cx="${p.plot.x.toFixed(2)}" cy="${p.plot.y.toFixed(2)}" r="${r.toFixed(2)}"></circle>`;
-  }).join("");
-  group.removeAttribute("display");
-}
-
-function displayedFieldProbePoints(outline) {
-  return outline?.fieldProbePreview?.length ? outline.fieldProbePreview : (outline?.fieldProbeResults || []);
 }
 
 async function resetSelectedFieldProbeValue() {
