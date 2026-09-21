@@ -50,7 +50,7 @@ import {
   pathNum,
   pathPoint,
 } from "./modules/outline-io.js";
-import { mountWorkareaOutline } from "./modules/workarea-outline.js";
+import { axisValue, mountWorkareaOutline } from "./modules/workarea-outline.js";
 import { createNavigationFeature, createLifecycleFeature, viewTabFromURL } from "./modules/navigation.js";
 import {
   createSettingsFeature,
@@ -1490,11 +1490,6 @@ function jogErrorText(err) {
 
 const OUTLINE_FIELD_SPACING_DEBOUNCE_MS = 450;
 let outlineFieldSpacingTimer = null;
-
-function axisValue(values, axis) {
-  const n = Number(values?.[axis]);
-  return Number.isFinite(n) ? n : null;
-}
 
 function currentAxisValues() {
   const preferJog = state.jog.armed || state.jog.originPendingMode === "jog" || !!state.jog.targetPending || !!state.jog.targetMotionPending || !!state.jog.zStepPending;
