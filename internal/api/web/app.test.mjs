@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { request } from "./modules/api.js";
 import { gcodeCursorForPlayedLine, mountActiveJobControl, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountActiveJobSelection, mountPausedJobCommand, previewBoundsText } from "./modules/active-job.js";
 import { createActiveJobView } from "./modules/active-job-view.js";
+import { activeJobSplitBounds, createActiveJobLayout } from "./modules/active-job-layout.js";
 import { escapeHtml, setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtActiveFeed, fmtAge, fmtCoord, fmtDashboardFeed, fmtDashboardSpindle, fmtDuration, fmtPos, fmtSize, fmtSpindle, fmtTemperature, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
@@ -1486,14 +1487,14 @@ test("active job left tabs preserve both panels and expose the selected panel", 
   const state = { activeJobLeftTab: "source" };
   let sourceRenders = 0;
   let consoleRenders = 0;
-  const ctx = buildContext(["showActiveJobLeftTab"], [], {
-    state,
-    document: { getElementById: (id) => elements[id] || null },
+  const layout = createActiveJobLayout({
+    getState: () => state,
+    documentRef: { getElementById: (id) => elements[id] || null },
     scheduleActiveGcodeSourceRender: () => { sourceRenders++; },
     renderGcodeLog: () => { consoleRenders++; },
   });
 
-  vm.runInContext(`showActiveJobLeftTab("console")`, ctx);
+  layout.showActiveJobLeftTab("console");
   assert.equal(state.activeJobLeftTab, "console");
   assert.equal(elements["active-gcode-source"].hidden, true);
   assert.equal(elements["active-gcode-console"].hidden, false);
@@ -1506,7 +1507,7 @@ test("active job left tabs preserve both panels and expose the selected panel", 
   assert.equal(sourceRenders, 0);
   assert.equal(consoleRenders, 1, "showing the console refreshes its log in the now-visible viewport");
 
-  vm.runInContext(`showActiveJobLeftTab("source")`, ctx);
+  layout.showActiveJobLeftTab("source");
   assert.equal(elements["active-gcode-source"].hidden, false);
   assert.equal(elements["active-gcode-console"].hidden, true);
   assert.equal(elements["active-gcode-left"].consoleClass, false);
@@ -1527,28 +1528,19 @@ test("active job splitter clamps both panes and updates its accessible value", (
   const state = { activeJobSplitPercent: 32 };
   let sourceRenders = 0;
   let previewRenders = 0;
-  const ctx = buildContext(
-    ["activeJobSplitBounds", "setActiveJobSplitPercent"],
-    [
-      "ACTIVE_JOB_SPLIT_DEFAULT_PERCENT",
-      "ACTIVE_JOB_SPLIT_MIN_LEFT_PX",
-      "ACTIVE_JOB_SPLIT_MIN_PREVIEW_PX",
-      "ACTIVE_JOB_SPLITTER_PX",
-    ],
-    {
-      state,
-      document: {
+  const layout = createActiveJobLayout({
+    getState: () => state,
+    documentRef: {
         querySelector: (selector) => selector === ".active-gcode-workspace" ? workspace : null,
         getElementById: (id) => id === "active-gcode-splitter" ? splitter : null,
       },
-      scheduleActiveGcodeSourceRender: () => { sourceRenders++; },
-      scheduleGcodeRender: () => { previewRenders++; },
-    },
-  );
+    scheduleActiveGcodeSourceRender: () => { sourceRenders++; },
+    scheduleGcodeRender: () => { previewRenders++; },
+  });
 
-  const bounds = JSON.parse(vm.runInContext(`JSON.stringify(activeJobSplitBounds(1000))`, ctx));
+  const bounds = activeJobSplitBounds(1000);
   assert.deepEqual(bounds, { min: 26, max: 66.4 });
-  vm.runInContext(`setActiveJobSplitPercent(90)`, ctx);
+  layout.setActiveJobSplitPercent(90);
   assert.equal(state.activeJobSplitPercent, 66.4, "the preview retains its 320px minimum");
   assert.equal(styleValues["--active-gcode-left-width"], "66.4%");
   assert.equal(attributes["aria-valuemin"], "26");

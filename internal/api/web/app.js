@@ -4,6 +4,7 @@ import { pointInPolygonOrBoundary, effectiveOutlineGeometry, normalizedClosedPol
 import * as THREE from "./three.module.min.js";
 import { request } from "./modules/api.js";
 import { gcodeCursorForPlayedLine, mountActiveJobControl, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection } from "./modules/active-job.js";
+import { ACTIVE_JOB_SPLIT_MIN_LEFT_PX, ACTIVE_JOB_SPLIT_MIN_PREVIEW_PX, ACTIVE_JOB_SPLIT_STEP_PERCENT, ACTIVE_JOB_SPLITTER_PX, DEFAULT_ACTIVE_JOB_SPLIT_PERCENT, activeJobSplitBounds as calculateActiveJobSplitBounds, createActiveJobLayout } from "./modules/active-job-layout.js";
 import { createActiveJobView } from "./modules/active-job-view.js";
 import { escapeHtml, setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtActiveFeed, fmtAge, fmtCoord, fmtDashboardFeed, fmtDashboardSpindle, fmtDuration, fmtPos, fmtSize, fmtSpindle, fmtTemperature, fmtTime } from "./modules/format.js";
@@ -92,11 +93,7 @@ const GCODE_SOURCE_OVERSCAN = 12;
 const GCODE_SOURCE_PAGE_SIZE = 500;
 const GCODE_SOURCE_MAX_PAGES = 8;
 const GCODE_SEGMENT_PAGE_SIZE = 5000;
-const ACTIVE_JOB_SPLIT_DEFAULT_PERCENT = 32;
-const ACTIVE_JOB_SPLIT_STEP_PERCENT = 2;
-const ACTIVE_JOB_SPLIT_MIN_LEFT_PX = 260;
-const ACTIVE_JOB_SPLIT_MIN_PREVIEW_PX = 320;
-const ACTIVE_JOB_SPLITTER_PX = 16;
+const ACTIVE_JOB_SPLIT_DEFAULT_PERCENT = DEFAULT_ACTIVE_JOB_SPLIT_PERCENT;
 const VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files", "maintenance", "attention"];
 const NAV_VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files"];
 const JOG_PREDICTION_TOLERANCE_MM = 0.02;
@@ -171,6 +168,7 @@ const {
 } = dashboardTelemetry;
 let dashboardView = null;
 let activeJobView = null;
+let activeJobLayout = null;
 
 // Navigation is mounted after the feature factories below. Keep callbacks
 // that are handed to those factories late-bound so module evaluation never
@@ -761,6 +759,19 @@ dashboardView = createDashboardView({
   drawDashboardGcodePreview,
   relPath,
   fmtDuration,
+});
+
+activeJobLayout = createActiveJobLayout({
+  documentRef: document,
+  getState: () => state,
+  scheduleActiveGcodeSourceRender: (...args) => scheduleActiveGcodeSourceRender(...args),
+  scheduleGcodeRender: (...args) => scheduleGcodeRender(...args),
+  renderGcodeLog,
+  defaultSplitPercent: ACTIVE_JOB_SPLIT_DEFAULT_PERCENT,
+  splitStepPercent: ACTIVE_JOB_SPLIT_STEP_PERCENT,
+  minLeftPx: ACTIVE_JOB_SPLIT_MIN_LEFT_PX,
+  minPreviewPx: ACTIVE_JOB_SPLIT_MIN_PREVIEW_PX,
+  splitterPx: ACTIVE_JOB_SPLITTER_PX,
 });
 
 // Work-area viewport/state ownership lives in a feature module. The outline
@@ -4365,91 +4376,10 @@ function applySurfaceAutomaticView() {
   if (target && target !== state.activeTab) showTab(target, "replace");
 }
 
-function showActiveJobLeftTab(name) {
-  const tabs = ["source", "console"];
-  if (!tabs.includes(name)) name = "source";
-  state.activeJobLeftTab = name;
-  for (const tab of tabs) {
-    const button = document.getElementById("active-job-left-tab-" + tab);
-    const panel = document.getElementById(tab === "source" ? "active-gcode-source" : "active-gcode-console");
-    const active = tab === name;
-    if (panel) panel.hidden = !active;
-    button?.setAttribute("aria-selected", String(active));
-    if (button) button.tabIndex = active ? 0 : -1;
-  }
-  document.getElementById("active-gcode-left")?.classList.toggle("is-console-active", name === "console");
-  document.getElementById("active-gcode-source-position")?.classList.toggle("is-hidden", name !== "source");
-  if (name === "source") scheduleActiveGcodeSourceRender();
-  else renderGcodeLog();
-}
-
-function activeJobSplitBounds(width) {
-  const available = Number(width);
-  if (!(available > 0)) return { min: 0, max: 100 };
-  const min = Math.min(50, (ACTIVE_JOB_SPLIT_MIN_LEFT_PX / available) * 100);
-  const previewMax = ((available - ACTIVE_JOB_SPLITTER_PX - ACTIVE_JOB_SPLIT_MIN_PREVIEW_PX) / available) * 100;
-  return {
-    min,
-    max: Math.max(min, Math.min(100, previewMax)),
-  };
-}
-
-function setActiveJobSplitPercent(percent) {
-  const workspace = document.querySelector(".active-gcode-workspace");
-  const splitter = document.getElementById("active-gcode-splitter");
-  if (!workspace || !splitter) return;
-  const bounds = activeJobSplitBounds(workspace.clientWidth);
-  const next = Math.max(bounds.min, Math.min(bounds.max, Number(percent) || ACTIVE_JOB_SPLIT_DEFAULT_PERCENT));
-  state.activeJobSplitPercent = next;
-  workspace.style.setProperty("--active-gcode-left-width", `${next}%`);
-  splitter.setAttribute("aria-valuemin", String(Math.round(bounds.min)));
-  splitter.setAttribute("aria-valuemax", String(Math.round(bounds.max)));
-  splitter.setAttribute("aria-valuenow", String(Math.round(next)));
-  splitter.setAttribute("aria-valuetext", `Job details ${Math.round(next)} percent`);
-  scheduleActiveGcodeSourceRender();
-  scheduleGcodeRender();
-}
-
-function bindActiveJobSplitter() {
-  const workspace = document.querySelector(".active-gcode-workspace");
-  const splitter = document.getElementById("active-gcode-splitter");
-  if (!workspace || !splitter) return;
-  const setFromClientX = (clientX) => {
-    const rect = workspace.getBoundingClientRect();
-    if (!(rect.width > 0)) return;
-    setActiveJobSplitPercent(((clientX - rect.left) / rect.width) * 100);
-  };
-  splitter.onpointerdown = (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    splitter.classList.add("dragging");
-    splitter.setPointerCapture(e.pointerId);
-    setFromClientX(e.clientX);
-  };
-  splitter.onpointermove = (e) => {
-    if (!splitter.hasPointerCapture(e.pointerId)) return;
-    setFromClientX(e.clientX);
-  };
-  const release = (e) => {
-    if (splitter.hasPointerCapture(e.pointerId)) splitter.releasePointerCapture(e.pointerId);
-    splitter.classList.remove("dragging");
-  };
-  splitter.onpointerup = release;
-  splitter.onpointercancel = release;
-  splitter.onlostpointercapture = () => splitter.classList.remove("dragging");
-  splitter.onkeydown = (e) => {
-    const bounds = activeJobSplitBounds(workspace.clientWidth);
-    let next = state.activeJobSplitPercent;
-    if (e.key === "ArrowLeft") next -= ACTIVE_JOB_SPLIT_STEP_PERCENT;
-    else if (e.key === "ArrowRight") next += ACTIVE_JOB_SPLIT_STEP_PERCENT;
-    else if (e.key === "Home") next = bounds.min;
-    else if (e.key === "End") next = bounds.max;
-    else return;
-    e.preventDefault();
-    setActiveJobSplitPercent(next);
-  };
-  setActiveJobSplitPercent(state.activeJobSplitPercent);
-}
+function showActiveJobLeftTab(...args) { return activeJobLayout?.showActiveJobLeftTab(...args); }
+function activeJobSplitBounds(...args) { return activeJobLayout?.activeJobSplitBounds(...args) || calculateActiveJobSplitBounds(...args); }
+function setActiveJobSplitPercent(...args) { return activeJobLayout?.setActiveJobSplitPercent(...args); }
+function bindActiveJobSplitter(...args) { return activeJobLayout?.bindActiveJobSplitter(...args); }
 
 
 function mergeMachineStatusForDisplay(next) {
