@@ -1355,19 +1355,22 @@ func TestWebUIServed(t *testing.T) {
 	heightMeshModule := get(t, srv.URL+"/modules/height-mesh.js")
 	heightMeshBody, _ := io.ReadAll(heightMeshModule.Body)
 	heightMeshModule.Body.Close()
+	heightTriangulationModule := get(t, srv.URL+"/modules/height-triangulation.js")
+	heightTriangulationBody, _ := io.ReadAll(heightTriangulationModule.Body)
+	heightTriangulationModule.Body.Close()
 	commandUIModule := get(t, srv.URL+"/modules/command-ui.js")
 	commandUIBody, _ := io.ReadAll(commandUIModule.Body)
 	commandUIModule.Body.Close()
 	workareaJogModule := get(t, srv.URL+"/modules/workarea-jog.js")
 	workareaJogBody, _ := io.ReadAll(workareaJogModule.Body)
 	workareaJogModule.Body.Close()
-	webSource := string(jsBody) + string(activeJobViewBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(dashboardTelemetryBody) + string(dashboardViewBody) + string(gcodeLogBody) + string(navigationBody) + string(surfaceJogBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody) + string(outlineCaptureBody) + string(outlineDXFBody) + string(outlineFilesBody) + string(heightExportBody) + string(heightMeshBody) + string(commandUIBody) + string(workareaJogBody)
+	webSource := string(jsBody) + string(activeJobViewBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(dashboardTelemetryBody) + string(dashboardViewBody) + string(gcodeLogBody) + string(navigationBody) + string(surfaceJogBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody) + string(outlineCaptureBody) + string(outlineDXFBody) + string(outlineFilesBody) + string(heightExportBody) + string(heightMeshBody) + string(heightTriangulationBody) + string(commandUIBody) + string(workareaJogBody)
 	for _, want := range []string{"export function mountFilesCommands", "export function mountFilesTransitions", "export function mountFilesJobRefresh"} {
 		if filesModule.StatusCode != http.StatusOK || !strings.Contains(string(filesModuleBody), want) {
 			t.Errorf("modules/files.js missing %s (status=%d)", want, filesModule.StatusCode)
 		}
 	}
-	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`, `from "./modules/active-job-view.js"`, `from "./modules/camera.js"`, `from "./modules/dashboard-telemetry.js"`, `from "./modules/dashboard-view.js"`, `from "./modules/gcode-log.js"`, `from "./modules/navigation.js"`, `from "./modules/outline-io.js"`, `from "./modules/outline-capture.js"`, `from "./modules/outline-dxf.js"`, `from "./modules/outline-files.js"`, `from "./modules/height-export.js"`, `from "./modules/height-mesh.js"`, `from "./modules/command-ui.js"`, `from "./modules/workarea-jog.js"`} {
+	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`, `from "./modules/active-job-view.js"`, `from "./modules/camera.js"`, `from "./modules/dashboard-telemetry.js"`, `from "./modules/dashboard-view.js"`, `from "./modules/gcode-log.js"`, `from "./modules/navigation.js"`, `from "./modules/outline-io.js"`, `from "./modules/outline-capture.js"`, `from "./modules/outline-dxf.js"`, `from "./modules/outline-files.js"`, `from "./modules/height-export.js"`, `from "./modules/height-mesh.js"`, `from "./modules/height-triangulation.js"`, `from "./modules/command-ui.js"`, `from "./modules/workarea-jog.js"`} {
 		if !strings.Contains(string(jsBody), want) {
 			t.Errorf("app.js missing shared module import %s", want)
 		}
@@ -1411,6 +1414,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/outline-files.js", "export function createOutlineFilesFeature"},
 		{"/modules/height-export.js", "export function buildHeightPGM"},
 		{"/modules/height-mesh.js", "export function buildHeightMeshVertices"},
+		{"/modules/height-triangulation.js", "export function constrainedOutlineTriangles"},
 		{"/modules/command-ui.js", "export function createCommandUI"},
 		{"/modules/surface-jog.js", "export function createSurfaceJogFeature"},
 		{"/modules/workarea-jog.js", "export function mobileWorkAreaJogAxes"},

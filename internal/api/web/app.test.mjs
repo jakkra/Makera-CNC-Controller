@@ -28,6 +28,7 @@ import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dx
 import { createOutlineFilesFeature } from "./modules/outline-files.js";
 import { buildHeightPGM as buildHeightPGMDocument, buildInterpolatedHeightGrid as buildInterpolatedHeightGridDocument, interpolateZ as interpolateZDocument } from "./modules/height-export.js";
 import { buildHeightMeshVertices as buildHeightMeshVerticesDocument, solidifyHeightMesh as solidifyHeightMeshDocument } from "./modules/height-mesh.js";
+import { constrainedOutlineTriangles as constrainedOutlineTrianglesDocument, orderedOutlineBoundaryIndices as orderedOutlineBoundaryIndicesDocument } from "./modules/height-triangulation.js";
 import { closeCommandPopout, commandPanelPlacement, commandPopoutSummary, createCommandUI } from "./modules/command-ui.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
@@ -60,6 +61,7 @@ const outlineDXFModuleSource = readFileSync(join(dirname(fileURLToPath(import.me
 const outlineFilesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-files.js"), "utf8");
 const heightExportModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/height-export.js"), "utf8");
 const heightMeshModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/height-mesh.js"), "utf8");
+const heightTriangulationModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/height-triangulation.js"), "utf8");
 const commandUIModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/command-ui.js"), "utf8");
 const surfaceJogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-jog.js"), "utf8");
 // Transitional VM tests retain their assertions against these exact production helpers.
@@ -166,6 +168,11 @@ test("shared helpers are imported as production ES modules", async () => {
   assert.match(source, /from "\.\/modules\/height-mesh\.js";/);
   assert.match(heightMeshModuleSource, /export function buildHeightMeshVertices/);
   assert.match(heightMeshModuleSource, /export function solidifyHeightMesh/);
+  assert.equal(typeof constrainedOutlineTrianglesDocument, "function");
+  assert.equal(typeof orderedOutlineBoundaryIndicesDocument, "function");
+  assert.match(source, /from "\.\/modules\/height-triangulation\.js";/);
+  assert.match(heightTriangulationModuleSource, /export function constrainedOutlineTriangles/);
+  assert.match(heightTriangulationModuleSource, /export function orderedOutlineBoundaryIndices/);
   assert.doesNotMatch(source, /function fmtCoord\(/);
   assert.doesNotMatch(source, /function fmtPos\(/);
   assert.doesNotMatch(source, /function fmtDuration\(/);
@@ -347,6 +354,10 @@ function buildContext(functionNames, constNames = [], globals = {}) {
     interpolateZDocument,
     buildHeightMeshVerticesDocument,
     solidifyHeightMeshDocument,
+    constrainedOutlineTrianglesDocument,
+    orderedOutlineBoundaryIndicesDocument,
+    constrainedOutlineTriangles: constrainedOutlineTrianglesDocument,
+    orderedOutlineBoundaryIndices: orderedOutlineBoundaryIndicesDocument,
     ...globals,
   });
   const code = constNames.map(extractConst).concat(functionNames.map(extractFunction)).join("\n");
@@ -2427,19 +2438,6 @@ test("a completed field probe builds a constrained translucent-surface payload i
     "interpolateZ",
     "constrainedOutlineTriangles",
     "orderedOutlineBoundaryIndices",
-    "projectPointToClosedPath",
-    "polygonIndexArea",
-    "triangulateBoundaryRing",
-    "insertTriangulationPoint",
-    "triangleCross",
-    "triangleCCW",
-    "pointInTriangle2D",
-    "pointOnSegment2D",
-    "improveConstrainedDelaunay",
-    "triangulationEdges",
-    "triangulationEdgeKey",
-    "quadrilateralAllowsFlip",
-    "pointInsideCircumcircle",
   ];
   const plan = [
     { x: 0, y: 0, probe_kind: "outline" },
@@ -3665,20 +3663,6 @@ test("generated probe spread triangulates without bridging outside a concave out
   const triangulationFunctions = [
     "buildHeightMeshVertices",
     "constrainedOutlineTriangles",
-    "orderedOutlineBoundaryIndices",
-    "projectPointToClosedPath",
-    "polygonIndexArea",
-    "triangulateBoundaryRing",
-    "insertTriangulationPoint",
-    "triangleCross",
-    "triangleCCW",
-    "pointInTriangle2D",
-    "pointOnSegment2D",
-    "improveConstrainedDelaunay",
-    "triangulationEdges",
-    "triangulationEdgeKey",
-    "quadrilateralAllowsFlip",
-    "pointInsideCircumcircle",
     "pointInPolygonOrBoundary",
     "interpolateZ",
   ];
@@ -3795,21 +3779,8 @@ test("OBJ export builds a closed solid from the probed floor while preserving Fu
       "solidifyHeightMesh",
       "exportWorkOrigin",
       "requireHeightExportOutline",
-      "triangleCCW",
       "constrainedOutlineTriangles",
       "orderedOutlineBoundaryIndices",
-      "projectPointToClosedPath",
-      "polygonIndexArea",
-      "triangulateBoundaryRing",
-      "insertTriangulationPoint",
-      "triangleCross",
-      "pointInTriangle2D",
-      "pointOnSegment2D",
-      "improveConstrainedDelaunay",
-      "triangulationEdges",
-      "triangulationEdgeKey",
-      "quadrilateralAllowsFlip",
-      "pointInsideCircumcircle",
       "interpolateZ",
       "fieldProbeExportPoints",
       "fieldProbeHeightReference",
@@ -4052,27 +4023,7 @@ test("OBJ triangulation locks a concave outline before covering every internal s
     { x: 20, y: 5, probe_kind: "field" },
     { x: 5, y: 20, probe_kind: "field" },
   ]);
-  const ctx = buildContext([
-    "constrainedOutlineTriangles",
-    "orderedOutlineBoundaryIndices",
-    "projectPointToClosedPath",
-    "polygonIndexArea",
-    "triangulateBoundaryRing",
-    "insertTriangulationPoint",
-    "triangleCross",
-    "triangleCCW",
-    "pointInTriangle2D",
-    "pointOnSegment2D",
-    "improveConstrainedDelaunay",
-    "triangulationEdges",
-    "triangulationEdgeKey",
-    "quadrilateralAllowsFlip",
-    "pointInsideCircumcircle",
-  ]);
-  const faces = JSON.parse(vm.runInContext(
-    `JSON.stringify(constrainedOutlineTriangles(${JSON.stringify(points)}, ${JSON.stringify(outline)}))`,
-    ctx,
-  ));
+  const faces = constrainedOutlineTrianglesDocument(points, outline);
   const edges = new Set(faces.flatMap(([a, b, c]) => [[a, b], [b, c], [c, a]])
     .map(([a, b]) => Math.min(a, b) + ":" + Math.max(a, b)));
   for (let index = 0; index < outline.length; index++) {
@@ -4091,27 +4042,7 @@ test("constrained Delaunay replaces a poor interior diagonal but never a boundar
     { x: 0, y: 3 },
   ];
   const points = outline.map((point) => ({ ...point, probe_kind: "outline" }));
-  const ctx = buildContext([
-    "constrainedOutlineTriangles",
-    "orderedOutlineBoundaryIndices",
-    "projectPointToClosedPath",
-    "polygonIndexArea",
-    "triangulateBoundaryRing",
-    "insertTriangulationPoint",
-    "triangleCross",
-    "triangleCCW",
-    "pointInTriangle2D",
-    "pointOnSegment2D",
-    "improveConstrainedDelaunay",
-    "triangulationEdges",
-    "triangulationEdgeKey",
-    "quadrilateralAllowsFlip",
-    "pointInsideCircumcircle",
-  ]);
-  const faces = JSON.parse(vm.runInContext(
-    `JSON.stringify(constrainedOutlineTriangles(${JSON.stringify(points)}, ${JSON.stringify(outline)}))`,
-    ctx,
-  ));
+  const faces = constrainedOutlineTrianglesDocument(points, outline);
   const edges = new Set(faces.flatMap(([a, b, c]) => [[a, b], [b, c], [c, a]])
     .map(([a, b]) => Math.min(a, b) + ":" + Math.max(a, b)));
 
