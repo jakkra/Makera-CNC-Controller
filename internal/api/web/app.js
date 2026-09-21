@@ -30,6 +30,7 @@ import { createCommandUI } from "./modules/command-ui.js";
 import { buildHeightPGM as buildHeightPGMDocument, buildInterpolatedHeightGrid as buildInterpolatedHeightGridDocument, interpolateZ as interpolateZDocument } from "./modules/height-export.js";
 import { buildHeightMeshVertices as buildHeightMeshVerticesDocument, solidifyHeightMesh as solidifyHeightMeshDocument } from "./modules/height-mesh.js";
 import { constrainedOutlineTriangles as constrainedOutlineTrianglesDocument, orderedOutlineBoundaryIndices as orderedOutlineBoundaryIndicesDocument } from "./modules/height-triangulation.js";
+import { exportExtents as exportExtentsDocument, fieldProbeExportPoints as fieldProbeExportPointsDocument, fieldProbeHeightReference as fieldProbeHeightReferenceDocument, outlineEffectiveExportPoints as outlineEffectiveExportPointsDocument, outlineExportPoints as outlineExportPointsDocument } from "./modules/height-coordinates.js";
 import {
   addOutlinePolylineDXF,
   boundedOutlineNumber as boundOutlineNumber,
@@ -3087,85 +3088,19 @@ function buildOutlineDXF() {
 }
 
 function outlineExportPoints(origin, outlineState = state.outline) {
-  const ox = axisValue(origin, "x");
-  const oy = axisValue(origin, "y");
-  const oz = axisValue(origin, "z");
-  return outlineState.points.map((p) => {
-    const mx = Number(p.machine_x);
-    const my = Number(p.machine_y);
-    const mz = Number(p.machine_z);
-    return {
-      x: Number.isFinite(mx) && ox !== null ? mx - ox : p.x,
-      y: Number.isFinite(my) && oy !== null ? my - oy : p.y,
-      z: Number.isFinite(mz) && oz !== null ? mz - oz : p.z,
-      captured_at: p.captured_at,
-      probed: !!p.probed,
-    };
-  });
+  return outlineExportPointsDocument(origin, outlineState, axisValue);
 }
 
 function outlineEffectiveExportPoints(origin, outlineState = state.outline) {
-  const raw = outlineExportPoints(origin, outlineState);
-  const geometry = effectiveOutlineGeometry(raw, outlineState.closed, outlineState.curveFit);
-  if (geometry.limited) throw new Error("curve fit generated too many outline points");
-  return geometry.points;
+  return outlineEffectiveExportPointsDocument(origin, outlineState, axisValue, effectiveOutlineGeometry);
 }
 
 function fieldProbeExportPoints(origin, outlineState = state.outline) {
-  const ox = axisValue(origin, "x");
-  const oy = axisValue(origin, "y");
-  const reference = fieldProbeHeightReference(origin, outlineState);
-  return outlineState.fieldProbeResults.map((p) => {
-    const mx = Number(p.machine_x);
-    const my = Number(p.machine_y);
-    const mz = Number(p.machine_z);
-    return {
-      x: Number.isFinite(mx) && ox !== null ? mx - ox : p.x,
-      y: Number.isFinite(my) && oy !== null ? my - oy : p.y,
-      z: Number.isFinite(mz) ? mz - reference.machineZ : p.z,
-      captured_at: p.captured_at,
-      probe_kind: p.probe_kind,
-    };
-  });
+  return fieldProbeExportPointsDocument(origin, outlineState, axisValue, fieldProbeHeightReference);
 }
 
 function fieldProbeHeightReference(origin, outlineState = state.outline) {
-  const o = outlineState;
-  const floorZ = finiteOr(o.floorMachineZ, NaN);
-  if (Number.isFinite(floorZ)) return { machineZ: floorZ, kind: "floor", label: "probed floor" };
-  const storedZ = finiteOr(o.fieldReferenceMachineZ, NaN);
-  if (Number.isFinite(storedZ)) return { machineZ: storedZ, kind: "work_origin", label: "captured Z origin" };
-  const originZ = axisValue(origin, "z");
-  if (originZ !== null) return { machineZ: originZ, kind: "work_origin", label: "current Z origin" };
-  throw new Error("field probe Z reference is unavailable");
-}
-
-function exportExtents(table, points) {
-  let minX = table.x_min;
-  let maxX = table.x_max;
-  let minY = table.y_min;
-  let maxY = table.y_max;
-  for (const p of points) {
-    if (Number.isFinite(p.x)) {
-      minX = Math.min(minX, p.x);
-      maxX = Math.max(maxX, p.x);
-    }
-    if (Number.isFinite(p.y)) {
-      minY = Math.min(minY, p.y);
-      maxY = Math.max(maxY, p.y);
-    }
-  }
-  if (!Number.isFinite(minX) || !Number.isFinite(maxX)) {
-    minX = 0;
-    maxX = 1;
-  }
-  if (!Number.isFinite(minY) || !Number.isFinite(maxY)) {
-    minY = 0;
-    maxY = 1;
-  }
-  const width = Math.max(1, maxX - minX);
-  const height = Math.max(1, maxY - minY);
-  return { x_min: minX, x_max: maxX, y_min: minY, y_max: maxY, width, height };
+  return fieldProbeHeightReferenceDocument(origin, outlineState, finiteOr, axisValue);
 }
 
 function exportHeightOBJ() {
@@ -3289,7 +3224,7 @@ function buildInterpolatedHeightGrid(origin, outlineState = state.outline) {
     outlineExportPoints,
     outlineEffectiveExportPoints,
     fieldProbeExportPoints,
-    exportExtents,
+    exportExtents: exportExtentsDocument,
     fieldProbeSpotGap,
     fieldProbeCenterSpacing,
     pointInPolygonOrBoundary,

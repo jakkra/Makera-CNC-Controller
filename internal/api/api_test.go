@@ -1358,13 +1358,16 @@ func TestWebUIServed(t *testing.T) {
 	heightTriangulationModule := get(t, srv.URL+"/modules/height-triangulation.js")
 	heightTriangulationBody, _ := io.ReadAll(heightTriangulationModule.Body)
 	heightTriangulationModule.Body.Close()
+	heightCoordinatesModule := get(t, srv.URL+"/modules/height-coordinates.js")
+	heightCoordinatesBody, _ := io.ReadAll(heightCoordinatesModule.Body)
+	heightCoordinatesModule.Body.Close()
 	commandUIModule := get(t, srv.URL+"/modules/command-ui.js")
 	commandUIBody, _ := io.ReadAll(commandUIModule.Body)
 	commandUIModule.Body.Close()
 	workareaJogModule := get(t, srv.URL+"/modules/workarea-jog.js")
 	workareaJogBody, _ := io.ReadAll(workareaJogModule.Body)
 	workareaJogModule.Body.Close()
-	webSource := string(jsBody) + string(activeJobViewBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(dashboardTelemetryBody) + string(dashboardViewBody) + string(gcodeLogBody) + string(navigationBody) + string(surfaceJogBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody) + string(outlineCaptureBody) + string(outlineDXFBody) + string(outlineFilesBody) + string(heightExportBody) + string(heightMeshBody) + string(heightTriangulationBody) + string(commandUIBody) + string(workareaJogBody)
+	webSource := string(jsBody) + string(activeJobViewBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(dashboardTelemetryBody) + string(dashboardViewBody) + string(gcodeLogBody) + string(navigationBody) + string(surfaceJogBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody) + string(outlineCaptureBody) + string(outlineDXFBody) + string(outlineFilesBody) + string(heightExportBody) + string(heightMeshBody) + string(heightTriangulationBody) + string(heightCoordinatesBody) + string(commandUIBody) + string(workareaJogBody)
 	for _, want := range []string{"export function mountFilesCommands", "export function mountFilesTransitions", "export function mountFilesJobRefresh"} {
 		if filesModule.StatusCode != http.StatusOK || !strings.Contains(string(filesModuleBody), want) {
 			t.Errorf("modules/files.js missing %s (status=%d)", want, filesModule.StatusCode)
@@ -1415,6 +1418,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/height-export.js", "export function buildHeightPGM"},
 		{"/modules/height-mesh.js", "export function buildHeightMeshVertices"},
 		{"/modules/height-triangulation.js", "export function constrainedOutlineTriangles"},
+		{"/modules/height-coordinates.js", "export function outlineExportPoints"},
 		{"/modules/command-ui.js", "export function createCommandUI"},
 		{"/modules/surface-jog.js", "export function createSurfaceJogFeature"},
 		{"/modules/workarea-jog.js", "export function mobileWorkAreaJogAxes"},

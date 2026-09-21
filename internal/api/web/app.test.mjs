@@ -29,6 +29,7 @@ import { createOutlineFilesFeature } from "./modules/outline-files.js";
 import { buildHeightPGM as buildHeightPGMDocument, buildInterpolatedHeightGrid as buildInterpolatedHeightGridDocument, interpolateZ as interpolateZDocument } from "./modules/height-export.js";
 import { buildHeightMeshVertices as buildHeightMeshVerticesDocument, solidifyHeightMesh as solidifyHeightMeshDocument } from "./modules/height-mesh.js";
 import { constrainedOutlineTriangles as constrainedOutlineTrianglesDocument, orderedOutlineBoundaryIndices as orderedOutlineBoundaryIndicesDocument } from "./modules/height-triangulation.js";
+import { exportExtents as exportExtentsDocument, fieldProbeExportPoints as fieldProbeExportPointsDocument, fieldProbeHeightReference as fieldProbeHeightReferenceDocument, outlineEffectiveExportPoints as outlineEffectiveExportPointsDocument, outlineExportPoints as outlineExportPointsDocument } from "./modules/height-coordinates.js";
 import { closeCommandPopout, commandPanelPlacement, commandPopoutSummary, createCommandUI } from "./modules/command-ui.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
@@ -62,6 +63,7 @@ const outlineFilesModuleSource = readFileSync(join(dirname(fileURLToPath(import.
 const heightExportModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/height-export.js"), "utf8");
 const heightMeshModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/height-mesh.js"), "utf8");
 const heightTriangulationModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/height-triangulation.js"), "utf8");
+const heightCoordinatesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/height-coordinates.js"), "utf8");
 const commandUIModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/command-ui.js"), "utf8");
 const surfaceJogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-jog.js"), "utf8");
 // Transitional VM tests retain their assertions against these exact production helpers.
@@ -173,6 +175,12 @@ test("shared helpers are imported as production ES modules", async () => {
   assert.match(source, /from "\.\/modules\/height-triangulation\.js";/);
   assert.match(heightTriangulationModuleSource, /export function constrainedOutlineTriangles/);
   assert.match(heightTriangulationModuleSource, /export function orderedOutlineBoundaryIndices/);
+  assert.equal(typeof exportExtentsDocument, "function");
+  assert.equal(typeof fieldProbeExportPointsDocument, "function");
+  assert.equal(typeof fieldProbeHeightReferenceDocument, "function");
+  assert.match(source, /from "\.\/modules\/height-coordinates\.js";/);
+  assert.match(heightCoordinatesModuleSource, /export function exportExtents/);
+  assert.match(heightCoordinatesModuleSource, /export function fieldProbeExportPoints/);
   assert.doesNotMatch(source, /function fmtCoord\(/);
   assert.doesNotMatch(source, /function fmtPos\(/);
   assert.doesNotMatch(source, /function fmtDuration\(/);
@@ -358,6 +366,12 @@ function buildContext(functionNames, constNames = [], globals = {}) {
     orderedOutlineBoundaryIndicesDocument,
     constrainedOutlineTriangles: constrainedOutlineTrianglesDocument,
     orderedOutlineBoundaryIndices: orderedOutlineBoundaryIndicesDocument,
+    exportExtentsDocument,
+    fieldProbeExportPointsDocument,
+    fieldProbeHeightReferenceDocument,
+    outlineEffectiveExportPointsDocument,
+    outlineExportPointsDocument,
+    exportExtents: exportExtentsDocument,
     ...globals,
   });
   const code = constNames.map(extractConst).concat(functionNames.map(extractFunction)).join("\n");
@@ -3923,7 +3937,6 @@ test("PGM export uses the same current work origin instead of the captured outli
       "fieldProbeHeightReference",
       "fieldProbeCenterSpacing",
       "fieldProbeSpotGap",
-      "exportExtents",
       "pointInPolygonOrBoundary",
       "pointInPolygon",
       "distancePointToSegment",
