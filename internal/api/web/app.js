@@ -30,6 +30,7 @@ import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dx
 import { createOutlineFilesFeature } from "./modules/outline-files.js";
 import { createCommandUI } from "./modules/command-ui.js";
 import { loadCommandHistory as readCommandHistory, rememberCommand as rememberCommandEntry, saveCommandHistory as persistCommandHistory } from "./modules/command-history.js";
+import { createUISettingsFeature } from "./modules/ui-settings.js";
 import { buildHeightPGM as buildHeightPGMDocument, buildInterpolatedHeightGrid as buildInterpolatedHeightGridDocument, interpolateZ as interpolateZDocument } from "./modules/height-export.js";
 import { buildHeightMeshVertices as buildHeightMeshVerticesDocument, solidifyHeightMesh as solidifyHeightMeshDocument } from "./modules/height-mesh.js";
 import { constrainedOutlineTriangles as constrainedOutlineTrianglesDocument, orderedOutlineBoundaryIndices as orderedOutlineBoundaryIndicesDocument } from "./modules/height-triangulation.js";
@@ -265,6 +266,12 @@ let activeJobView = null;
 // that are handed to those factories late-bound so module evaluation never
 // reads the navigation instance before it exists.
 let showTab = () => {};
+let applyUISettings = () => {};
+let applyAPICapabilities = () => {};
+let queueSaveUISettings = () => {};
+let saveUISettings = async () => false;
+let loadUISettings = async () => {};
+let loadAPICapabilities = async () => {};
 
 const {
   clearConnectivityIssue,
@@ -615,6 +622,28 @@ const maintenance = mountMaintenance({
   bindButtonAction,
   getReadOnly: () => state.readOnly,
 });
+
+const uiSettings = createUISettingsFeature({
+  stateFacade: state,
+  documentRef: document,
+  request,
+  normalizeUISettings,
+  clearConnectivityIssue,
+  setConnectivityIssue,
+  setNotice,
+  clearNotice,
+  maintenanceRender: () => maintenance.render(),
+  renderMacroButtons: (...args) => renderMacroButtons(...args),
+  renderMacroEditor: (...args) => renderMacroEditor(...args),
+  renderGamepadSettings: (...args) => renderGamepadSettings(...args),
+  renderMachineSettings: (...args) => renderMachineSettings(...args),
+  renderJog: (...args) => renderJog(...args),
+  renderGcodeLog: (...args) => renderGcodeLog(...args),
+  renderWorkArea: (...args) => renderWorkArea(...args),
+  resolveDashboardProfile: (...args) => resolveDashboardProfile(...args),
+  showTab: (...args) => showTab(...args),
+});
+({ applyUISettings, applyAPICapabilities, queueSaveUISettings, saveUISettings, loadUISettings, loadAPICapabilities } = uiSettings);
 
 const navigationFeature = createNavigationFeature({
   documentRef: document,
@@ -1022,109 +1051,6 @@ function newID(prefix) {
 function saveSurfaceViewPreferences() {
   persistSurfaceViewPreferences(state.surface);
 }
-
-async function loadUISettings() {
-  try {
-    const r = await request("/api/ui/settings");
-    applyUISettings(await r.json());
-    clearConnectivityIssue("ui-settings");
-  } catch (e) {
-    setConnectivityIssue("ui-settings", "UI settings unavailable: " + e.message);
-    applyUISettings(state.ui);
-  }
-}
-
-function applyAPICapabilities(caps) {
-  state.readOnly = !!caps?.read_only;
-  maintenance.render();
-  document.body.classList.toggle("read-only", state.readOnly);
-  for (const id of [
-    "command-actions", "ctl-halt", "tab-jog", "tab-control", "tab-files",
-    "active-gcode-run", "active-gcode-pause", "paused-job-controls",
-    "feed-override-controls", "alarm-actions", "attention-resume", "attention-recover",
-    "dashboard-external-camera-focus-open",
-  ]) {
-    const element = document.getElementById(id);
-    if (element) element.hidden = state.readOnly;
-  }
-  for (const element of document.querySelectorAll("[data-machine-feed-override]")) {
-    element.hidden = state.readOnly || !element.closest(".dashboard-machine");
-  }
-  if (state.readOnly && ["jog", "control", "files"].includes(state.activeTab)) {
-    showTab("dashboard", "replace");
-  }
-}
-
-async function loadAPICapabilities() {
-  try {
-    const r = await request("/api/capabilities");
-    applyAPICapabilities(await r.json());
-    clearConnectivityIssue("api-capabilities");
-  } catch (e) {
-    setConnectivityIssue("api-capabilities", "API capabilities unavailable: " + e.message);
-  }
-}
-
-function applyUISettings(ui) {
-  state.ui = normalizeUISettings(ui);
-  state.dashboardSettingsLoaded = true;
-  state.logFilter = state.ui.log.filter || "all";
-  document.getElementById("log-filter").value = state.logFilter;
-  document.getElementById("log-autoscroll").checked = state.ui.log.autoscroll !== false;
-  if (!state.selectedMacroId && state.ui.macros.length) state.selectedMacroId = state.ui.macros[0].id;
-  renderMacroButtons();
-  renderMacroEditor();
-  renderGamepadSettings();
-  renderMachineSettings();
-  renderJog();
-  renderGcodeLog();
-  renderWorkArea();
-  resolveDashboardProfile();
-}
-
-function queueSaveUISettings() {
-  clearTimeout(state.settingsSaveTimer);
-  state.settingsSaveTimer = setTimeout(saveUISettings, 250);
-}
-
-async function saveUISettings(options = {}) {
-  clearTimeout(state.settingsSaveTimer);
-  state.settingsSaveTimer = null;
-  try {
-    const r = await request("/api/ui/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state.ui),
-    });
-    applyUISettings(await r.json());
-    if (options.successMessage) setNotice(options.successMessage, "ok", "ui-settings-save");
-    else clearNotice("ui-settings-save");
-    return true;
-  } catch (e) {
-    setNotice("Saving UI settings failed: " + e.message, "error", "ui-settings-save");
-    return false;
-  }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 function queuePendingCount() {
   return filesFeature.queuePendingCount();

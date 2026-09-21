@@ -34,6 +34,7 @@ import { constrainedOutlineTriangles as constrainedOutlineTrianglesDocument, ord
 import { exportExtents as exportExtentsDocument, fieldProbeExportPoints as fieldProbeExportPointsDocument, fieldProbeHeightReference as fieldProbeHeightReferenceDocument, outlineEffectiveExportPoints as outlineEffectiveExportPointsDocument, outlineExportPoints as outlineExportPointsDocument } from "./modules/height-coordinates.js";
 import { closeCommandPopout, commandPanelPlacement, commandPopoutSummary, createCommandUI } from "./modules/command-ui.js";
 import { GCODE_HISTORY_KEY, loadCommandHistory, rememberCommand, saveCommandHistory } from "./modules/command-history.js";
+import { createUISettingsFeature } from "./modules/ui-settings.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
@@ -74,6 +75,7 @@ const heightTriangulationModuleSource = readFileSync(join(dirname(fileURLToPath(
 const heightCoordinatesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/height-coordinates.js"), "utf8");
 const commandUIModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/command-ui.js"), "utf8");
 const commandHistoryModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/command-history.js"), "utf8");
+const uiSettingsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/ui-settings.js"), "utf8");
 const surfaceJogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-jog.js"), "utf8");
 const domModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/dom.js"), "utf8");
 // Transitional VM tests retain their assertions against these exact production helpers.
@@ -253,6 +255,41 @@ test("command history keeps local persistence bounded and deduplicated", () => {
   assert.deepEqual(JSON.parse(values.get(GCODE_HISTORY_KEY)), ["G1 X2", "G1 X1"]);
   assert.match(commandHistoryModuleSource, /COMMAND_HISTORY_LIMIT = 24/);
   assert.match(source, /from "\.\/modules\/command-history\.js"/);
+});
+
+test("UI settings keep read-only capabilities and local render state coordinated", () => {
+  const nodes = new Map(["log-filter", "log-autoscroll", "jog", "tab-files"].map((id) => [id, { hidden: false, value: "", checked: false }]));
+  const readOnlyControls = [{ hidden: false, closest: () => ({}) }, { hidden: false, closest: () => null }];
+  const toggles = [];
+  const tabs = [];
+  const state = {
+    ui: { log: { filter: "all", autoscroll: true }, macros: [] },
+    activeTab: "jog",
+    settingsSaveTimer: null,
+    selectedMacroId: "",
+  };
+  const feature = createUISettingsFeature({
+    stateFacade: state,
+    documentRef: {
+      body: { classList: { toggle: (...args) => toggles.push(args) } },
+      getElementById: (id) => nodes.get(id) || null,
+      querySelectorAll: () => readOnlyControls,
+    },
+    request: async () => ({ json: async () => ({}) }),
+    normalizeUISettings: (value) => value,
+    maintenanceRender: () => {},
+    showTab: (...args) => tabs.push(args),
+  });
+  feature.applyAPICapabilities({ read_only: true });
+  assert.equal(state.readOnly, true);
+  assert.deepEqual(toggles, [["read-only", true]]);
+  assert.deepEqual(tabs, [["dashboard", "replace"]]);
+  feature.applyUISettings({ log: { filter: "errors", autoscroll: false }, macros: [{ id: "macro-1" }] });
+  assert.equal(state.logFilter, "errors");
+  assert.equal(nodes.get("log-filter").value, "errors");
+  assert.equal(nodes.get("log-autoscroll").checked, false);
+  assert.equal(state.selectedMacroId, "macro-1");
+  assert.match(uiSettingsModuleSource, /api\/ui\/settings/);
 });
 
 test("active job metadata stays operator-focused and mobile shows the preview first", () => {
