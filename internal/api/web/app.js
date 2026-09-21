@@ -32,6 +32,7 @@ import { createCommandUI } from "./modules/command-ui.js";
 import { loadCommandHistory as readCommandHistory, rememberCommand as rememberCommandEntry, saveCommandHistory as persistCommandHistory } from "./modules/command-history.js";
 import { createUISettingsFeature } from "./modules/ui-settings.js";
 import { createOutlineView } from "./modules/outline-view.js";
+import { createProbeConfirmation } from "./modules/probe-confirm.js";
 import { buildHeightPGM as buildHeightPGMDocument, buildInterpolatedHeightGrid as buildInterpolatedHeightGridDocument, interpolateZ as interpolateZDocument } from "./modules/height-export.js";
 import { buildHeightMeshVertices as buildHeightMeshVerticesDocument, solidifyHeightMesh as solidifyHeightMeshDocument } from "./modules/height-mesh.js";
 import { constrainedOutlineTriangles as constrainedOutlineTrianglesDocument, orderedOutlineBoundaryIndices as orderedOutlineBoundaryIndicesDocument } from "./modules/height-triangulation.js";
@@ -310,6 +311,7 @@ const { resetEventStream, connectControlSSE, connectFilesSSE, pollMachine } = cr
   setConnectivityIssue,
   refreshJobs,
 });
+const { confirmProbeAction, settleProbeConfirmation } = createProbeConfirmation({ documentRef: document });
 
 // Settings owns the machine/gamepad controls while API load/save remains in
 // this bootstrap. Late-bound callbacks keep the existing initialization graph
@@ -701,7 +703,6 @@ const lifecycleFeature = createLifecycleFeature({
 });
 const { reloadPage, recoverForegroundSession, installPullToRefresh, bindBrowserLifecycle } = lifecycleFeature;
 
-let probeConfirmResolve = null;
 let outlineContextRevision = 1;
 let pageHiddenAt = 0;
 const HALT_REASON = {
@@ -1707,29 +1708,6 @@ function redoOutline() {
   o.feedbackKind = "ok";
   renderOutlineCapture();
   renderWorkArea();
-}
-
-function confirmProbeAction({ title, message, warning = "", confirmLabel = "Probe" }) {
-  const dialog = document.getElementById("probe-confirm-modal");
-  if (!dialog || dialog.open || probeConfirmResolve) return Promise.resolve(false);
-  document.getElementById("probe-confirm-title").textContent = title;
-  document.getElementById("probe-confirm-message").textContent = message;
-  const warningEl = document.getElementById("probe-confirm-warning");
-  warningEl.textContent = warning;
-  warningEl.hidden = !warning;
-  document.getElementById("probe-confirm-accept").textContent = confirmLabel;
-  return new Promise((resolve) => {
-    probeConfirmResolve = resolve;
-    dialog.showModal();
-    document.getElementById("probe-confirm-accept").focus();
-  });
-}
-
-function settleProbeConfirmation(accepted) {
-  const resolve = probeConfirmResolve;
-  probeConfirmResolve = null;
-  document.getElementById("probe-confirm-modal")?.close();
-  if (resolve) resolve(!!accepted);
 }
 
 function renderOutlineCapture() {

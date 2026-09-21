@@ -36,6 +36,7 @@ import { closeCommandPopout, commandPanelPlacement, commandPopoutSummary, create
 import { GCODE_HISTORY_KEY, loadCommandHistory, rememberCommand, saveCommandHistory } from "./modules/command-history.js";
 import { createUISettingsFeature } from "./modules/ui-settings.js";
 import { createOutlineView } from "./modules/outline-view.js";
+import { createProbeConfirmation } from "./modules/probe-confirm.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
@@ -78,6 +79,7 @@ const commandUIModuleSource = readFileSync(join(dirname(fileURLToPath(import.met
 const commandHistoryModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/command-history.js"), "utf8");
 const uiSettingsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/ui-settings.js"), "utf8");
 const outlineViewModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-view.js"), "utf8");
+const probeConfirmModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/probe-confirm.js"), "utf8");
 const surfaceJogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-jog.js"), "utf8");
 const domModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/dom.js"), "utf8");
 // Transitional VM tests retain their assertions against these exact production helpers.
@@ -328,6 +330,18 @@ test("outline view preserves pending presentation while capture intents are in f
   assert.equal(nodes.get("outline-add-point").attrs.get("aria-busy"), "true");
   assert.equal(nodes.get("outline-field-probe").textContent, "Probing 2/3");
   assert.match(outlineViewModuleSource, /outline-field-probe/);
+});
+
+test("probe confirmation keeps one pending modal promise and resolves it once", async () => {
+  const fields = new Map(["probe-confirm-title", "probe-confirm-message", "probe-confirm-warning", "probe-confirm-accept"].map((id) => [id, { textContent: "", hidden: false, focus() {} }]));
+  const dialog = { open: false, showModal() { this.open = true; }, close() { this.open = false; } };
+  const feature = createProbeConfirmation({ documentRef: { getElementById: (id) => id === "probe-confirm-modal" ? dialog : fields.get(id) } });
+  const pending = feature.confirmProbeAction({ title: "Probe", message: "Continue?", warning: "Careful", confirmLabel: "Go" });
+  assert.equal((await feature.confirmProbeAction({ title: "Second", message: "No" })), false);
+  feature.settleProbeConfirmation(true);
+  assert.equal(await pending, true);
+  assert.equal(fields.get("probe-confirm-warning").hidden, false);
+  assert.match(probeConfirmModuleSource, /pendingResolve/);
 });
 
 test("active job metadata stays operator-focused and mobile shows the preview first", () => {
