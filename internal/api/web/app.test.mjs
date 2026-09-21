@@ -19,6 +19,7 @@ import { runHistoryEvents } from "./modules/maintenance.js";
 import { dashboardExternalCameraIsSnapshot, normalizeDashboardExternalCameraView } from "./modules/camera.js";
 import { beginFileAction, createFileCatalog, createFileHelpers, endFileAction, fileRowLocallyOwned, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
 import { createSettingsFeature, defaultMachineSettings } from "./modules/settings.js";
+import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
@@ -36,6 +37,7 @@ const gcodeModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.ur
 const jogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/jog.js"), "utf8");
 const outlineModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline.js"), "utf8");
 const workareaModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/workarea-outline.js"), "utf8");
+const navigationModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/navigation.js"), "utf8");
 // Transitional VM tests retain their assertions against these exact production helpers.
 const feedbackHelpers = new Set(["setNotice", "noticeTimeoutMs", "statusMessageSignature", "setStatusMessage", "consumeStatusFeedback", "clearNotice", "setConnectivityIssue", "clearConnectivityIssue", "renderConnectivityNotice", "noticeItemRects", "animateNoticeReflow", "dismissNotice", "renderNoticeBar"]);
 const mdiMacrosHelpers = new Set(["macroByID", "slotForMacro", "sortedSlots", "setMacroPlacement", "normalizeSlotOrder", "renderGcodeCommandState", "submitGcode", "navigateCommandHistory", "renderMacroButtons", "renderMacroRegion", "renderMacroEditor", "currentMacroFromForm", "saveMacroFromForm", "newMacro", "macroEditorDirty", "confirmDiscardMacroDraft", "deleteSelectedMacro", "moveSelectedMacro", "runMacro"]);
@@ -43,6 +45,8 @@ const toolActionsHelpers = new Set(["customToolID", "resetToolSelects", "toggleT
 const originProbingHelpers = new Set(["machineReadyForOriginSet", "renderOriginButtons", "setOriginFeedback", "renderOriginSetSourceLabels", "hasPendingOriginOperation", "savedOrigins", "selectedSavedOrigin", "savedOriginLabel", "renderSavedOriginSelect", "saveCurrentOrigin", "deleteSelectedOrigin", "originCommandLine", "formatOriginValue", "originTargetsFromXYZ", "originTargetsFromSaved", "machineAnchorPoints", "originTargetsFromOriginSource", "originReferenceRequestFromInputs", "renderOriginSetChange", "originAxes", "originTargetLabel", "clearOriginVerification", "beginOriginVerification", "checkOriginVerification", "scheduleOriginVerification", "setOriginViaGcode", "setReferenceOriginViaAPI", "setReferenceOriginViaJog", "sendNextJogOriginAxis", "handleOriginAck", "applyOriginTargets", "setOriginAxis", "openOriginDialog", "closeOriginDialog", "probe3DFieldRules", "probe3DInitialPositioning", "probe3DTravelPreflight", "probe3DLearnedTravelBounds", "probe3DPreflightFromControls", "renderProbe3DForm", "probe3DNumber", "probe3DRequestFromControls", "openProbe3D", "closeProbe3D", "runProbe3D", "applyXYZOrigin", "applyOriginSource", "runAutoZProbe", "recallSelectedOrigin"]);
 const machineStatusHelpers = new Set(["gcodeToolMetadata", "gcodeToolLabel", "programToolListModel", "toolChangeTargetLabel", "toolChangeAttentionDetail", "machineReadoutModel", "renderMachineReadouts", "haltReason", "recoveryText", "machineActionState", "jobControlModel", "jobControlLabel", "renderJobControls", "renderMachine", "renderAttention", "attentionResumeAction", "renderToolStatus", "renderAlarmPanel", "recoveryButtonText"]);
 const outlineHelpers = new Set(["fieldProbeSpotGap", "fieldProbeCenterSpacing", "outlineWorkPoints", "fieldProbePlanPointMatchesResult", "selectedFieldProbePoint", "selectedFieldProbeResult", "selectFieldProbePoint", "outlinePointLabel", "outlineSummaryText", "setOutlineFeedback", "isProbeToolActive", "is3DProbeToolActive"]);
+const navigationHelpers = new Set(["viewTabFromURL", "syncViewTabURL", "setHeaderCollapsed"]);
+const navigationConsts = new Set(["DEFAULT_VIEW_TABS", "DEFAULT_NAV_VIEW_TABS", "FOREGROUND_PAGE_RELOAD_MS", "PULL_TO_REFRESH_DISTANCE_PX", "PULL_TO_REFRESH_DIRECTION_SLOP_PX"]);
 const settingsHelpers = new Set(["fallbackID", "normalizeAxisSetting", "normalizeButtonList", "normalizeMachineSettings", "normalizeMachineLearned", "normalizeSavedOrigins", "defaultMachineSettings", "defaultGamepadSettings", "safeZForTapMove", "safeZCeiling", "feedBoundsFor", "machineLearnedSummaryLines", "normalizeGamepadSettings", "normalizeUISettings", "finiteOr", "clampNumber"]);
 const jogHelpers = new Set(["connectJog", "disableJogConnection", "scheduleJogReconnect", "sameJogInput", "jogInputActive", "sendJogInput", "sendJog", "sampleJog", "releaseJogInput", "scheduleJogSample", "surfaceMPGPointerSample", "surfaceMPGAngleDelta", "prepareSurfaceMPGFeedback", "playSurfaceMPGClick", "pulseSurfaceMPGDetent", "finishSurfaceMPGGesture", "bindSurfaceMPGWheel", "sameJogAxes"]);
 const workareaHelpers = new Set(["axisValue", "normalizeWorkAreaView", "workAreaViewCenter", "applyWorkAreaViewport", "resetWorkAreaView", "setWorkAreaZoom", "zoomWorkArea", "panWorkArea", "workAreaSVGPointFromClient", "workAreaLocalToContentPoint", "hideWorkAreaHoverPosition", "updateWorkAreaHoverPosition", "workAreaBounds", "workAreaRect", "workAreaMMToSVGUnits", "machineToWorkAreaPoint", "workAreaToMachinePoint", "renderWorkArea", "outlineSnapshot", "restoreOutlineSnapshot", "outlineCapturePositionsClose", "outlineCaptureIntentCount", "cancelOutlineCaptureIntents", "appendOutlineCapturedPosition", "resolveOutlineCaptureIntent", "clearFieldProbeData", "outlineEditingMarkersVisible"]);
@@ -130,16 +134,16 @@ test("file rows expose responsive metadata cells", () => {
 
 test("mobile foreground recovery refreshes suspended streams and supports pull to refresh", () => {
   for (const marker of [
-    "const FOREGROUND_PAGE_RELOAD_MS = 60000;",
+    "export const FOREGROUND_PAGE_RELOAD_MS = 60000;",
     "function recoverForegroundSession()",
     'resetEventStream("controlES");',
     'resetEventStream("filesES");',
     "function installPullToRefresh()",
     "PULL_TO_REFRESH_DISTANCE_PX",
-    'window.addEventListener("pageshow", (event) => {',
+    'window?.addEventListener("pageshow", (event) => {',
     "if (event.persisted) reloadPage();",
   ]) {
-    assert.ok(source.includes(marker), `app.js includes ${marker}`);
+    assert.ok(navigationModuleSource.includes(marker), `modules/navigation.js includes ${marker}`);
   }
 });
 
@@ -185,7 +189,7 @@ test("dashboard layout controls are hidden and expose their expanded state", () 
 });
 
 function extractFunction(name) {
-  const source = feedbackHelpers.has(name) ? feedbackModuleSource.replace(/^  /gm, "") : mdiMacrosHelpers.has(name) ? mdiModuleSource.replace(/^  /gm, "") : toolActionsHelpers.has(name) ? toolActionsModuleSource.replace(/^  /gm, "") : originProbingHelpers.has(name) ? originProbingModuleSource.replace(/^  /gm, "") : machineStatusHelpers.has(name) ? machineStatusModuleSource.replace(/^  /gm, "") : outlineHelpers.has(name) ? outlineModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : settingsHelpers.has(name) ? settingsModuleSource.replace(/^export /gm, "") : jogHelpers.has(name) ? jogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : workareaHelpers.has(name) ? workareaModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : dashboardProfilesHelpers.has(name) ? dashboardProfilesModuleSource.replace(/^  /gm, "") : geometryHelpers.has(name) ? geometryModuleSource : gcodeHelpers.has(name) ? gcodeModuleSource.replace(/^  /gm, "") : globalSource();
+  const source = feedbackHelpers.has(name) ? feedbackModuleSource.replace(/^  /gm, "") : mdiMacrosHelpers.has(name) ? mdiModuleSource.replace(/^  /gm, "") : toolActionsHelpers.has(name) ? toolActionsModuleSource.replace(/^  /gm, "") : originProbingHelpers.has(name) ? originProbingModuleSource.replace(/^  /gm, "") : machineStatusHelpers.has(name) ? machineStatusModuleSource.replace(/^  /gm, "") : outlineHelpers.has(name) ? outlineModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : navigationHelpers.has(name) ? navigationModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : settingsHelpers.has(name) ? settingsModuleSource.replace(/^export /gm, "") : jogHelpers.has(name) ? jogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : workareaHelpers.has(name) ? workareaModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : dashboardProfilesHelpers.has(name) ? dashboardProfilesModuleSource.replace(/^  /gm, "") : geometryHelpers.has(name) ? geometryModuleSource : gcodeHelpers.has(name) ? gcodeModuleSource.replace(/^  /gm, "") : globalSource();
   let start = source.indexOf("\nfunction " + name + "(");
   if (start < 0) start = source.indexOf("\nasync function " + name + "(");
   if (start < 0) throw new Error("function not found in app.js: " + name);
@@ -213,7 +217,7 @@ function extractFunction(name) {
 function globalSource() { return source; }
 
 function extractConst(name) {
-  const constSource = name === "DASHBOARD_PANEL_DEFS" ? dashboardProfilesModuleSource : gcodeConstants.has(name) ? gcodeModuleSource : jogConstants.has(name) ? jogModuleSource : settingsConsts.includes(name) ? settingsModuleSource : source;
+  const constSource = name === "DASHBOARD_PANEL_DEFS" ? dashboardProfilesModuleSource : navigationConsts.has(name) ? navigationModuleSource : gcodeConstants.has(name) ? gcodeModuleSource : jogConstants.has(name) ? jogModuleSource : settingsConsts.includes(name) ? settingsModuleSource : source;
   const m = constSource.match(new RegExp("^(?:export )?const " + name + " = .*;$", "m"));
   if (!m) throw new Error("const not found in app.js: " + name);
   return m[0].replace(/^export /, "");
@@ -1676,43 +1680,38 @@ test("Surface movement takeover requires confirmation before disarming another c
 });
 
 test("top-level tabs resolve from canonical and legacy URLs", () => {
-  const ctx = buildContext(["viewTabFromURL"], ["VIEW_TABS"], { URLSearchParams });
+  const viewTabs = ["dashboard", "active-job", "jog", "control", "files", "maintenance", "attention"];
+  const desktopWindow = { matchMedia: () => ({ matches: false }) };
   for (const name of ["dashboard", "active-job", "control", "files"]) {
-    assert.equal(vm.runInContext(`viewTabFromURL({ pathname: "/${name}", search: "" })`, ctx), name);
+    assert.equal(viewTabFromURL({ pathname: `/${name}`, search: "" }, { viewTabs, windowRef: desktopWindow }), name);
   }
-  assert.equal(vm.runInContext(`viewTabFromURL({ pathname: "/", search: "?tab=dashboard" })`, ctx), "dashboard");
-  assert.equal(vm.runInContext(`viewTabFromURL({ pathname: "/", search: "" })`, ctx), "active-job");
-  assert.equal(vm.runInContext(`viewTabFromURL({ pathname: "/unknown", search: "?tab=unknown" })`, ctx), "active-job");
-  const phoneCtx = buildContext(["viewTabFromURL"], ["VIEW_TABS"], {
-    URLSearchParams,
-    window: { matchMedia: () => ({ matches: true }) },
-  });
-  assert.equal(vm.runInContext(`viewTabFromURL({ pathname: "/", search: "" })`, phoneCtx), "dashboard", "phone fallback is monitoring-first");
+  assert.equal(viewTabFromURL({ pathname: "/", search: "?tab=dashboard" }, { viewTabs, windowRef: desktopWindow }), "dashboard");
+  assert.equal(viewTabFromURL({ pathname: "/", search: "" }, { viewTabs, windowRef: desktopWindow }), "active-job");
+  assert.equal(viewTabFromURL({ pathname: "/unknown", search: "?tab=unknown" }, { viewTabs, windowRef: desktopWindow }), "active-job");
+  const phoneWindow = { matchMedia: () => ({ matches: true }) };
+  assert.equal(viewTabFromURL({ pathname: "/", search: "" }, { viewTabs, windowRef: phoneWindow }), "dashboard", "phone fallback is monitoring-first");
 });
 
 test("tab URL updates are canonical and avoid duplicate history entries", () => {
   const calls = [];
   const location = { href: "http://cnc.local/?tab=dashboard", pathname: "/", search: "?tab=dashboard" };
-  const ctx = buildContext(["syncViewTabURL"], [], {
-    URL,
-    window: {
-      location,
-      history: {
-        replaceState: (state, title, url) => calls.push({ method: "replace", state, url }),
-        pushState: (state, title, url) => calls.push({ method: "push", state, url }),
-      },
+  const windowRef = {
+    location,
+    history: {
+      replaceState: (state, title, url) => calls.push({ method: "replace", state, url }),
+      pushState: (state, title, url) => calls.push({ method: "push", state, url }),
     },
-  });
-  vm.runInContext(`syncViewTabURL("dashboard", "replace")`, ctx);
+  };
+  syncViewTabURL("dashboard", "replace", { windowRef });
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ method: "replace", state: { tab: "dashboard" }, url: "/dashboard" }]);
 
   calls.length = 0;
   location.href = "http://cnc.local/control";
   location.pathname = "/control";
   location.search = "";
-  vm.runInContext(`syncViewTabURL("control", "push")`, ctx);
+  syncViewTabURL("control", "push", { windowRef });
   assert.deepEqual(calls, [], "selecting the current tab does not add history");
-  vm.runInContext(`syncViewTabURL("files", "push")`, ctx);
+  syncViewTabURL("files", "push", { windowRef });
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ method: "push", state: { tab: "files" }, url: "/files" }]);
 });
 
@@ -1875,8 +1874,8 @@ test("header toggle preserves a visible restore control and closes open menus", 
     setAttribute: (name, value) => { attributes[name] = value; },
   };
   const popout = { open: true };
-  const ctx = buildContext(["setHeaderCollapsed"], [], {
-    document: {
+  const feature = createNavigationFeature({
+    documentRef: {
       body: {
         classList: {
           toggle: (name, enabled) => enabled ? classes.add(name) : classes.delete(name),
@@ -1887,14 +1886,14 @@ test("header toggle preserves a visible restore control and closes open menus", 
     },
   });
 
-  vm.runInContext("setHeaderCollapsed(true)", ctx);
+  feature.setHeaderCollapsed(true);
   assert.ok(classes.has("header-collapsed"));
   assert.equal(button.textContent, "▾");
   assert.equal(attributes["aria-expanded"], "false");
   assert.equal(attributes["aria-label"], "Show top bars");
   assert.equal(popout.open, false);
 
-  vm.runInContext("setHeaderCollapsed(false)", ctx);
+  feature.setHeaderCollapsed(false);
   assert.ok(!classes.has("header-collapsed"));
   assert.equal(button.textContent, "▴");
   assert.equal(attributes["aria-expanded"], "true");

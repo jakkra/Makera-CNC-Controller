@@ -18,6 +18,7 @@ import { createMachineStatusFeature } from "./modules/machine-status.js";
 import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive } from "./modules/jog.js";
 import { createOutlineFeature } from "./modules/outline.js";
 import { mountWorkareaOutline } from "./modules/workarea-outline.js";
+import { createNavigationFeature, createLifecycleFeature, viewTabFromURL } from "./modules/navigation.js";
 import {
   createSettingsFeature,
   MACHINE_SETTING_IDS,
@@ -59,9 +60,6 @@ const VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files", "mainte
 const NAV_VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files"];
 const SURFACE_VIEW_PREFERENCES_KEY = "cnc-proxy.surface-view-preferences.v1";
 const JOG_PREDICTION_TOLERANCE_MM = 0.02;
-const FOREGROUND_PAGE_RELOAD_MS = 60000;
-const PULL_TO_REFRESH_DISTANCE_PX = 88;
-const PULL_TO_REFRESH_DIRECTION_SLOP_PX = 16;
 const MOBILE_WORKAREA_MAX_WIDTH_PX = 600;
 const MOBILE_JOG_RADIUS_MIN_PX = 56;
 const MOBILE_JOG_RADIUS_MAX_PX = 88;
@@ -195,6 +193,11 @@ const state = {
   outline: defaultOutlineState(),
   workarea: defaultWorkAreaView(),
 };
+
+// Navigation is mounted after the feature factories below. Keep callbacks
+// that are handed to those factories late-bound so module evaluation never
+// reads the navigation instance before it exists.
+let showTab = () => {};
 
 const {
   clearConnectivityIssue,
@@ -439,7 +442,7 @@ const activeJobSelection = mountActiveJobSelection({
   setNotice,
   renderFiles: () => renderFiles(),
   renderActiveGcode,
-  showTab,
+  showTab: (...args) => showTab(...args),
 });
 
 const activeJobLoader = mountActiveJobLoader({
@@ -500,10 +503,63 @@ const maintenance = mountMaintenance({
   getReadOnly: () => state.readOnly,
 });
 
+const navigationFeature = createNavigationFeature({
+  documentRef: document,
+  windowRef: window,
+  viewTabs: VIEW_TABS,
+  getActiveTab: () => state.activeTab,
+  setActiveTab: (value) => { state.activeTab = value; },
+  getMachine: () => state.machine,
+  getSurface: () => state.surface,
+  setSurface: (value) => { Object.assign(state.surface, value); },
+  isSurfaceKiosk,
+  disarmMovementOnControlExit,
+  setDashboardControlsOpen,
+  connectFilesSSE,
+  renderActiveGcode,
+  renderDashboard,
+  renderJog,
+  maintenanceLoad: () => maintenance.load(),
+  clearNotice,
+  syncDashboardCameras,
+});
+const { setHeaderCollapsed } = navigationFeature;
+showTab = navigationFeature.showTab;
+
+const lifecycleFeature = createLifecycleFeature({
+  documentRef: document,
+  windowRef: window,
+  ElementCtor: typeof Element === "undefined" ? undefined : Element,
+  getPageHiddenAt: () => pageHiddenAt,
+  setPageHiddenAt: (value) => { pageHiddenAt = value; },
+  reloadPage: () => window.location.reload(),
+  stopDashboardBuiltinCamera,
+  stopDashboardExternalCamera,
+  resetEventStream,
+  connectControlSSE,
+  filesIsLoaded: () => filesFeature.isLoaded(),
+  connectFilesSSE,
+  loadDashboardCameras,
+  loadActiveGcode,
+  loadAPICapabilities,
+  loadJogCapabilities,
+  pollMachine,
+  getActiveTab: () => state.activeTab,
+  maintenanceLoad: () => maintenance.load(),
+  setJogInputSuspended: (value) => { state.jog.inputSuspended = value; },
+  releaseJogInput,
+  renderJog,
+  connectJog,
+  scheduleJogSample,
+  getPreferredPadIndex: () => state.jog.preferredPadIndex,
+  setPreferredPadIndex: (value) => { state.jog.preferredPadIndex = value; },
+  clearJogError: () => { state.jog.error = ""; },
+});
+const { reloadPage, recoverForegroundSession, installPullToRefresh, bindBrowserLifecycle } = lifecycleFeature;
+
 let probeConfirmResolve = null;
 let outlineContextRevision = 1;
 let pageHiddenAt = 0;
-let pullToRefreshGesture = null;
 const HALT_REASON = {
   1: "Halt manually",
   2: "Home fail",
@@ -1254,21 +1310,6 @@ async function saveUISettings(options = {}) {
 
 
 
-function setHeaderCollapsed(collapsed) {
-  const button = document.getElementById("header-toggle");
-  document.body.classList.toggle("header-collapsed", !!collapsed);
-  if (!button) return;
-  const expanded = !collapsed;
-  const label = expanded ? "Hide top bars" : "Show top bars";
-  button.textContent = expanded ? "▴" : "▾";
-  button.setAttribute("aria-expanded", String(expanded));
-  button.setAttribute("aria-label", label);
-  button.title = label;
-  if (collapsed) {
-    document.querySelectorAll(".command-popout[open]").forEach((popout) => { popout.open = false; });
-  }
-}
-
 function setDashboardControlsOpen(open, restoreFocus = false) {
   const button = document.getElementById("dashboard-controls-toggle");
   const panel = document.getElementById("dashboard-toolbar");
@@ -1327,99 +1368,6 @@ function initWorkAreaActionsMenu() {
   window.addEventListener("resize", () => {
     if (window.innerWidth > 600) setWorkAreaActionsOpen(false);
   });
-}
-
-function reloadPage() {
-  window.location.reload();
-}
-
-
-function recoverForegroundSession() {
-  const hiddenFor = pageHiddenAt ? Date.now() - pageHiddenAt : 0;
-  pageHiddenAt = 0;
-  // Mobile browsers commonly suspend a tab's WebSockets, EventSource and image
-  // decoding without notifying the page. After a long suspension, reload the
-  // no-store document instead of leaving a partly-resumed operator view.
-  if (hiddenFor >= FOREGROUND_PAGE_RELOAD_MS) {
-    reloadPage();
-    return true;
-  }
-  stopDashboardBuiltinCamera();
-  stopDashboardExternalCamera();
-  resetEventStream("controlES");
-  resetEventStream("filesES");
-  connectControlSSE();
-  if (filesFeature.isLoaded()) connectFilesSSE();
-  loadDashboardCameras();
-  loadActiveGcode();
-  loadAPICapabilities();
-  loadJogCapabilities();
-  pollMachine();
-  if (state.activeTab === "maintenance") maintenance.load();
-  return false;
-}
-
-function pageScrollIsAtTop() {
-  const root = document.scrollingElement || document.documentElement;
-  return Math.max(Number(window.scrollY) || 0, Number(root?.scrollTop) || 0) <= 0;
-}
-
-function pullToRefreshTargetAllowed(target) {
-  if (!(target instanceof Element)) return false;
-  return !target.closest("button, a, input, select, textarea, [contenteditable], [role=slider], dialog, canvas, video");
-}
-
-function updatePullToRefreshIndicator(distance = 0, ready = false) {
-  const progress = Math.max(0, Math.min(1, Number(distance) / PULL_TO_REFRESH_DISTANCE_PX));
-  document.body.classList.toggle("pull-refresh-pulling", progress > 0);
-  document.body.classList.toggle("pull-refresh-ready", !!ready);
-  document.documentElement.style.setProperty("--pull-refresh-offset", `${Math.round(progress * 48)}px`);
-  document.documentElement.style.setProperty("--pull-refresh-turn", `${Math.round(progress * 180)}deg`);
-}
-
-function installPullToRefresh() {
-  if (!window.matchMedia?.("(pointer: coarse)")?.matches) return;
-  document.addEventListener("touchstart", (event) => {
-    const touch = event.touches?.[0];
-    if (!touch || event.touches.length !== 1 || !pageScrollIsAtTop() || !pullToRefreshTargetAllowed(event.target)) {
-      pullToRefreshGesture = null;
-      updatePullToRefreshIndicator();
-      return;
-    }
-    pullToRefreshGesture = { id: touch.identifier, x: touch.clientX, y: touch.clientY, triggered: false };
-  }, { passive: true });
-  document.addEventListener("touchmove", (event) => {
-    const gesture = pullToRefreshGesture;
-    if (!gesture) return;
-    const touch = [...event.touches].find((candidate) => candidate.identifier === gesture.id);
-    if (!touch) {
-      pullToRefreshGesture = null;
-      updatePullToRefreshIndicator();
-      return;
-    }
-    const deltaX = touch.clientX - gesture.x;
-    const deltaY = touch.clientY - gesture.y;
-    if (deltaY <= 0 || (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > PULL_TO_REFRESH_DIRECTION_SLOP_PX)) {
-      pullToRefreshGesture = null;
-      updatePullToRefreshIndicator();
-      return;
-    }
-    const ready = deltaY >= PULL_TO_REFRESH_DISTANCE_PX;
-    updatePullToRefreshIndicator(deltaY, ready);
-    if (!ready || gesture.triggered) return;
-    gesture.triggered = true;
-    event.preventDefault();
-  }, { passive: false });
-  document.addEventListener("touchend", () => {
-    const triggered = pullToRefreshGesture?.triggered;
-    pullToRefreshGesture = null;
-    updatePullToRefreshIndicator();
-    if (triggered) reloadPage();
-  }, { passive: true });
-  document.addEventListener("touchcancel", () => {
-    pullToRefreshGesture = null;
-    updatePullToRefreshIndicator();
-  }, { passive: true });
 }
 
 function queuePendingCount() {
@@ -6473,64 +6421,6 @@ function applyChange(ev) {
 
 
 
-function viewTabFromURL(locationLike = window.location) {
-  const pathname = String(locationLike?.pathname || "/").replace(/^\/+|\/+$/g, "");
-  if (VIEW_TABS.includes(pathname)) return pathname;
-  const queryTab = new URLSearchParams(String(locationLike?.search || "")).get("tab");
-  if (VIEW_TABS.includes(queryTab)) return queryTab;
-  // Phone defaults favour monitoring. Surface kiosk routing happens only after
-  // a fresh state report is available in applySurfaceAutomaticView().
-  return globalThis.window?.matchMedia?.("(max-width: 600px)")?.matches ? "dashboard" : "active-job";
-}
-
-function syncViewTabURL(name, mode) {
-  if (mode === "none" || !window.history) return;
-  const url = new URL(window.location.href);
-  url.pathname = "/" + name;
-  url.searchParams.delete("tab");
-  url.hash = "";
-  const next = url.pathname + url.search;
-  const current = window.location.pathname + window.location.search;
-  if (mode === "push" && next === current) return;
-  const method = mode === "replace" ? "replaceState" : "pushState";
-  window.history[method]({ tab: name }, "", next);
-}
-
-function showTab(name, urlMode = "push") {
-  if (!VIEW_TABS.includes(name)) name = "active-job";
-  // A tab selected by the operator must survive repeated status snapshots
-  // emitted while a job is in one machine state. Automatic Surface routing
-  // resumes when that state actually changes (for example Run to Hold).
-  if (urlMode === "push" && isSurfaceKiosk()) {
-    state.surface.manual_view_state = String(state.machine?.state || "");
-  }
-  disarmMovementOnControlExit(name);
-  state.activeTab = name;
-  if (name !== "dashboard") setDashboardControlsOpen(false);
-  document.body.dataset.activeTab = name;
-  for (const tab of VIEW_TABS) {
-    const view = document.getElementById(tab + "-view");
-    if (view) view.hidden = tab !== name;
-    const button = document.getElementById("tab-" + tab);
-    const active = tab === name;
-    button?.classList.toggle("active", active);
-    button?.setAttribute("aria-selected", String(active));
-    if (button) button.tabIndex = active ? 0 : -1;
-  }
-  for (const button of document.querySelectorAll("[data-surface-view]")) {
-    if (button.dataset.surfaceView === name) button.setAttribute("aria-current", "page");
-    else button.removeAttribute("aria-current");
-  }
-  if (name === "files") connectFilesSSE();
-  if (name === "active-job") renderActiveGcode();
-  if (name === "dashboard") renderDashboard();
-  if (name === "control" || name === "jog") renderJog();
-  if (name === "maintenance") maintenance.load();
-  else clearNotice("jog-availability");
-  syncDashboardCameras();
-  syncViewTabURL(name, urlMode);
-}
-
 function runSurfaceShellAction(action) {
   switch (action) {
   case "home":
@@ -6825,9 +6715,9 @@ function init() {
   }
   window.addEventListener("popstate", () => {
     applyDashboardURLState();
-    showTab(viewTabFromURL(), "none");
+    showTab(viewTabFromURL(window.location, { viewTabs: VIEW_TABS, windowRef: window }), "none");
   });
-  showTab(viewTabFromURL(), "replace");
+  showTab(viewTabFromURL(window.location, { viewTabs: VIEW_TABS, windowRef: window }), "replace");
   document.getElementById("dashboard-profile").onchange = (e) => selectDashboardProfile(e.target.value);
   document.getElementById("dashboard-new").onclick = () => {
     setDashboardControlsOpen(false);
@@ -7226,54 +7116,7 @@ function init() {
   loadDashboardCameras();
   loadActiveGcode();
   loadJogCapabilities();
-  window.addEventListener("online", () => {
-    loadJogCapabilities();
-  });
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) {
-      pageHiddenAt = Date.now();
-      stopDashboardBuiltinCamera();
-      stopDashboardExternalCamera();
-      state.jog.inputSuspended = true;
-      if (releaseJogInput(true)) renderJog();
-    } else {
-      state.jog.inputSuspended = false;
-      if (recoverForegroundSession()) return;
-      connectJog();
-      scheduleJogSample();
-    }
-  });
-  window.addEventListener("blur", () => {
-    state.jog.inputSuspended = true;
-    if (releaseJogInput(true)) renderJog();
-  });
-  window.addEventListener("focus", () => {
-    if (document.hidden) return;
-    state.jog.inputSuspended = false;
-    connectJog();
-    scheduleJogSample();
-  });
-  window.addEventListener("pageshow", (event) => {
-    if (event.persisted) reloadPage();
-  });
-  window.addEventListener("pagehide", () => {
-    stopDashboardBuiltinCamera();
-    stopDashboardExternalCamera();
-    state.jog.inputSuspended = true;
-    releaseJogInput(true);
-  });
-  window.addEventListener("gamepadconnected", (e) => {
-    state.jog.preferredPadIndex = e.gamepad?.index ?? state.jog.preferredPadIndex;
-    state.jog.error = "";
-    connectJog();
-    scheduleJogSample();
-    renderJog();
-  });
-  window.addEventListener("gamepaddisconnected", (e) => {
-    if (state.jog.preferredPadIndex === e.gamepad?.index) state.jog.preferredPadIndex = null;
-    releaseJogInput(true);
-    renderJog();
-  });
+  bindBrowserLifecycle();
   scheduleJogSample();
   renderFiles();
   renderJobs();
