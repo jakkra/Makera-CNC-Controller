@@ -12,7 +12,7 @@ import vm from "node:vm";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { request } from "./modules/api.js";
-import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountActiveJobSelection, mountPausedJobCommand, previewBoundsText } from "./modules/active-job.js";
+import { gcodeCursorForPlayedLine, mountActiveJobControl, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountActiveJobSelection, mountPausedJobCommand, previewBoundsText } from "./modules/active-job.js";
 import { createActiveJobView } from "./modules/active-job-view.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtActiveFeed, fmtAge, fmtCoord, fmtDashboardFeed, fmtDashboardSpindle, fmtDuration, fmtPos, fmtSize, fmtSpindle, fmtTemperature, fmtTime } from "./modules/format.js";
@@ -994,9 +994,7 @@ const fieldProbeConsts = [
 ];
 
 test("active job preview follows firmware line progress and the reported work position", () => {
-  const cursorContext = buildContext(["gcodeCursorForPlayedLine"]);
-  const cursorForPlayedLine = vm.runInContext("gcodeCursorForPlayedLine", cursorContext);
-  const previewState = mountActiveJobPreview({ cursorForPlayedLine }).activeJobPreviewState;
+  const previewState = mountActiveJobPreview({ cursorForPlayedLine: gcodeCursorForPlayedLine }).activeJobPreviewState;
   const machine = {
     active_job: {
       path: "/sd/gcodes/part.nc",

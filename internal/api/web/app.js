@@ -3,7 +3,7 @@ import { createLiveUpdates } from "./modules/live-updates.js";
 import { pointInPolygonOrBoundary, effectiveOutlineGeometry, normalizedClosedPolygon, buildFieldProbePreview as computeFieldProbePreview } from "./modules/outline-geometry.js";
 import * as THREE from "./three.module.min.js";
 import { request } from "./modules/api.js";
-import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection, previewBoundsText as activeJobPreviewBoundsText } from "./modules/active-job.js";
+import { gcodeCursorForPlayedLine, mountActiveJobControl, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection } from "./modules/active-job.js";
 import { createActiveJobView } from "./modules/active-job-view.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtActiveFeed, fmtAge, fmtCoord, fmtDashboardFeed, fmtDashboardSpindle, fmtDuration, fmtPos, fmtSize, fmtSpindle, fmtTemperature, fmtTime } from "./modules/format.js";
@@ -602,6 +602,7 @@ const pausedJobCommand = mountPausedJobCommand({
 });
 
 const activeJobPreview = mountActiveJobPreview({ cursorForPlayedLine: gcodeCursorForPlayedLine });
+const { activeJobPreviewState } = activeJobPreview;
 
 const maintenance = mountMaintenance({
   request,
@@ -3211,26 +3212,6 @@ function syncGcodeContextOverlay(...args) { return gcodeViewer.syncGcodeContextO
 function rebuildGcodeContextOverlay(...args) { return gcodeViewer.rebuildGcodeContextOverlay(...args); }
 
 function rebuildGcodeContextOverlayForGroup(...args) { return gcodeViewer.rebuildGcodeContextOverlayForGroup(...args); }
-
-function activeJobPreviewState(machine, preview, activePath) {
-  return activeJobPreview.activeJobPreviewState(machine, preview, activePath);
-}
-
-function gcodeCursorForPlayedLine(segments, playedLine) {
-  let low = 0;
-  let high = Array.isArray(segments) ? segments.length : 0;
-  while (low < high) {
-    const mid = low + Math.floor((high - low) / 2);
-    const line = Number(segments[mid]?.line) || 0;
-    if (line < playedLine) low = mid + 1;
-    else high = mid;
-  }
-  return low;
-}
-
-function previewBoundsText(bounds) {
-  return activeJobPreviewBoundsText(bounds);
-}
 
 function drawGcodePreview(preview, live = null) {
   const gcodeView = gcodeViewer.getGcodeView();

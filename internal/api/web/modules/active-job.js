@@ -228,6 +228,18 @@ export function previewBoundsText(bounds) {
   return xyz;
 }
 
+export function gcodeCursorForPlayedLine(segments, playedLine) {
+  let low = 0;
+  let high = Array.isArray(segments) ? segments.length : 0;
+  while (low < high) {
+    const mid = low + Math.floor((high - low) / 2);
+    const line = Number(segments[mid]?.line) || 0;
+    if (line < playedLine) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}
+
 export function mountActiveJobPreview({ cursorForPlayedLine }) {
   function activeJobPreviewState(machine, preview, activePath) {
     const job = machine?.active_job;
