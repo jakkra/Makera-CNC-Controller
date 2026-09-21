@@ -146,6 +146,14 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     const spanY = Math.max(1, b.y_max - b.y_min);
     return Math.min(r.width / spanX, r.height / spanY);
   }
+
+  function workAreaMMRadius(mm) {
+    const b = workAreaBounds();
+    const r = workAreaRect();
+    const sx = r.width / Math.max(1e-9, b.x_max - b.x_min);
+    const sy = r.height / Math.max(1e-9, b.y_max - b.y_min);
+    return Math.max(0.45, Number(mm) * Math.min(sx, sy));
+  }
   
   function machineToWorkAreaPoint(p) {
     if (!p || !Number.isFinite(Number(p.x)) || !Number.isFinite(Number(p.y))) return null;
@@ -419,5 +427,5 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
   function outlineEditingMarkersVisible(outline, probes) {
     return !outline?.closed || !(probes || []).length;
   }
-  return { geometry: geometryModule, normalizeWorkAreaView, workAreaViewCenter, applyWorkAreaViewport, resetWorkAreaView, setWorkAreaZoom, zoomWorkArea, panWorkArea, workAreaSVGPointFromClient, workAreaLocalToContentPoint, hideWorkAreaHoverPosition, updateWorkAreaHoverPosition, workAreaBounds, workAreaRect, workAreaMMToSVGUnits, machineToWorkAreaPoint, workAreaToMachinePoint, renderWorkArea, outlineSnapshot, restoreOutlineSnapshot, outlineCapturePositionsClose, outlineCaptureIntentCount, cancelOutlineCaptureIntents, appendOutlineCapturedPosition, resolveOutlineCaptureIntent, clearFieldProbeData, outlineEditingMarkersVisible, cleanup() { cancelOutlineCaptureIntents(state.outline); } };
+  return { geometry: geometryModule, normalizeWorkAreaView, workAreaViewCenter, applyWorkAreaViewport, resetWorkAreaView, setWorkAreaZoom, zoomWorkArea, panWorkArea, workAreaSVGPointFromClient, workAreaLocalToContentPoint, hideWorkAreaHoverPosition, updateWorkAreaHoverPosition, workAreaBounds, workAreaRect, workAreaMMToSVGUnits, workAreaMMRadius, machineToWorkAreaPoint, workAreaToMachinePoint, renderWorkArea, outlineSnapshot, restoreOutlineSnapshot, outlineCapturePositionsClose, outlineCaptureIntentCount, cancelOutlineCaptureIntents, appendOutlineCapturedPosition, resolveOutlineCaptureIntent, clearFieldProbeData, outlineEditingMarkersVisible, cleanup() { cancelOutlineCaptureIntents(state.outline); } };
 }

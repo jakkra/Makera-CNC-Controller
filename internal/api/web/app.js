@@ -880,6 +880,7 @@ const {
   workAreaBounds,
   workAreaRect,
   workAreaMMToSVGUnits,
+  workAreaMMRadius,
   machineToWorkAreaPoint,
   workAreaToMachinePoint,
   renderWorkArea,
@@ -2144,14 +2145,6 @@ function unprobedFieldProbePoints(plan, results) {
   return (Array.isArray(plan) ? plan : [])
     .map((point, index) => ({ point, index }))
     .filter(({ point }) => !samples.some((sample) => fieldProbePlanPointMatchesResult(point, sample)));
-}
-
-function workAreaMMRadius(mm) {
-  const b = workAreaBounds();
-  const r = workAreaRect();
-  const sx = r.width / Math.max(1e-9, b.x_max - b.x_min);
-  const sy = r.height / Math.max(1e-9, b.y_max - b.y_min);
-  return Math.max(0.45, Number(mm) * Math.min(sx, sy));
 }
 
 function updateFieldProbePreview() {
