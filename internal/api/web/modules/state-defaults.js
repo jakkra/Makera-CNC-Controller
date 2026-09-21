@@ -61,3 +61,46 @@ export function defaultWorkAreaView() {
     mobileJogActive: false,
   };
 }
+
+export function cloneOutlinePoint(point) {
+  const out = {
+    id: point.id,
+    x: point.x,
+    y: point.y,
+    z: point.z,
+    machine_x: point.machine_x,
+    machine_y: point.machine_y,
+    machine_z: point.machine_z,
+    captured_at: point.captured_at,
+    probed: !!point.probed,
+    probe_output: point.probe_output || "",
+  };
+  if (point.probe_kind) out.probe_kind = point.probe_kind;
+  return out;
+}
+
+export function cloneOutlineOrigin(origin) {
+  if (!origin) return null;
+  const out = {};
+  for (const axis of ["x", "y", "z"]) {
+    const value = Number(origin[axis]);
+    if (Number.isFinite(value)) out[axis] = value;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+export function cloneFloorProbe(probe) {
+  if (!probe || typeof probe !== "object") return null;
+  const machineX = Number(probe.machine_x);
+  const machineY = Number(probe.machine_y);
+  const machineZ = Number(probe.machine_z);
+  if (![machineX, machineY, machineZ].every(Number.isFinite)) return null;
+  return {
+    machine_x: machineX,
+    machine_y: machineY,
+    machine_z: machineZ,
+    captured_at: typeof probe.captured_at === "string" ? probe.captured_at : "",
+    probe_output: typeof probe.probe_output === "string" ? probe.probe_output : "",
+    verified: probe.verified !== false,
+  };
+}

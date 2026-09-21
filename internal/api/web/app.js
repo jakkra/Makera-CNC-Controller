@@ -53,7 +53,7 @@ import {
 } from "./modules/outline-io.js";
 import { axisValue, mountWorkareaOutline } from "./modules/workarea-outline.js";
 import { createWorkareaRenderers } from "./modules/workarea-render.js";
-import { defaultOutlineState, defaultWorkAreaView } from "./modules/state-defaults.js";
+import { cloneFloorProbe, cloneOutlineOrigin, cloneOutlinePoint, defaultOutlineState, defaultWorkAreaView } from "./modules/state-defaults.js";
 import { createNavigationFeature, createLifecycleFeature, viewTabFromURL } from "./modules/navigation.js";
 import {
   createSettingsFeature,
@@ -1481,49 +1481,6 @@ function setWorkAreaToolRadius() {
     const el = document.getElementById(id);
     if (el) el.setAttribute("r", radius.toFixed(3));
   }
-}
-
-function cloneOutlinePoint(p) {
-  const out = {
-    id: p.id,
-    x: p.x,
-    y: p.y,
-    z: p.z,
-    machine_x: p.machine_x,
-    machine_y: p.machine_y,
-    machine_z: p.machine_z,
-    captured_at: p.captured_at,
-    probed: !!p.probed,
-    probe_output: p.probe_output || "",
-  };
-  if (p.probe_kind) out.probe_kind = p.probe_kind;
-  return out;
-}
-
-function cloneOutlineOrigin(origin) {
-  if (!origin) return null;
-  const out = {};
-  for (const axis of ["x", "y", "z"]) {
-    const v = axisValue(origin, axis);
-    if (v !== null) out[axis] = v;
-  }
-  return Object.keys(out).length ? out : null;
-}
-
-function cloneFloorProbe(probe) {
-  if (!probe || typeof probe !== "object") return null;
-  const machineX = Number(probe.machine_x);
-  const machineY = Number(probe.machine_y);
-  const machineZ = Number(probe.machine_z);
-  if (![machineX, machineY, machineZ].every(Number.isFinite)) return null;
-  return {
-    machine_x: machineX,
-    machine_y: machineY,
-    machine_z: machineZ,
-    captured_at: typeof probe.captured_at === "string" ? probe.captured_at : "",
-    probe_output: typeof probe.probe_output === "string" ? probe.probe_output : "",
-    verified: probe.verified !== false,
-  };
 }
 
 function markGcodeContextOverlayDirty() {
