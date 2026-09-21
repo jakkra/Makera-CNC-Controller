@@ -26,6 +26,7 @@ import { createSettingsFeature, defaultMachineSettings } from "./modules/setting
 import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
 import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dxf.js";
 import { createOutlineFilesFeature } from "./modules/outline-files.js";
+import { closeCommandPopout, commandPanelPlacement, commandPopoutSummary, createCommandUI } from "./modules/command-ui.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
@@ -55,6 +56,7 @@ const navigationModuleSource = readFileSync(join(dirname(fileURLToPath(import.me
 const outlineCaptureModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-capture.js"), "utf8");
 const outlineDXFModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-dxf.js"), "utf8");
 const outlineFilesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-files.js"), "utf8");
+const commandUIModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/command-ui.js"), "utf8");
 const surfaceJogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-jog.js"), "utf8");
 // Transitional VM tests retain their assertions against these exact production helpers.
 const feedbackHelpers = new Set(["setNotice", "noticeTimeoutMs", "statusMessageSignature", "setStatusMessage", "consumeStatusFeedback", "clearNotice", "setConnectivityIssue", "clearConnectivityIssue", "renderConnectivityNotice", "noticeItemRects", "animateNoticeReflow", "dismissNotice", "renderNoticeBar"]);
@@ -145,6 +147,9 @@ test("shared helpers are imported as production ES modules", async () => {
   assert.equal(typeof createOutlineFilesFeature, "function");
   assert.match(source, /import \{ createOutlineFilesFeature \} from "\.\/modules\/outline-files\.js";/);
   assert.match(outlineFilesModuleSource, /export function createOutlineFilesFeature/);
+  assert.equal(typeof createCommandUI, "function");
+  assert.match(source, /import \{ createCommandUI \} from "\.\/modules\/command-ui\.js";/);
+  assert.match(commandUIModuleSource, /export function createCommandUI/);
   assert.doesNotMatch(source, /function fmtCoord\(/);
   assert.doesNotMatch(source, /function fmtPos\(/);
   assert.doesNotMatch(source, /function fmtDuration\(/);
@@ -252,18 +257,19 @@ test("dashboard layout controls are hidden and expose their expanded state", () 
     focus: () => { focused = true; },
   };
   const panel = { hidden: true };
-  const ctx = buildContext(["setDashboardControlsOpen"], [], {
-    document: {
+  const feature = createCommandUI({
+    documentRef: {
       getElementById: (id) => id === "dashboard-controls-toggle" ? button : id === "dashboard-toolbar" ? panel : null,
     },
+    windowRef: { addEventListener() {} },
   });
 
-  vm.runInContext("setDashboardControlsOpen(true)", ctx);
+  feature.setDashboardControlsOpen(true);
   assert.equal(panel.hidden, false);
   assert.equal(attributes.get("aria-expanded"), "true");
   assert.equal(attributes.get("aria-label"), "Hide dashboard layout controls");
 
-  vm.runInContext("setDashboardControlsOpen(false, true)", ctx);
+  feature.setDashboardControlsOpen(false, true);
   assert.equal(panel.hidden, true);
   assert.equal(attributes.get("aria-expanded"), "false");
   assert.equal(attributes.get("aria-label"), "Show dashboard layout controls");
@@ -1950,14 +1956,13 @@ test("closing a command sheet restores focus only for explicit dismissal", () =>
   let focusCount = 0;
   const summary = { tagName: "SUMMARY", focus: () => { focusCount++; } };
   const popout = { open: true, children: [summary, { tagName: "DIV" }] };
-  const ctx = buildContext(["commandPopoutSummary", "closeCommandPopout"], [], { popout });
-
-  vm.runInContext("closeCommandPopout(popout)", ctx);
+  assert.equal(commandPopoutSummary(popout), summary);
+  closeCommandPopout(popout);
   assert.equal(popout.open, false);
   assert.equal(focusCount, 1, "the toolbar trigger regains keyboard focus");
 
   popout.open = true;
-  vm.runInContext("closeCommandPopout(popout, false)", ctx);
+  closeCommandPopout(popout, false);
   assert.equal(popout.open, false);
   assert.equal(focusCount, 1, "outside-click dismissal does not move focus");
 });
@@ -2125,17 +2130,18 @@ test("the mobile work area actions menu exposes state and restores focus on dism
       toggle: (name, enabled) => enabled ? classes.add(name) : classes.delete(name),
     },
   };
-  const ctx = buildContext(["setWorkAreaActionsOpen"], [], {
-    document: {
+  const feature = createCommandUI({
+    documentRef: {
       getElementById: (id) => id === "workarea-actions-toggle" ? button : id === "workarea-actions-panel" ? panel : null,
     },
+    windowRef: { addEventListener() {} },
   });
 
-  vm.runInContext("setWorkAreaActionsOpen(true)", ctx);
+  feature.setWorkAreaActionsOpen(true);
   assert.ok(classes.has("is-open"));
   assert.equal(attributes["aria-expanded"], "true");
 
-  vm.runInContext("setWorkAreaActionsOpen(false, true)", ctx);
+  feature.setWorkAreaActionsOpen(false, true);
   assert.ok(!classes.has("is-open"));
   assert.equal(attributes["aria-expanded"], "false");
   assert.equal(focusCount, 1);
@@ -5379,27 +5385,18 @@ test("running a macro disables its controls until the command completes", async 
 });
 
 test("command popovers use the side with usable viewport height", () => {
-  const ctx = buildContext(["commandPanelPlacement"]);
-  const below = vm.runInContext(
-    "commandPanelPlacement({ left: 100, width: 80, top: 100, bottom: 132 }, 440, 1200, 800)",
-    ctx,
-  );
+  assert.match(commandUIModuleSource, /export function createCommandUI/);
+  const below = commandPanelPlacement({ left: 100, width: 80, top: 100, bottom: 132 }, 440, 1200, 800);
   assert.equal(below.placement, "below");
   assert.equal(below.top, 140);
   assert.equal(below.maxHeight, 648);
 
-  const above = vm.runInContext(
-    "commandPanelPlacement({ left: 100, width: 80, top: 260, bottom: 292 }, 440, 1200, 360)",
-    ctx,
-  );
+  const above = commandPanelPlacement({ left: 100, width: 80, top: 260, bottom: 292 }, 440, 1200, 360);
   assert.equal(above.placement, "above");
   assert.equal(above.top, 12);
   assert.equal(above.maxHeight, 240);
 
-  const narrow = vm.runInContext(
-    "commandPanelPlacement({ left: 50, width: 40, top: 80, bottom: 112 }, 440, 240, 480)",
-    ctx,
-  );
+  const narrow = commandPanelPlacement({ left: 50, width: 40, top: 80, bottom: 112 }, 440, 240, 480);
   assert.equal(narrow.width, 216);
   assert.ok(narrow.left >= 12 && narrow.left + narrow.width <= 228);
 });

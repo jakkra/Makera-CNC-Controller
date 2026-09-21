@@ -26,6 +26,7 @@ import { createOutlineFeature } from "./modules/outline.js";
 import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
 import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dxf.js";
 import { createOutlineFilesFeature } from "./modules/outline-files.js";
+import { createCommandUI } from "./modules/command-ui.js";
 import {
   addOutlinePolylineDXF,
   boundedOutlineNumber as boundOutlineNumber,
@@ -266,6 +267,20 @@ const {
   setNotice,
   setStatusMessage,
 } = createFeedback({ documentRef: document, performanceRef: performance });
+
+const {
+  setDashboardControlsOpen,
+  initDashboardControlsMenu,
+  setWorkAreaActionsOpen,
+  initWorkAreaActionsMenu,
+  initCommandPopouts,
+} = createCommandUI({
+  documentRef: document,
+  windowRef: window,
+  elementCtor: globalThis.Element,
+  getComputedStyleRef: globalThis.getComputedStyle,
+  requestAnimationFrameRef: globalThis.requestAnimationFrame,
+});
 
 const { resetEventStream, connectControlSSE, connectFilesSSE, pollMachine } = createLiveUpdates({
   request,
@@ -1425,66 +1440,6 @@ async function saveUISettings(options = {}) {
 
 
 
-
-function setDashboardControlsOpen(open, restoreFocus = false) {
-  const button = document.getElementById("dashboard-controls-toggle");
-  const panel = document.getElementById("dashboard-toolbar");
-  if (!button || !panel) return;
-  const expanded = !!open;
-  panel.hidden = !expanded;
-  button.setAttribute("aria-expanded", String(expanded));
-  const label = expanded ? "Hide dashboard layout controls" : "Show dashboard layout controls";
-  button.setAttribute("aria-label", label);
-  button.title = label;
-  if (!expanded && restoreFocus) button.focus();
-}
-
-function initDashboardControlsMenu() {
-  const button = document.getElementById("dashboard-controls-toggle");
-  const panel = document.getElementById("dashboard-toolbar");
-  if (!button || !panel) return;
-  button.onclick = () => setDashboardControlsOpen(panel.hidden);
-  document.addEventListener("click", (event) => {
-    if (panel.hidden || button.contains(event.target) || panel.contains(event.target)) return;
-    setDashboardControlsOpen(false);
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || panel.hidden) return;
-    event.preventDefault();
-    setDashboardControlsOpen(false, true);
-  });
-}
-
-function setWorkAreaActionsOpen(open, restoreFocus = false) {
-  const button = document.getElementById("workarea-actions-toggle");
-  const panel = document.getElementById("workarea-actions-panel");
-  if (!button || !panel) return;
-  panel.classList.toggle("is-open", !!open);
-  button.setAttribute("aria-expanded", String(!!open));
-  if (!open && restoreFocus) button.focus();
-}
-
-function initWorkAreaActionsMenu() {
-  const button = document.getElementById("workarea-actions-toggle");
-  const panel = document.getElementById("workarea-actions-panel");
-  const close = panel?.querySelector(".workarea-actions-close");
-  if (!button || !panel || !close) return;
-  button.onclick = () => setWorkAreaActionsOpen(!panel.classList.contains("is-open"));
-  close.onclick = () => setWorkAreaActionsOpen(false, true);
-  document.addEventListener("click", (event) => {
-    if (!panel.classList.contains("is-open")) return;
-    if (button.contains(event.target) || panel.contains(event.target)) return;
-    setWorkAreaActionsOpen(false);
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || !panel.classList.contains("is-open")) return;
-    event.preventDefault();
-    setWorkAreaActionsOpen(false, true);
-  });
-  window.addEventListener("resize", () => {
-    if (window.innerWidth > 600) setWorkAreaActionsOpen(false);
-  });
-}
 
 function queuePendingCount() {
   return filesFeature.queuePendingCount();
@@ -4456,119 +4411,6 @@ function bindDataControlButtons() {
       if (confirmControl(action)) sendControl(action);
     });
   });
-}
-
-function commandPanelPlacement(rect, preferredWidth, viewportWidth, viewportHeight) {
-  const margin = 12;
-  const width = Math.max(0, Math.min(preferredWidth, viewportWidth - margin * 2));
-  const maxLeft = Math.max(margin, viewportWidth - margin - width);
-  const left = Math.round(Math.min(Math.max(rect.left + rect.width / 2 - width / 2, margin), maxLeft));
-  const belowTop = rect.bottom + 8;
-  const belowHeight = viewportHeight - belowTop - margin;
-  const aboveHeight = rect.top - margin - 8;
-  const placeAbove = belowHeight < 180 && aboveHeight > belowHeight;
-  const top = placeAbove
-    ? Math.max(margin, rect.top - 8 - Math.max(0, aboveHeight))
-    : Math.max(margin, belowTop);
-  const maxHeight = Math.max(0, placeAbove ? aboveHeight : belowHeight);
-  const arrowMin = Math.min(16, Math.max(0, width - 10));
-  const arrowMax = Math.max(arrowMin, width - 26);
-  const arrowLeft = Math.round(Math.min(Math.max(rect.left + rect.width / 2 - left - 5, arrowMin), arrowMax));
-  return { top: Math.round(top), left, width, maxHeight: Math.round(maxHeight), arrowLeft, placement: placeAbove ? "above" : "below" };
-}
-
-function commandPopoutSummary(popout) {
-  return Array.from(popout?.children || []).find((el) => el.tagName === "SUMMARY") || null;
-}
-
-function closeCommandPopout(popout, restoreFocus = true) {
-  if (!popout?.open) return;
-  popout.open = false;
-  if (restoreFocus) commandPopoutSummary(popout)?.focus();
-}
-
-function initCommandPopouts() {
-  const popouts = Array.from(document.querySelectorAll(".command-popout"));
-  const commandMenu = document.getElementById("command-menu");
-  const commandActions = document.getElementById("command-actions");
-  const mobileToggle = document.getElementById("mobile-actions-toggle");
-  let positionFrame = 0;
-
-  function setMobileMenuOpen(open) {
-    commandActions?.classList.toggle("mobile-menu-open", !!open);
-    mobileToggle?.setAttribute("aria-expanded", String(!!open));
-  }
-
-  mobileToggle?.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setMobileMenuOpen(!commandActions?.classList.contains("mobile-menu-open"));
-  });
-
-  const directChild = (el, predicate) => Array.from(el.children).find(predicate) || null;
-  function positionPopout(popout) {
-    if (!popout.open) return;
-    const trigger = directChild(popout, (el) => el.tagName === "SUMMARY");
-    const panel = directChild(popout, (el) => el.classList.contains("command-panel"));
-    if (!trigger || !panel) return;
-
-    const rect = trigger.getBoundingClientRect();
-    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 1024;
-    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 768;
-    const preferredWidth = Number.parseFloat(getComputedStyle(panel).getPropertyValue("--command-panel-pref-width")) || 440;
-    const placement = commandPanelPlacement(rect, preferredWidth, viewportWidth, viewportHeight);
-
-    panel.style.setProperty("--command-panel-top", placement.top + "px");
-    panel.style.setProperty("--command-panel-left", placement.left + "px");
-    panel.style.setProperty("--command-panel-width", placement.width + "px");
-    panel.style.setProperty("--command-panel-max-height", placement.maxHeight + "px");
-    panel.style.setProperty("--command-panel-arrow-left", placement.arrowLeft + "px");
-    panel.dataset.placement = placement.placement;
-  }
-
-  function positionOpenPopouts() {
-    positionFrame = 0;
-    for (const popout of popouts) positionPopout(popout);
-  }
-
-  function schedulePopoutPosition() {
-    if (positionFrame) return;
-    positionFrame = requestAnimationFrame(positionOpenPopouts);
-  }
-
-  for (const popout of popouts) {
-    const trigger = commandPopoutSummary(popout);
-    const panel = directChild(popout, (el) => el.classList.contains("command-panel"));
-    const closeButton = panel?.querySelector(".command-panel-close");
-    if (trigger) trigger.setAttribute("aria-expanded", "false");
-    closeButton?.addEventListener("click", () => closeCommandPopout(popout));
-    popout.addEventListener("toggle", () => {
-      if (trigger) trigger.setAttribute("aria-expanded", String(popout.open));
-      if (!popout.open) return;
-      if (panel) panel.scrollTop = 0;
-      for (const other of popouts) {
-        if (other !== popout) closeCommandPopout(other, false);
-      }
-      schedulePopoutPosition();
-    });
-  }
-  document.addEventListener("click", (e) => {
-    const target = e.target instanceof Element ? e.target : null;
-    if (target?.closest(".command-popout")) return;
-    for (const popout of popouts) closeCommandPopout(popout, false);
-    if (!target?.closest("#command-actions")) setMobileMenuOpen(false);
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape") return;
-    for (const popout of popouts) closeCommandPopout(popout);
-    setMobileMenuOpen(false);
-    mobileToggle?.focus();
-  });
-  window.addEventListener("resize", schedulePopoutPosition);
-  window.addEventListener("scroll", schedulePopoutPosition, true);
-  commandMenu?.addEventListener("scroll", schedulePopoutPosition, { passive: true });
-  window.visualViewport?.addEventListener("resize", schedulePopoutPosition);
-  window.visualViewport?.addEventListener("scroll", schedulePopoutPosition);
 }
 
 async function loadJogCapabilities() {
