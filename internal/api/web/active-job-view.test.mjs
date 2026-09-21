@@ -6,7 +6,7 @@ function fakeDOM() {
   const nodes = new Map();
   const make = () => ({ hidden: false, disabled: false, value: "", textContent: "", attrs: new Map(), setAttribute(name, value) { this.attrs.set(name, value); } });
   for (const id of [
-    "active-gcode-title", "active-gcode-meta", "active-gcode-run", "paused-job-controls", "paused-job-raise",
+    "active-gcode-title", "active-gcode-meta", "active-gcode-progress", "active-gcode-elapsed", "active-gcode-remaining", "active-gcode-run", "paused-job-controls", "paused-job-raise",
     "feed-override-controls", "feed-override-decrease", "feed-override-increase", "feed-override-reset", "feed-override-value",
   ]) nodes.set(id, make());
   const actions = make();
@@ -34,7 +34,6 @@ test("active job view renders empty active job through explicit callbacks", () =
     ensureActiveGcodeGeometry: (value) => calls.push(["geometry", value]),
     ensureActiveGcodeSource: (value) => calls.push(["source", value]),
     drawGcodePreview: (value) => calls.push(["preview", value]),
-    renderActiveJobProgress: (...args) => calls.push(["progress", ...args]),
     renderProgramToolLists: (...args) => calls.push(["tools", ...args]),
     renderDashboard: () => calls.push(["dashboard"]),
     renderJobControls: () => calls.push(["controls"]),
@@ -47,7 +46,8 @@ test("active job view renders empty active job through explicit callbacks", () =
   assert.equal(dom.nodes.get("active-gcode-meta").textContent, "-");
   assert.equal(dom.nodes.get("active-gcode-run").softDisabled, true);
   assert.deepEqual(dom.workspace.classList.value, ["is-empty", true]);
-  assert.deepEqual(calls.map(([name]) => name), ["controls", "geometry", "source", "preview", "progress", "tools", "dashboard"]);
+  assert.deepEqual(calls.map(([name]) => name), ["controls", "geometry", "source", "preview", "tools", "dashboard"]);
+  assert.equal(dom.nodes.get("active-gcode-progress").textContent, "-");
 });
 
 test("active job view keeps feed controls busy and preserves pending value", () => {

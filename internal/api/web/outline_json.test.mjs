@@ -15,10 +15,31 @@ const outlineModuleSource = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "modules/outline.js"),
   "utf8",
 );
-const outlineHelpers = new Set(["fieldProbePlanPointMatchesResult"]);
+const workareaModuleSource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "modules/workarea-outline.js"),
+  "utf8",
+).replace(/^import .*;\r?\n/, "");
+const settingsModuleSource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "modules/settings.js"),
+  "utf8",
+);
+const stateDefaultsModuleSource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "modules/state-defaults.js"),
+  "utf8",
+).replace(/^import .*;\r?\n/, "");
+const outlineHelpers = new Set(["fieldProbePlanPointMatchesResult", "unprobedFieldProbePoints"]);
+const workareaHelpers = new Set(["axisValue"]);
+const settingsHelpers = new Set(["finiteOr"]);
+const stateDefaultsHelpers = new Set(["cloneOutlineOrigin"]);
 
 function extractFunction(name) {
-  const functionSource = outlineHelpers.has(name)
+  const functionSource = workareaHelpers.has(name)
+    ? workareaModuleSource.replace(/^export /gm, "")
+    : settingsHelpers.has(name)
+    ? settingsModuleSource.replace(/^export /gm, "")
+    : stateDefaultsHelpers.has(name)
+    ? stateDefaultsModuleSource.replace(/^export /gm, "")
+    : outlineHelpers.has(name)
     ? outlineModuleSource.replace(/^export /gm, "").replace(/^  /gm, "")
     : source;
   let start = functionSource.indexOf("\nfunction " + name + "(");
