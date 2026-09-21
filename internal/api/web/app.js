@@ -19,6 +19,7 @@ import { createToolActions } from "./modules/tool-actions.js";
 import { createOriginProbing } from "./modules/origin-probing.js";
 import { createFilesFeature } from "./modules/files.js";
 import { apiFileURL, basename, cleanRelPath, dirname, joinRelPath, parentRelPath, relPath, remotePathFromRel } from "./modules/file-paths.js";
+import { toolDisplayName, validToolID } from "./modules/tooling.js";
 import { createMachineStatusFeature } from "./modules/machine-status.js";
 import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive } from "./modules/jog.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
@@ -973,27 +974,6 @@ function mountMachineReadouts() {
   for (const host of document.querySelectorAll("[data-machine-readout-host]")) {
     if (!host.querySelector(".machine-readout")) host.appendChild(template.content.cloneNode(true));
   }
-}
-
-function toolDisplayName(toolID) {
-  switch (Number(toolID)) {
-  case -1:
-    return "Empty";
-  case 0:
-    return "Probe";
-  case 8888:
-    return "Laser";
-  case 9999:
-    return "3D Probe";
-  default:
-    return Number.isFinite(Number(toolID)) ? "Tool " + Number(toolID) : "-";
-  }
-}
-
-function validToolID(toolID, allowEmpty = false) {
-  if (!Number.isInteger(toolID)) return false;
-  if (toolID === -1) return allowEmpty;
-  return toolID === 0 || toolID === 8888 || toolID === 9999 || (toolID >= 1 && toolID <= 999);
 }
 
 function escapeHtml(s) {
