@@ -1343,16 +1343,19 @@ func TestWebUIServed(t *testing.T) {
 	outlineCaptureModule := get(t, srv.URL+"/modules/outline-capture.js")
 	outlineCaptureBody, _ := io.ReadAll(outlineCaptureModule.Body)
 	outlineCaptureModule.Body.Close()
+	outlineDXFModule := get(t, srv.URL+"/modules/outline-dxf.js")
+	outlineDXFBody, _ := io.ReadAll(outlineDXFModule.Body)
+	outlineDXFModule.Body.Close()
 	workareaJogModule := get(t, srv.URL+"/modules/workarea-jog.js")
 	workareaJogBody, _ := io.ReadAll(workareaJogModule.Body)
 	workareaJogModule.Body.Close()
-	webSource := string(jsBody) + string(activeJobViewBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(dashboardTelemetryBody) + string(dashboardViewBody) + string(gcodeLogBody) + string(navigationBody) + string(surfaceJogBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody) + string(outlineCaptureBody) + string(workareaJogBody)
+	webSource := string(jsBody) + string(activeJobViewBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(dashboardTelemetryBody) + string(dashboardViewBody) + string(gcodeLogBody) + string(navigationBody) + string(surfaceJogBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody) + string(outlineCaptureBody) + string(outlineDXFBody) + string(workareaJogBody)
 	for _, want := range []string{"export function mountFilesCommands", "export function mountFilesTransitions", "export function mountFilesJobRefresh"} {
 		if filesModule.StatusCode != http.StatusOK || !strings.Contains(string(filesModuleBody), want) {
 			t.Errorf("modules/files.js missing %s (status=%d)", want, filesModule.StatusCode)
 		}
 	}
-	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`, `from "./modules/active-job-view.js"`, `from "./modules/camera.js"`, `from "./modules/dashboard-telemetry.js"`, `from "./modules/dashboard-view.js"`, `from "./modules/gcode-log.js"`, `from "./modules/navigation.js"`, `from "./modules/outline-io.js"`, `from "./modules/outline-capture.js"`, `from "./modules/workarea-jog.js"`} {
+	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`, `from "./modules/active-job-view.js"`, `from "./modules/camera.js"`, `from "./modules/dashboard-telemetry.js"`, `from "./modules/dashboard-view.js"`, `from "./modules/gcode-log.js"`, `from "./modules/navigation.js"`, `from "./modules/outline-io.js"`, `from "./modules/outline-capture.js"`, `from "./modules/outline-dxf.js"`, `from "./modules/workarea-jog.js"`} {
 		if !strings.Contains(string(jsBody), want) {
 			t.Errorf("app.js missing shared module import %s", want)
 		}
@@ -1392,6 +1395,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/outline.js", "export function createOutlineFeature"},
 		{"/modules/outline-io.js", "export function outlineJSONDocument"},
 		{"/modules/outline-capture.js", "export function capturedOutlinePosition"},
+		{"/modules/outline-dxf.js", "export function buildOutlineDXF"},
 		{"/modules/surface-jog.js", "export function createSurfaceJogFeature"},
 		{"/modules/workarea-jog.js", "export function mobileWorkAreaJogAxes"},
 	} {

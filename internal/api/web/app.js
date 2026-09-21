@@ -24,6 +24,7 @@ import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWork
 import { createSurfaceJogFeature, loadSurfaceViewPreferences, saveSurfaceViewPreferences as persistSurfaceViewPreferences, isSurfaceKiosk } from "./modules/surface-jog.js";
 import { createOutlineFeature } from "./modules/outline.js";
 import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
+import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dxf.js";
 import {
   addOutlinePolylineDXF,
   boundedOutlineNumber as boundOutlineNumber,
@@ -3118,89 +3119,28 @@ function requireHeightExportOutline() {
 }
 
 function buildOutlineDXF() {
-  const origin = exportWorkOrigin();
-  let points = state.outline.curveFit && state.outline.points.length >= 3
-    ? outlineEffectiveExportPoints(origin)
-    : outlineExportPoints(origin);
-  if (state.outline.closed && points.length > 2) {
-    const first = points[0];
-    const last = points[points.length - 1];
-    if (Math.hypot(first.x - last.x, first.y - last.y) <= 0.00005) points = points.slice(0, -1);
-  }
-  if (points.length < 2) throw new Error("outline needs at least two valid points");
-  for (const point of points) {
-    dxfNumber(point.x);
-    dxfNumber(point.y);
-  }
-
-  const bounds = dxfBounds(points);
-  const lines = [];
-  dxfPairs(lines, [
-    [0, "SECTION"],
-    [2, "HEADER"],
-    [9, "$ACADVER"],
-    [1, "AC1009"],
-    [9, "$INSBASE"],
-    [10, 0],
-    [20, 0],
-    [30, 0],
-    [9, "$INSUNITS"],
-    [70, 4],
-    [9, "$MEASUREMENT"],
-    [70, 1],
-    [9, "$EXTMIN"],
-    [10, dxfNumber(bounds.minX)],
-    [20, dxfNumber(bounds.minY)],
-    [30, 0],
-    [9, "$EXTMAX"],
-    [10, dxfNumber(bounds.maxX)],
-    [20, dxfNumber(bounds.maxY)],
-    [30, 0],
-    [0, "ENDSEC"],
-    [0, "SECTION"],
-    [2, "TABLES"],
-    [0, "TABLE"],
-    [2, "LTYPE"],
-    [70, 1],
-    [0, "LTYPE"],
-    [2, "CONTINUOUS"],
-    [70, 64],
-    [3, "Solid line"],
-    [72, 65],
-    [73, 0],
-    [40, 0],
-    [0, "ENDTAB"],
-    [0, "TABLE"],
-    [2, "LAYER"],
-    [70, 2],
-    [0, "LAYER"],
-    [2, "0"],
-    [70, 0],
-    [62, 7],
-    [6, "CONTINUOUS"],
-    [0, "LAYER"],
-    [2, "OUTLINE"],
-    [70, 0],
-    [62, 7],
-    [6, "CONTINUOUS"],
-    [0, "ENDTAB"],
-    [0, "ENDSEC"],
-    [0, "SECTION"],
-    [2, "ENTITIES"],
-  ]);
-  addOutlinePolylineDXF(lines, points, state.outline.closed);
-  dxfPairs(lines, [
-    [0, "ENDSEC"],
-    [0, "EOF"],
-  ]);
-  return lines.join("\r\n") + "\r\n";
+  const outline = state.outline;
+  return buildOutlineDXFDocument({
+    stateSnapshot: {
+      closed: !!outline.closed,
+      curveFit: !!outline.curveFit,
+      points: outline.points.map((point) => ({ ...point })),
+    },
+    exportWorkOrigin,
+    outlineEffectiveExportPoints,
+    outlineExportPoints,
+    dxfNumber,
+    dxfBounds,
+    dxfPairs,
+    addOutlinePolylineDXF,
+  });
 }
 
-function outlineExportPoints(origin) {
+function outlineExportPoints(origin, outlineState = state.outline) {
   const ox = axisValue(origin, "x");
   const oy = axisValue(origin, "y");
   const oz = axisValue(origin, "z");
-  return state.outline.points.map((p) => {
+  return outlineState.points.map((p) => {
     const mx = Number(p.machine_x);
     const my = Number(p.machine_y);
     const mz = Number(p.machine_z);
@@ -3214,9 +3154,9 @@ function outlineExportPoints(origin) {
   });
 }
 
-function outlineEffectiveExportPoints(origin) {
-  const raw = outlineExportPoints(origin);
-  const geometry = effectiveOutlineGeometry(raw, state.outline.closed, state.outline.curveFit);
+function outlineEffectiveExportPoints(origin, outlineState = state.outline) {
+  const raw = outlineExportPoints(origin, outlineState);
+  const geometry = effectiveOutlineGeometry(raw, outlineState.closed, outlineState.curveFit);
   if (geometry.limited) throw new Error("curve fit generated too many outline points");
   return geometry.points;
 }

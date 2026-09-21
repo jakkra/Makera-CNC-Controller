@@ -24,6 +24,7 @@ import { createGcodeLogFeature, formatLogLine, lineMatchesFilter, visibleGcodeLi
 import { beginFileAction, createFileCatalog, createFileHelpers, endFileAction, fileRowLocallyOwned, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
 import { createSettingsFeature, defaultMachineSettings } from "./modules/settings.js";
 import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
+import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dxf.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
@@ -51,6 +52,7 @@ const outlineModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.
 const workareaModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/workarea-outline.js"), "utf8");
 const navigationModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/navigation.js"), "utf8");
 const outlineCaptureModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-capture.js"), "utf8");
+const outlineDXFModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-dxf.js"), "utf8");
 const surfaceJogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-jog.js"), "utf8");
 // Transitional VM tests retain their assertions against these exact production helpers.
 const feedbackHelpers = new Set(["setNotice", "noticeTimeoutMs", "statusMessageSignature", "setStatusMessage", "consumeStatusFeedback", "clearNotice", "setConnectivityIssue", "clearConnectivityIssue", "renderConnectivityNotice", "noticeItemRects", "animateNoticeReflow", "dismissNotice", "renderNoticeBar"]);
@@ -63,6 +65,7 @@ const outlineIOHelpers = new Set(["pathNum", "pathPoint", "outlinePathD", "outli
 const navigationHelpers = new Set(["viewTabFromURL", "syncViewTabURL", "setHeaderCollapsed"]);
 const navigationConsts = new Set(["DEFAULT_VIEW_TABS", "DEFAULT_NAV_VIEW_TABS", "FOREGROUND_PAGE_RELOAD_MS", "PULL_TO_REFRESH_DISTANCE_PX", "PULL_TO_REFRESH_DIRECTION_SLOP_PX"]);
 const outlineCaptureHelpers = new Set(["capturedOutlinePosition"]);
+const outlineDXFHelpers = new Set(["buildOutlineDXF"]);
 const surfaceJogHelpers = new Set(["defaultSurfaceViewPreferences", "loadSurfaceViewPreferences", "saveSurfaceViewPreferences", "isSurfaceKiosk", "surfaceStepDistance", "surfaceStepUnit", "surfaceJogOptionsSummary", "surfaceQuickActionState", "renderSurfaceJog", "surfaceMPGGestureActive", "surfaceJogDisplayState", "deferSurfaceMPGMachineRender", "renderSurfaceMPGWheel", "renderSurfaceQuickActions", "initializeSurfaceMobileOptions", "selectSurfaceJogMethod", "selectSurfaceMPGAxis", "selectSurfaceStep", "selectSurfaceMotion"]);
 const settingsHelpers = new Set(["fallbackID", "normalizeAxisSetting", "normalizeButtonList", "normalizeMachineSettings", "normalizeMachineLearned", "normalizeSavedOrigins", "defaultMachineSettings", "defaultGamepadSettings", "safeZForTapMove", "safeZCeiling", "feedBoundsFor", "machineLearnedSummaryLines", "normalizeGamepadSettings", "normalizeUISettings", "finiteOr", "clampNumber"]);
 const jogHelpers = new Set(["connectJog", "disableJogConnection", "scheduleJogReconnect", "sameJogInput", "jogInputActive", "sendJogInput", "sendJog", "sampleJog", "releaseJogInput", "scheduleJogSample", "surfaceMPGPointerSample", "surfaceMPGAngleDelta", "prepareSurfaceMPGFeedback", "playSurfaceMPGClick", "pulseSurfaceMPGDetent", "finishSurfaceMPGGesture", "bindSurfaceMPGWheel", "sameJogAxes"]);
@@ -134,6 +137,9 @@ test("shared helpers are imported as production ES modules", async () => {
   for (const [module, names] of [["api", "request"], ["dom", "setElementBusy, setSoftDisabled, setTextIfChanged"], ["format", "fmtCoord, fmtDuration, fmtPos, fmtTime"]]) {
     assert.match(source, new RegExp(`import \\{ ${names} \\} from "\\.\\/modules\\/${module}\\.js";`));
   }
+  assert.equal(typeof buildOutlineDXFDocument, "function");
+  assert.match(source, /import \{ buildOutlineDXF as buildOutlineDXFDocument \} from "\.\/modules\/outline-dxf\.js";/);
+  assert.match(outlineDXFModuleSource, /export function buildOutlineDXF/);
   assert.doesNotMatch(source, /function fmtCoord\(/);
   assert.doesNotMatch(source, /function fmtPos\(/);
   assert.doesNotMatch(source, /function fmtDuration\(/);
@@ -268,7 +274,7 @@ test("dashboard presentation is owned by its feature module", () => {
 });
 
 function extractFunction(name) {
-  const source = feedbackHelpers.has(name) ? feedbackModuleSource.replace(/^  /gm, "") : mdiMacrosHelpers.has(name) ? mdiModuleSource.replace(/^  /gm, "") : toolActionsHelpers.has(name) ? toolActionsModuleSource.replace(/^  /gm, "") : originProbingHelpers.has(name) ? originProbingModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : machineStatusHelpers.has(name) ? machineStatusModuleSource.replace(/^  /gm, "") : outlineHelpers.has(name) ? outlineModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : outlineIOHelpers.has(name) ? outlineIOModuleSource.replace(/^export /gm, "") : navigationHelpers.has(name) ? navigationModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : settingsHelpers.has(name) ? settingsModuleSource.replace(/^export /gm, "") : jogHelpers.has(name) ? jogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : workareaHelpers.has(name) ? workareaModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : dashboardProfilesHelpers.has(name) ? dashboardProfilesModuleSource.replace(/^  /gm, "") : dashboardTelemetryHelpers.has(name) ? dashboardTelemetryModuleSource.replace(/^export /gm, "") : dashboardViewHelpers.has(name) ? dashboardViewModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : gcodeLogHelpers.has(name) ? gcodeLogModuleSource.replace(/^export /gm, "") : activeJobViewHelpers.has(name) ? activeJobViewModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : geometryHelpers.has(name) ? geometryModuleSource : gcodeHelpers.has(name) ? gcodeModuleSource.replace(/^  /gm, "") : outlineCaptureHelpers.has(name) ? outlineCaptureModuleSource.replace(/^export /gm, "") : surfaceJogHelpers.has(name) ? surfaceJogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : globalSource();
+  const source = feedbackHelpers.has(name) ? feedbackModuleSource.replace(/^  /gm, "") : mdiMacrosHelpers.has(name) ? mdiModuleSource.replace(/^  /gm, "") : toolActionsHelpers.has(name) ? toolActionsModuleSource.replace(/^  /gm, "") : originProbingHelpers.has(name) ? originProbingModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : machineStatusHelpers.has(name) ? machineStatusModuleSource.replace(/^  /gm, "") : outlineHelpers.has(name) ? outlineModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : outlineIOHelpers.has(name) ? outlineIOModuleSource.replace(/^export /gm, "") : navigationHelpers.has(name) ? navigationModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : settingsHelpers.has(name) ? settingsModuleSource.replace(/^export /gm, "") : jogHelpers.has(name) ? jogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : workareaHelpers.has(name) ? workareaModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : dashboardProfilesHelpers.has(name) ? dashboardProfilesModuleSource.replace(/^  /gm, "") : dashboardTelemetryHelpers.has(name) ? dashboardTelemetryModuleSource.replace(/^export /gm, "") : dashboardViewHelpers.has(name) ? dashboardViewModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : gcodeLogHelpers.has(name) ? gcodeLogModuleSource.replace(/^export /gm, "") : activeJobViewHelpers.has(name) ? activeJobViewModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : geometryHelpers.has(name) ? geometryModuleSource : gcodeHelpers.has(name) ? gcodeModuleSource.replace(/^  /gm, "") : outlineCaptureHelpers.has(name) ? outlineCaptureModuleSource.replace(/^export /gm, "") : outlineDXFHelpers.has(name) ? outlineDXFModuleSource.replace(/^export /gm, "") : surfaceJogHelpers.has(name) ? surfaceJogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : globalSource();
   let start = source.indexOf("\nfunction " + name + "(");
   if (start < 0) start = source.indexOf("\nasync function " + name + "(");
   if (start < 0) throw new Error("function not found in app.js: " + name);
@@ -4194,7 +4200,7 @@ test("outline DXF uses the conservative R12 sketch subset", () => {
     currentWorkOrigin: () => ({ x: 0, y: 0, z: 0 }),
     visualWorkOrigin: () => ({ x: 0, y: 0, z: 0 }),
   });
-  const dxf = vm.runInContext("buildOutlineDXF()", ctx);
+  const dxf = vm.runInContext("buildOutlineDXF({ stateSnapshot: state.outline, exportWorkOrigin, outlineEffectiveExportPoints, outlineExportPoints, dxfNumber, dxfBounds, dxfPairs, addOutlinePolylineDXF })", ctx);
   const pairs = parseDXFPairs(dxf);
 
   assert.equal(dxfHeaderValue(pairs, "$ACADVER", 1), "AC1009");
@@ -4232,7 +4238,7 @@ test("outline DXF preserves millimetre work coordinates and work zero", () => {
     currentWorkOrigin: () => ({ x: -20, y: -30, z: 5 }),
     visualWorkOrigin: () => ({ x: 0, y: 0, z: 0 }),
   });
-  const dxf = vm.runInContext("buildOutlineDXF()", ctx);
+  const dxf = vm.runInContext("buildOutlineDXF({ stateSnapshot: state.outline, exportWorkOrigin, outlineEffectiveExportPoints, outlineExportPoints, dxfNumber, dxfBounds, dxfPairs, addOutlinePolylineDXF })", ctx);
   const pairs = parseDXFPairs(dxf);
 
   assert.equal(dxfHeaderValue(pairs, "$ACADVER", 1), "AC1009");
@@ -4275,7 +4281,7 @@ test("curve-fit outline DXF flattens the curve into an R12 polyline", () => {
     currentWorkOrigin: () => ({ x: 0, y: 0, z: 0 }),
     visualWorkOrigin: () => ({ x: 0, y: 0, z: 0 }),
   });
-  const pairs = parseDXFPairs(vm.runInContext("buildOutlineDXF()", ctx));
+  const pairs = parseDXFPairs(vm.runInContext("buildOutlineDXF({ stateSnapshot: state.outline, exportWorkOrigin, outlineEffectiveExportPoints, outlineExportPoints, dxfNumber, dxfBounds, dxfPairs, addOutlinePolylineDXF })", ctx));
   const entities = dxfEntities(pairs);
   const points = entities.filter((entity) => entity.type === "VERTEX").flatMap(dxfEntityPoints);
   const effective = JSON.parse(vm.runInContext(
