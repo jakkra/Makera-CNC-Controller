@@ -769,3 +769,177 @@ export function mountFilesJobRefresh({
 
   return { hasLiveJobs, refreshJobs };
 }
+
+export function createFilesFeature({
+  documentRef,
+  windowRef,
+  request,
+  FormDataRef,
+  promptRef,
+  confirmRef,
+  paths,
+  escapeHtml,
+  fmtSize,
+  fmtTime,
+  syncLabel,
+  setNotice,
+  clearNotice,
+  getMachine,
+  renderMachine,
+  getActiveGcodePath,
+  loadActiveGcode,
+  getActiveSelectPendingPath,
+  selectActiveGcode,
+}) {
+  const state = {
+    files: new Map(),
+    jobs: new Map(),
+    loaded: false,
+    actions: new Map(),
+    renderTimer: null,
+    currentDir: "",
+    filter: "",
+  };
+  const queuePendingCount = () => [...state.jobs.values()].filter((job) => job.state === "queued" || job.state === "running").length;
+  const catalog = createFileCatalog({ getFiles: () => state.files, paths });
+  const helpers = createFileHelpers({ getJobs: () => state.jobs });
+  let rows;
+  let commands;
+  let presentation;
+  const renderFiles = () => rows.renderFiles();
+  const renderJobs = () => presentation.renderJobs();
+  const beginAction = (path, buttonLabel, notice) => beginFileAction(state.actions, path, buttonLabel, notice, setNotice, renderFiles);
+  const endAction = (path) => endFileAction(state.actions, path, renderFiles);
+  const retryJob = (job) => commands.retryJob(job);
+  const discardFile = (path) => commands.discardFile(path);
+  const doRename = (path) => commands.doRename(path);
+  const doDelete = (path) => commands.doDelete(path);
+
+  const navigation = mountFilesNavigation({
+    documentRef,
+    getCurrentDir: () => state.currentDir,
+    setCurrentDir: (dir) => { state.currentDir = dir; },
+    setFilter: (filter) => { state.filter = filter; },
+    renderFiles,
+    paths,
+    catalog,
+  });
+  presentation = mountFilesPresentation({
+    documentRef,
+    getFiles: () => state.files,
+    getJobs: () => state.jobs,
+    getFilesLoaded: () => state.loaded,
+    relPath: paths.relPath,
+    escapeHtml,
+    retryButtonText: helpers.retryButtonText,
+    retryJob,
+    discardFile,
+    canDiscardFile: helpers.canDiscardFile,
+    syncLabel,
+  });
+  commands = mountFilesCommands({
+    documentRef,
+    request,
+    FormDataRef,
+    promptRef,
+    confirmRef,
+    getCurrentDir: () => state.currentDir,
+    setCurrentDir: (dir) => { state.currentDir = dir; },
+    setFilter: (filter) => { state.filter = filter; },
+    joinRelPath: paths.joinRelPath,
+    cleanRelPath: paths.cleanRelPath,
+    dirname: paths.dirname,
+    basename: paths.basename,
+    relPath: paths.relPath,
+    apiFileURL: paths.apiFileURL,
+    retryButtonText: helpers.retryButtonText,
+    setNotice,
+    clearNotice,
+    beginFileAction: beginAction,
+    endFileAction: endAction,
+    renderFiles,
+  });
+  const transitions = mountFilesTransitions({
+    getFiles: () => state.files,
+    setFiles: (files) => { state.files = files; },
+    setFilesLoaded: (loaded) => { state.loaded = loaded; },
+    getJobs: () => state.jobs,
+    setJobs: (jobs) => { state.jobs = jobs; },
+    getMachine,
+    queuePendingCount,
+    renderMachine,
+    renderFiles,
+    renderJobs,
+    isActiveGcodePath: (path) => getActiveGcodePath() === path,
+    loadActiveGcode,
+  });
+  const jobRefresh = mountFilesJobRefresh({
+    request,
+    getFilesLoaded: () => state.loaded,
+    getJobs: () => state.jobs,
+    setJobs: (jobs) => { state.jobs = jobs; },
+    getMachine,
+    queuePendingCount,
+    renderMachine,
+    renderFiles,
+    renderJobs,
+  });
+  rows = mountFilesRows({
+    documentRef,
+    windowRef,
+    getFilter: () => state.filter,
+    getCurrentDir: () => state.currentDir,
+    getFilesLoaded: () => state.loaded,
+    getFileActions: () => state.actions,
+    getActiveSelectPendingPath,
+    getFileRenderTimer: () => state.renderTimer,
+    setFileRenderTimer: (timer) => { state.renderTimer = timer; },
+    directoryRows: catalog.directoryRows,
+    searchFileRows: catalog.searchFileRows,
+    renderFileSummary: presentation.renderFileSummary,
+    renderFolderChrome: navigation.renderFolderChrome,
+    renderFolderTree: navigation.renderFolderTree,
+    escapeHtml,
+    fmtSize,
+    fmtTime,
+    relPath: paths.relPath,
+    basename: paths.basename,
+    apiFileURL: paths.apiFileURL,
+    syncLabel,
+    preferredRetryJob: helpers.preferredRetryJob,
+    failedJobsForPath: helpers.failedJobsForPath,
+    canDiscardFile: helpers.canDiscardFile,
+    canSelectGcodeFile: helpers.canSelectGcodeFile,
+    retryButtonText: helpers.retryButtonText,
+    retryJob,
+    discardFile,
+    doRename,
+    doDelete,
+    selectActiveGcode,
+    openDir: navigation.openDir,
+  });
+
+  return {
+    bind: commands.bind,
+    mount: navigation.mount,
+    applySnapshot: transitions.applySnapshot,
+    applyEntry: transitions.applyEntry,
+    applyJob: transitions.applyJob,
+    refreshJobs: jobRefresh.refreshJobs,
+    hasLiveJobs: jobRefresh.hasLiveJobs,
+    renderFiles,
+    renderJobs,
+    scheduleFileRender: rows.scheduleFileRender,
+    uploadFiles: commands.uploadFiles,
+    doMkdir: commands.doMkdir,
+    doDelete,
+    retryJob,
+    discardFile,
+    doRename,
+    openDir: navigation.openDir,
+    queuePendingCount,
+    getFile: (path) => state.files.get(path),
+    getFiles: () => state.files,
+    isLoaded: () => state.loaded,
+  };
+}

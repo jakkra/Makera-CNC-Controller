@@ -1286,9 +1286,17 @@ func TestWebUIServed(t *testing.T) {
 	toolBody, _ := io.ReadAll(toolModule.Body)
 	toolModule.Body.Close()
 	toolSource := string(jsBody) + string(toolBody)
+	originModule := get(t, srv.URL+"/modules/origin-probing.js")
+	originBody, _ := io.ReadAll(originModule.Body)
+	originModule.Body.Close()
+	originSource := string(jsBody) + string(originBody)
 	filesModule := get(t, srv.URL+"/modules/files.js")
 	filesModuleBody, _ := io.ReadAll(filesModule.Body)
 	filesModule.Body.Close()
+	gcodeModule := get(t, srv.URL+"/modules/gcode-viewer.js")
+	gcodeModuleBody, _ := io.ReadAll(gcodeModule.Body)
+	gcodeModule.Body.Close()
+	webSource := string(jsBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody)
 	for _, want := range []string{"export function mountFilesCommands", "export function mountFilesTransitions", "export function mountFilesJobRefresh"} {
 		if filesModule.StatusCode != http.StatusOK || !strings.Contains(string(filesModuleBody), want) {
 			t.Errorf("modules/files.js missing %s (status=%d)", want, filesModule.StatusCode)
@@ -1316,10 +1324,12 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/active-job.js", "export function previewBoundsText"},
 		{"/modules/active-job.js", "export function mountActiveJobPreview"},
 		{"/modules/camera.js", "export function mountDashboardCamera"},
+		{"/modules/gcode-viewer.js", "export function mountGcodeViewer"},
 		{"/modules/feedback.js", "export function createFeedback"},
 		{"/modules/live-updates.js", "export function createLiveUpdates"},
 		{"/modules/outline-geometry.js", "export function buildFieldProbePreview"},
 		{"/modules/tool-actions.js", "export function createToolActions"},
+		{"/modules/origin-probing.js", "export function createOriginProbing"},
 		{"/modules/dashboard-profiles.js", "export function createDashboardProfiles"},
 	} {
 		module := get(t, srv.URL+asset.path)
@@ -1392,7 +1402,7 @@ func TestWebUIServed(t *testing.T) {
 		t.Errorf("app.js does not retain stale jog recovery feedback until fresh machine status is observed")
 	}
 	for _, want := range []string{`function drawDashboardGcodePreview`, `function ensureDashboardGcodeViewer`, `function populateGcodePathScene`, `function rebuildGcodeContextOverlayForGroup`, `function activeGcodeDisplaySegments`, `overview_segments`, `function renderDashboardGcodeStream`, `function renderDashboardTelemetry`} {
-		if !strings.Contains(string(jsBody), want) {
+		if !strings.Contains(webSource, want) {
 			t.Errorf("app.js missing dashboard 3D preview behavior %s", want)
 		}
 	}
@@ -1404,7 +1414,7 @@ func TestWebUIServed(t *testing.T) {
 	if !strings.Contains(string(jsBody), "refreshJobs") || !strings.Contains(string(filesModuleBody), "/api/jobs") {
 		t.Errorf("active job diagnostic refresh is incomplete")
 	}
-	if !strings.Contains(string(jsBody), "renderWorkArea") || !strings.Contains(string(jsBody), "SPINDLE_DIAMETER_MM") || !strings.Contains(string(jsBody), "OUTLINE_POINT_DIAMETER_MM") || !strings.Contains(string(jsBody), "jogPanelMessage") || !strings.Contains(string(jsBody), "sendTapMove") || !strings.Contains(string(jsBody), "sendWorkCoordinateMove") || !strings.Contains(string(jsBody), "workMoveTargetsFromInputs") || !strings.Contains(string(jsBody), "resetWorkMoveInput") || !strings.Contains(string(jsBody), "workMoveInputIsLive") || !strings.Contains(string(jsBody), "renderWorkMoveFieldState") || !strings.Contains(string(jsBody), "stepTapFeed") || !strings.Contains(string(jsBody), "feedBoundsFor") || !strings.Contains(string(jsBody), "stepZ") || !strings.Contains(string(jsBody), "setOriginAxis") || !strings.Contains(string(jsBody), "applyXYZOrigin") || !strings.Contains(string(jsBody), "applyOriginSource") || !strings.Contains(string(jsBody), "originTargetsFromOriginSource") || !strings.Contains(string(jsBody), "originTargetsFromXYZ") || !strings.Contains(string(jsBody), "machineAnchorPoints") || !strings.Contains(string(jsBody), "runAutoZProbe") || !strings.Contains(string(jsBody), "recallSelectedOrigin") || !strings.Contains(string(jsBody), "saveCurrentOrigin") || !strings.Contains(string(jsBody), "deleteSelectedOrigin") || !strings.Contains(string(jsBody), "saved_origins") || !strings.Contains(string(jsBody), `type: "target"`) || !strings.Contains(string(jsBody), `type: "step"`) || !strings.Contains(string(jsBody), `type: "origin"`) || !strings.Contains(string(jsBody), "G10L20P0") || !strings.Contains(string(jsBody), "/api/probe/auto-z") || !strings.Contains(string(liveBody), "/api/machine/status") || !strings.Contains(string(jsBody), "motion_estimated") {
+	if !strings.Contains(string(jsBody), "renderWorkArea") || !strings.Contains(string(jsBody), "SPINDLE_DIAMETER_MM") || !strings.Contains(string(jsBody), "OUTLINE_POINT_DIAMETER_MM") || !strings.Contains(string(jsBody), "jogPanelMessage") || !strings.Contains(string(jsBody), "sendTapMove") || !strings.Contains(string(jsBody), "sendWorkCoordinateMove") || !strings.Contains(string(jsBody), "workMoveTargetsFromInputs") || !strings.Contains(string(jsBody), "resetWorkMoveInput") || !strings.Contains(string(jsBody), "workMoveInputIsLive") || !strings.Contains(string(jsBody), "renderWorkMoveFieldState") || !strings.Contains(string(jsBody), "stepTapFeed") || !strings.Contains(string(jsBody), "feedBoundsFor") || !strings.Contains(string(jsBody), "stepZ") || !strings.Contains(originSource, "setOriginAxis") || !strings.Contains(originSource, "applyXYZOrigin") || !strings.Contains(originSource, "applyOriginSource") || !strings.Contains(originSource, "originTargetsFromOriginSource") || !strings.Contains(originSource, "originTargetsFromXYZ") || !strings.Contains(originSource, "machineAnchorPoints") || !strings.Contains(originSource, "runAutoZProbe") || !strings.Contains(originSource, "recallSelectedOrigin") || !strings.Contains(originSource, "saveCurrentOrigin") || !strings.Contains(originSource, "deleteSelectedOrigin") || !strings.Contains(originSource, "saved_origins") || !strings.Contains(originSource, `type: "target"`) || !strings.Contains(originSource, `type: "step"`) || !strings.Contains(originSource, `type: "origin"`) || !strings.Contains(originSource, "G10L20P0") || !strings.Contains(originSource, "/api/probe/auto-z") || !strings.Contains(string(liveBody), "/api/machine/status") || !strings.Contains(string(jsBody), "motion_estimated") {
 		t.Errorf("app.js missing work area, tap move, jog status messaging, or cache-only status polling")
 	}
 	for _, want := range []string{"defaultOutlineState", "startOutlineCapture", "endOutlineCapture", "addOutlinePoint", "undoOutline", "redoOutline", "closeOutline", "toggleOutlineCurveFit", "traceOutline", "traceOutlineMachinePoints", "/api/outline/trace", "probeFloor", "rebaseOutlineToFloor", "/api/probe/floor", "floor_machine_z", "runFieldProbe", "probeZAtWorkPoint", "currentOutlineCapturePosition", "retractZMM: startZMM", "/api/probe/z", "PROBE_SPOT_DIAMETER_MM", "OUTLINE_CURVE_TOLERANCE_MM", "MAX_EFFECTIVE_OUTLINE_POINTS", "effectiveOutlineGeometry", "outlineEffectiveExportPoints", "buildBoundaryProbePoints", "buildRelaxedProbePoints", "relaxProbeDistribution", "probeSpotFitsPolygon", "renderWorkAreaOutline", "renderWorkAreaFieldProbePreview", "outlinePathD", "outlineCubicSegments", "buildOutlineDXF", "outlineJSONDocument", "saveOutlineJSON", "loadOutlineFile", "outlineStateFromJSON", "application/json", "application/dxf", "$INSUNITS", "AC1009", "POLYLINE", "VERTEX", "SEQEND", "buildHeightMeshVertices", "exportHeightOBJ", "exportHeightImage", "safe_z_enabled", "safe_z_disabled"} {
@@ -1413,7 +1423,7 @@ func TestWebUIServed(t *testing.T) {
 		}
 	}
 	for _, want := range []string{"confirmProbeAction", "floor_probe", "field_reference_machine_z", "fieldProbeHeightReference", "exportWorkOrigin", "requireHeightExportOutline", "buildHeightOBJ", "buildHeightPGM", "constrainedOutlineTriangles", "improveConstrainedDelaunay"} {
-		if !strings.Contains(string(jsBody), want) {
+		if !strings.Contains(string(jsBody), want) && !strings.Contains(originSource, want) {
 			t.Errorf("app.js missing probe confirmation, persistence, or mesh behavior %s", want)
 		}
 	}
@@ -1440,7 +1450,7 @@ func TestWebUIServed(t *testing.T) {
 		t.Errorf("three.module.min.js Cache-Control = %q, want no-store", got)
 	}
 	for _, want := range []string{"rememberCommand", "navigateCommandHistory", "renderAlarmPanel", "HALT_REASON", "controlPendingText", "controlSuccessText", "confirmControl", "bindDataControlButtons", "data-control-action", "renderFileSummary", "lineMatchesFilter", "setHeaderCollapsed", "selectActiveGcode", "runActiveGcode", "renderDashboard", `classList.toggle("is-empty", !active.path)`, `document.querySelector(".active-gcode-workspace")?.classList.toggle("is-empty", !active.path);`, "drawDashboardGcodePreview", "ensureDashboardGcodeViewer", "populateGcodePathScene", "drawGcodePreview", "activeJobPreviewState", "gcodeCursorForPlayedLine", "syncActiveGcodeFromMachine", "ensureActiveGcodeGeometry", "ensureActiveGcodeSource", "fetchActiveGcodeSourcePage", "renderActiveGcodeSource", "gcodeSourceLineForCursor", "gcodeSourceWindow", "syncActiveGcodeSourceLine", "showActiveJobLeftTab", "activeJobLeftTabs", "activeJobSplitBounds", "setActiveJobSplitPercent", "bindActiveJobSplitter", "initializeResponsiveControlSections", "activeJobOverlayOriginFrom", "activeJobContextOverlayData", "interpolateOutlinePathZ", "activeJobFieldProbeComplete", "field_probe_complete", "syncGcodeContextOverlay", "rebuildGcodeContextOverlay", "combineGcodeBounds", "gcodeRenderPixelRatio", "viewCubeTargetComponents", "gcodeOrbitAnglesForDirection", `projection: "orthographic"`, `gcodeOrbitAnglesForDirection({ x: 1, y: 1, z: 1 })`, "onGcodeViewCubePointerMove", "rotateGcodeOrbitByDrag", "gcodeCubeDragStep", "THREE.WebGLRenderer", "gcodeWorldCoordinates", "gcodeWorldPoint", "panGcodeCamera", "/api/gcode/active/segments", "/api/gcode/active/source", "/api/files/", "/api/tool/current", "/api/tool/change", "/api/tool/continue", "/api/tool/calibrate", "/api/probe/3d", "runProbe3D", "is3DProbeToolActive"} {
-		if !strings.Contains(toolSource, want) {
+		if !strings.Contains(webSource, want) {
 			t.Errorf("app.js missing %s", want)
 		}
 	}
@@ -1471,7 +1481,7 @@ func TestWebUIServed(t *testing.T) {
 		t.Errorf("app.js must not confirm emergency halt")
 	}
 	for _, want := range []string{"directoryRows", "renderFolderTree", "renderFolderChrome", "openDir", "doMkdir", "joinRelPath", "retryJob", "discardFile"} {
-		if !strings.Contains(string(jsBody), want) {
+		if !strings.Contains(webSource, want) {
 			t.Errorf("app.js missing %s", want)
 		}
 	}

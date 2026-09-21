@@ -8,10 +8,30 @@ import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
 import { mountDashboardCamera } from "./modules/camera.js";
+import { mountGcodeViewer } from "./modules/gcode-viewer.js";
 import { createFeedback } from "./modules/feedback.js";
 import { createMdiMacros } from "./modules/mdi-macros.js";
 import { createToolActions } from "./modules/tool-actions.js";
-import { beginFileAction as beginFileActionState, createFileCatalog, createFileHelpers, endFileAction as endFileActionState, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
+import { createOriginProbing } from "./modules/origin-probing.js";
+import { createFilesFeature } from "./modules/files.js";
+import { createMachineStatusFeature } from "./modules/machine-status.js";
+import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive } from "./modules/jog.js";
+import { mountWorkareaOutline } from "./modules/workarea-outline.js";
+import {
+  createSettingsFeature,
+  MACHINE_SETTING_IDS,
+  DEFAULT_MACHINE_FEED_MIN_MM_MIN,
+  DEFAULT_MACHINE_FEED_MAX_MM_MIN,
+  MAX_MACHINE_FEED_MM_MIN,
+  DEFAULT_SAFE_Z_MM,
+  SAFE_Z_LIMIT_MARGIN_MM,
+  defaultGamepadSettings,
+  defaultMachineSettings,
+  normalizeMachineSettings,
+  normalizeMachineLearned,
+  feedBoundsFor,
+  safeZForTapMove,
+} from "./modules/settings.js";
 
 const ROOT = "/sd/gcodes";
 const GCODE_MAX_LINES = 500;
@@ -19,16 +39,11 @@ const GCODE_HISTORY_KEY = "cnc-proxy.gcode-history.v1";
 const PROBE_SPOT_DIAMETER_MM = 2;
 const PROBE_SPOT_RADIUS_MM = PROBE_SPOT_DIAMETER_MM / 2;
 const DEFAULT_FIELD_SPOT_GAP_MM = 8;
-const DEFAULT_SAFE_Z_MM = -3;
-const SAFE_Z_LIMIT_MARGIN_MM = 3;
 const MAX_FIELD_PROBE_POINTS = 1500;
 const OUTLINE_CURVE_TOLERANCE_MM = 0.25;
 const MAX_EFFECTIVE_OUTLINE_POINTS = 4000;
 const DEFAULT_PROBE_DEPTH_MM = 20;
 const DEFAULT_PROBE_FEED_MM = 50;
-const DEFAULT_MACHINE_FEED_MIN_MM_MIN = 1;
-const DEFAULT_MACHINE_FEED_MAX_MM_MIN = 3000;
-const MAX_MACHINE_FEED_MM_MIN = 10000;
 const GCODE_SOURCE_ROW_HEIGHT = 20;
 const GCODE_SOURCE_OVERSCAN = 12;
 const GCODE_SOURCE_PAGE_SIZE = 500;
@@ -42,8 +57,6 @@ const ACTIVE_JOB_SPLITTER_PX = 16;
 const VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files", "maintenance", "attention"];
 const NAV_VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files"];
 const SURFACE_VIEW_PREFERENCES_KEY = "cnc-proxy.surface-view-preferences.v1";
-const JOG_INPUT_HEARTBEAT_MS = 100;
-const JOG_INPUT_DEADZONE = 0.12;
 const JOG_PREDICTION_TOLERANCE_MM = 0.02;
 const FOREGROUND_PAGE_RELOAD_MS = 60000;
 const PULL_TO_REFRESH_DISTANCE_PX = 88;
@@ -55,12 +68,15 @@ const OUTLINE_CAPTURE_SETTLE_MS = 300;
 const OUTLINE_CAPTURE_POLL_MS = 50;
 const OUTLINE_CAPTURE_TIMEOUT_MS = 60000;
 const OUTLINE_CAPTURE_POSITION_TOLERANCE_MM = 0.02;
-const MACHINE_SETTING_IDS = [
-  "machine-x-min", "machine-x-max", "machine-y-min", "machine-y-max",
-  "machine-origin-x", "machine-origin-y", "machine-feed-min", "machine-feed-max",
-  "tap-feed-mm-min", "machine-safe-z",
-];
 const MACRO_EDITOR_IDS = ["macro-name", "macro-description", "macro-color", "macro-lines", "macro-placement"];
+const WORKAREA_PAD = 6;
+const WORKAREA_VIEW_SIZE = 100;
+const WORKAREA_MIN_ZOOM = 1;
+const WORKAREA_MAX_ZOOM = 8;
+const WORKAREA_ZOOM_STEP = 1.25;
+const WORKAREA_PAN_THRESHOLD_PX = 4;
+const SPINDLE_DIAMETER_MM = 3.175;
+const OUTLINE_POINT_DIAMETER_MM = SPINDLE_DIAMETER_MM + 0.5;
 
 const SYNC_LABEL = {
   synced: "Synced",
@@ -75,15 +91,12 @@ const SYNC_LABEL = {
 };
 
 const state = {
-  files: new Map(),
-  jobs: new Map(),
   readOnly: false,
   machine: { state: "", mode: "owner", age_ms: 0, connected: false },
   gcodeSeqs: new Set(),
   gcodeLines: [],
   commandHistory: loadCommandHistory(),
   historyIndex: -1,
-  filter: "",
   logFilter: "all",
   logSearch: "",
   logPaused: false,
@@ -101,10 +114,6 @@ const state = {
   dashboardEmbed: false,
   dashboardSettingsLoaded: false,
   dashboardDraftProfileID: "",
-	filesLoaded: false,
-	fileActions: new Map(),
-	fileRenderTimer: null,
-  currentDir: "",
   controlPendingAction: "",
   gcodePending: false,
   autoVacuumPending: false,
@@ -208,6 +217,60 @@ const { resetEventStream, connectControlSSE, connectFilesSSE, pollMachine } = cr
   refreshJobs,
 });
 
+// Settings owns the machine/gamepad controls while API load/save remains in
+// this bootstrap. Late-bound callbacks keep the existing initialization graph
+// intact: settings can render jog/workarea state without taking a snapshot of
+// either object during module construction.
+const settingsFeature = createSettingsFeature({
+  documentRef: document,
+  getUI: () => state.ui,
+  setUI: (value) => { state.ui = value; },
+  getSelectedMacroId: () => state.selectedMacroId,
+  getMachineLearnPending: () => state.machineLearnPending,
+  setMachineLearnPending: (value) => { state.machineLearnPending = value; },
+  getSettingsSaveTimer: () => state.settingsSaveTimer,
+  setSettingsSaveTimer: (value) => { state.settingsSaveTimer = value; },
+  request,
+  applyUISettings: (...args) => applyUISettings(...args),
+  queueSaveUISettings: (...args) => queueSaveUISettings(...args),
+  renderJog: (...args) => renderJog(...args),
+  renderWorkArea: (...args) => renderWorkArea(...args),
+  setTapFeedback: (...args) => setTapFeedback(...args),
+  setStatusMessage,
+  setNotice,
+  clearNotice,
+  confirmRef: (message) => confirm(message),
+  fmtCoord,
+  newID,
+  normalizeDashboardSettings: (...args) => normalizeDashboardSettings(...args),
+  macroByID: (id) => state.ui.macros.find((macro) => macro.id === id),
+});
+const {
+  renderMachineSettings,
+  refreshMachineLearnedSettings,
+  learnMachineParameters,
+  openMachineSettings,
+  closeMachineSettings,
+  updateMachineSettings,
+  stepTapFeed,
+  updateSafeZToggle,
+  renderGamepadSettings,
+  renderGamepadMacroBindings,
+  updateGamepadAxis,
+  updateGamepadButtons,
+  addGamepadMacroBinding,
+  normalizeGamepadMacroOrder,
+  machineLearnedSummaryLines,
+  normalizeUISettings,
+  controlLocallyOwned,
+  markControlDirty,
+  clearControlDrafts,
+  setInputValue,
+  setControlValueIfIdle,
+  setCheckedIfIdle,
+  bindDirtyDraftControls,
+} = settingsFeature;
+
 const mdiMacros = createMdiMacros({
   documentRef: document,
   getUI: () => state.ui,
@@ -264,6 +327,80 @@ const {
   refreshMachineAfterToolAction, renderToolActions, setToolFeedback,
   clearToolFeedback,
 } = toolActions;
+const jogFeature = createJogFeature({
+  jogState: state.jog,
+  surfaceState: state.surface,
+  documentRef: document,
+  windowRef: window,
+  WebSocketCtor: window.WebSocket,
+  performanceRef: performance,
+  renderJog,
+  renderMachine: (...args) => machineStatus.renderMachine(...args),
+  renderSurfaceMPGWheel,
+  setStatusMessage,
+  applyJogEvent,
+  failOutlineCaptureIntents,
+  completeCommandDisarm,
+  cancelWorkCoordinateMove,
+  clearFieldProbeMove,
+  hasPendingOriginOperation: (...args) => originProbing.hasPendingOriginOperation(...args),
+  originTargetLabel: (...args) => originProbing.originTargetLabel(...args),
+  clearOriginVerification: (...args) => originProbing.clearOriginVerification(...args),
+  setOriginFeedback: (...args) => originProbing.setOriginFeedback(...args),
+  tapMoveArmFailureText,
+  clampAxis,
+  currentGamepad,
+  mappedAxis,
+  buttonStates,
+  buttonPressed,
+  gamepadLabel,
+  captureGamepadOutlineButton,
+  handleGamepadOutlineButton,
+  handleGamepadMacroButtons,
+  sameButtonStates,
+  resetMobileWorkAreaJog,
+  getUI: () => state.ui,
+  getWorkarea: () => state.workarea,
+  surfaceJogReady,
+  sendSurfaceStep,
+});
+const {
+  connectJog, disableJogConnection, scheduleJogReconnect, sendJogInput, sendJog,
+  sampleJog, releaseJogInput, scheduleJogSample, bindSurfaceMPGWheel,
+} = jogFeature;
+const originProbing = createOriginProbing({
+  documentRef: document,
+  getMachine: () => state.machine,
+  getUI: () => state.ui,
+  getJog: () => state.jog,
+  getActiveTab: () => state.activeTab,
+  getOutline: () => state.outline,
+  request, pollMachine, sendJog, connectJog, appendGcodeLine, renderJog,
+  renderMachineSettings, refreshMachineLearnedSettings, queueSaveUISettings,
+  normalizeMachineSettings, defaultMachineSettings, normalizeMachineLearned,
+  currentWorkOrigin, currentAxisValues, axisValue, fmtCoord, finiteOr, newID,
+  tapMoveTargetBusy, isProbeToolActive, is3DProbeToolActive,
+  controlLocallyOwned, setSoftDisabled, setTextIfChanged, setElementBusy, setStatusMessage,
+  setTapFeedback, clampNumber,
+});
+const {
+  machineReadyForOriginSet, renderOriginButtons, setOriginFeedback,
+  renderOriginSetSourceLabels, hasPendingOriginOperation, savedOrigins,
+  selectedSavedOrigin, savedOriginLabel, renderSavedOriginSelect,
+  saveCurrentOrigin, deleteSelectedOrigin, originCommandLine,
+  formatOriginValue, originTargetsFromXYZ, originTargetsFromSaved,
+  machineAnchorPoints, originTargetsFromOriginSource,
+  originReferenceRequestFromInputs, renderOriginSetChange, originAxes,
+  originTargetLabel, clearOriginVerification, beginOriginVerification,
+  checkOriginVerification, scheduleOriginVerification, setOriginViaGcode,
+  setReferenceOriginViaAPI, setReferenceOriginViaJog, sendNextJogOriginAxis,
+  handleOriginAck, applyOriginTargets, setOriginAxis, openOriginDialog,
+  closeOriginDialog, probe3DFieldRules, probe3DInitialPositioning,
+  probe3DTravelPreflight, probe3DLearnedTravelBounds,
+  probe3DPreflightFromControls, renderProbe3DForm, probe3DNumber,
+  probe3DRequestFromControls, openProbe3D, closeProbe3D, runProbe3D,
+  applyXYZOrigin, applyOriginSource, runAutoZProbe, recallSelectedOrigin,
+} = originProbing;
 
 const dashboardCamera = mountDashboardCamera({
   getActiveTab: () => state.activeTab,
@@ -276,85 +413,19 @@ const dashboardCamera = mountDashboardCamera({
   setTextIfChanged,
 });
 
-const fileCatalog = createFileCatalog({
-  getFiles: () => state.files,
-  paths: { relPath, cleanRelPath, joinRelPath, remotePathFromRel },
-});
-const fileHelpers = createFileHelpers({ getJobs: () => state.jobs });
-
-const filesNavigation = mountFilesNavigation({
-  documentRef: document,
-  getCurrentDir: () => state.currentDir,
-  setCurrentDir: (dir) => { state.currentDir = dir; },
-  setFilter: (filter) => { state.filter = filter; },
-  renderFiles: () => renderFiles(),
-  paths: { cleanRelPath, parentRelPath, relPath, basename },
-  catalog: fileCatalog,
-});
-
-const filesPresentation = mountFilesPresentation({
-  documentRef: document,
-  getFiles: () => state.files,
-  getJobs: () => state.jobs,
-  getFilesLoaded: () => state.filesLoaded,
-  relPath,
-  escapeHtml,
-  retryButtonText: fileHelpers.retryButtonText,
-  retryJob,
-  discardFile,
-  canDiscardFile: fileHelpers.canDiscardFile,
-  syncLabel: SYNC_LABEL,
-});
-
-const filesCommands = mountFilesCommands({
-  documentRef: document,
-  request,
-  FormDataRef: FormData,
-  promptRef: (message, value) => prompt(message, value),
-  confirmRef: (message) => confirm(message),
-  getCurrentDir: () => state.currentDir,
-  setCurrentDir: (dir) => { state.currentDir = dir; },
-  setFilter: (filter) => { state.filter = filter; },
-  joinRelPath,
-  cleanRelPath,
-  dirname,
-  basename,
-  relPath,
-  apiFileURL,
-  retryButtonText: fileHelpers.retryButtonText,
-  setNotice,
-  clearNotice,
-  beginFileAction,
-  endFileAction,
-  renderFiles: () => renderFiles(),
-});
-
-const filesTransitions = mountFilesTransitions({
-  getFiles: () => state.files,
-  setFiles: (files) => { state.files = files; },
-  setFilesLoaded: (loaded) => { state.filesLoaded = loaded; },
-  getJobs: () => state.jobs,
-  setJobs: (jobs) => { state.jobs = jobs; },
+const filesFeature = createFilesFeature({
+  documentRef: document, windowRef: window, request, FormDataRef: FormData,
+  promptRef: (message, value) => window.prompt(message, value),
+  confirmRef: (message) => window.confirm(message),
+  paths: { relPath, cleanRelPath, joinRelPath, remotePathFromRel, parentRelPath, dirname, basename, apiFileURL },
+  escapeHtml, fmtSize, fmtTime, syncLabel: SYNC_LABEL, setNotice, clearNotice,
   getMachine: () => state.machine,
-  queuePendingCount,
-  renderMachine,
-  renderFiles: () => renderFiles(),
-  renderJobs,
-  isActiveGcodePath: (path) => state.activeGcode?.path === path,
-  loadActiveGcode,
+  renderMachine: (...args) => machineStatus.renderMachine(...args),
+  getActiveGcodePath: () => state.activeGcode?.path || "", loadActiveGcode,
+  getActiveSelectPendingPath: () => state.activeSelectPendingPath,
+  selectActiveGcode: (...args) => activeJobSelection.selectActiveGcode(...args),
 });
-
-const filesJobRefresh = mountFilesJobRefresh({
-  request,
-  getFilesLoaded: () => state.filesLoaded,
-  getJobs: () => state.jobs,
-  setJobs: (jobs) => { state.jobs = jobs; },
-  getMachine: () => state.machine,
-  queuePendingCount,
-  renderMachine,
-  renderFiles: () => renderFiles(),
-  renderJobs,
-});
+const { renderFiles, renderJobs, scheduleFileRender, uploadFiles, doMkdir, doDelete, retryJob, discardFile, doRename, openDir } = filesFeature;
 
 const activeJobSelection = mountActiveJobSelection({
   request,
@@ -377,7 +448,7 @@ const activeJobLoader = mountActiveJobLoader({
   setConnectivityIssue,
   renderActiveGcode,
   getMachine: () => state.machine,
-  renderAttention,
+  renderAttention: (...args) => machineStatus.renderAttention(...args),
 });
 
 const activeJobRunner = mountActiveJobRunner({
@@ -385,7 +456,7 @@ const activeJobRunner = mountActiveJobRunner({
   getActiveGcode: () => state.activeGcode,
   getActiveGcodePending: () => state.activeGcodePending,
   setActiveGcodePending: (value) => { state.activeGcodePending = value; },
-  machineActionState,
+  machineActionState: (...args) => machineStatus.machineActionState(...args),
   confirmRef: (message) => confirm(message),
   relPath,
   setActiveFeedback,
@@ -400,10 +471,10 @@ const activeJobControl = mountActiveJobControl({
   request,
   getActiveGcodePending: () => state.activeGcodePending,
   setActiveGcodePending: (value) => { state.activeGcodePending = value; },
-  machineActionState,
+  machineActionState: (...args) => machineStatus.machineActionState(...args),
   confirmRef: (message) => confirm(message),
   setActiveFeedback,
-  renderMachine,
+  renderMachine: (...args) => machineStatus.renderMachine(...args),
   pollMachine,
 });
 
@@ -419,41 +490,6 @@ const pausedJobCommand = mountPausedJobCommand({
 
 const activeJobPreview = mountActiveJobPreview({ cursorForPlayedLine: gcodeCursorForPlayedLine });
 
-const filesRows = mountFilesRows({
-  documentRef: document,
-  windowRef: window,
-  getFilter: () => state.filter,
-  getCurrentDir: () => state.currentDir,
-  getFilesLoaded: () => state.filesLoaded,
-  getFileActions: () => state.fileActions,
-  getActiveSelectPendingPath: () => state.activeSelectPendingPath,
-  getFileRenderTimer: () => state.fileRenderTimer,
-  setFileRenderTimer: (timer) => { state.fileRenderTimer = timer; },
-  directoryRows,
-  searchFileRows,
-  renderFileSummary,
-  renderFolderChrome,
-  renderFolderTree,
-  escapeHtml,
-  fmtSize,
-  fmtTime,
-  relPath,
-  basename,
-  apiFileURL,
-  syncLabel: SYNC_LABEL,
-  preferredRetryJob: fileHelpers.preferredRetryJob,
-  failedJobsForPath: fileHelpers.failedJobsForPath,
-  canDiscardFile: fileHelpers.canDiscardFile,
-  canSelectGcodeFile: fileHelpers.canSelectGcodeFile,
-  retryButtonText: fileHelpers.retryButtonText,
-  retryJob,
-  discardFile,
-  doRename,
-  doDelete,
-  selectActiveGcode: activeJobSelection.selectActiveGcode,
-  openDir,
-});
-
 const maintenance = mountMaintenance({
   request,
   setStatusMessage,
@@ -465,120 +501,6 @@ let probeConfirmResolve = null;
 let outlineContextRevision = 1;
 let pageHiddenAt = 0;
 let pullToRefreshGesture = null;
-let surfaceMPGAudioContext = null;
-let surfaceMPGAudioResume = null;
-let surfaceMPGNextClickTime = 0;
-let surfaceMPGFeedbackTimer = null;
-const SURFACE_MPG_AUDIO_LOOKAHEAD_S = 0.01;
-
-const gcodeView = {
-  key: "",
-  fitKey: "",
-  canvas: null,
-  empty: null,
-  renderer: null,
-  scene: null,
-  camera: null,
-  perspCamera: null,
-  orthoCamera: null,
-  projection: "orthographic",
-  cube: null,
-  pathGroup: null,
-  contextGroup: null,
-  contextKey: "",
-  contextBounds: null,
-  contextVisible: false,
-  progressLine: null,
-  marker: null,
-  live: null,
-  followLive: false,
-  target: new THREE.Vector3(),
-  orbit: { ...gcodeOrbitAnglesForDirection({ x: 1, y: 1, z: 1 }), radius: 120 },
-  segments: [],
-  cursor: 0,
-  timelineEventLine: 0,
-  timelineEventsKey: "",
-  has4Axis: false,
-  dragging: false,
-  timelineDragging: false,
-  dragX: 0,
-  dragY: 0,
-  dragMode: "orbit",
-  touchPointers: new Map(),
-  pinchDistance: 0,
-  panKeyDown: false,
-  panKeys: new Set(),
-  hovering: false,
-  renderQueued: false,
-  resizeObserver: null,
-  width: 0,
-  height: 0,
-  pixelRatio: 0,
-};
-
-const dashboardGcodeView = {
-  key: "",
-  canvas: null,
-  empty: null,
-  renderer: null,
-  scene: null,
-  camera: null,
-  pathGroup: null,
-  contextGroup: null,
-  progressLine: null,
-  marker: null,
-  target: new THREE.Vector3(),
-  orbit: { ...gcodeOrbitAnglesForDirection({ x: 1, y: 1, z: 1 }), radius: 120 },
-  segments: [],
-  has4Axis: false,
-  renderQueued: false,
-  renderStateKey: "",
-  resizeObserver: null,
-  width: 0,
-  height: 0,
-  pixelRatio: 0,
-};
-
-const activeGcodeSource = {
-  path: "",
-  signature: "",
-  requestID: 0,
-  totalLines: 0,
-  pages: new Map(),
-  loadingPages: new Set(),
-  currentLine: 0,
-  userScrollingUntil: 0,
-  renderQueued: false,
-  resizeObserver: null,
-  unavailableSignature: "",
-};
-
-const activeGcodeGeometry = {
-  signature: "",
-  requestedSignature: "",
-  requestID: 0,
-  total: 0,
-  segments: [],
-};
-
-const GCODE_KIND_COLORS = {
-  rapid: 0x91a0ae,
-  cut: 0x57a6d6,
-  arc: 0x44c27b,
-  probe: 0xd99a3a,
-};
-
-const GCODE_FOV = 45;
-const GCODE_RENDER_PIXEL_BUDGET = 12_000_000;
-const GCODE_ORBIT_DRAG_RAD_PER_PX = 0.008;
-const GCODE_ORBIT_MIN_RADIUS = 1;
-const GCODE_ORBIT_MAX_RADIUS = 100000;
-const GCODE_CUBE_DRAG_THRESHOLD_PX = 4;
-const SURFACE_MPG_DETENT_DEG = 15;
-const SURFACE_MPG_DEAD_ZONE = 0.24;
-// Same axis palette as the Control tab work-area origin marker.
-const GCODE_AXIS_COLORS = { x: "#f05b5b", y: "#6fa3ff", z: "#44c27b" };
-
 const HALT_REASON = {
   1: "Halt manually",
   2: "Home fail",
@@ -604,6 +526,164 @@ const HALT_REASON = {
   41: "Spindle alarm",
 };
 
+const machineStatus = createMachineStatusFeature({
+  documentRef: document,
+  getMachine: () => state.machine,
+  getActiveGcode: () => state.activeGcode,
+  getActiveGcodePending: () => state.activeGcodePending,
+  getFeedOverridePendingPercent: () => state.feedOverridePendingPercent,
+  getReadOnly: () => state.readOnly,
+  getControlPendingAction: () => state.controlPendingAction,
+  getLastControlResult: () => state.lastControlResult,
+  setLastControlResult: (value) => { state.lastControlResult = value; },
+  getCurrentAxisValues: currentAxisValues,
+  toolDisplayName,
+  fmtDashboardFeed,
+  fmtDashboardSpindle,
+  fmtCoord,
+  axisValue,
+  fmtActiveTool,
+  machineFeedOverrideControlModel,
+  setTextIfChanged,
+  fmtAge,
+  pendingCount,
+  fmtPos,
+  fmtActiveFeed,
+  fmtSpindle,
+  renderToolActions,
+  renderActiveGcode,
+  syncJogAvailabilityFromMachine,
+  checkOriginVerification,
+  renderJog,
+  renderOutlineCapture,
+  clearNotice,
+  setStatusMessage,
+  HALT_REASON,
+});
+const {
+  gcodeToolMetadata, gcodeToolLabel, programToolListModel, toolChangeTargetLabel,
+  toolChangeAttentionDetail, machineReadoutModel, renderMachineReadouts, haltReason,
+  recoveryText, machineActionState, jobControlModel, jobControlLabel, renderJobControls,
+  renderMachine, renderAttention, attentionResumeAction, renderToolStatus,
+  renderAlarmPanel, recoveryButtonText,
+} = machineStatus;
+
+const gcodeViewer = mountGcodeViewer({
+  THREE,
+  documentRef: document,
+  windowRef: window,
+  request,
+  getActiveGcode: () => state.activeGcode,
+  getMachine: () => state.machine,
+  getFiles: () => filesFeature.getFiles(),
+  getOutline: () => state.outline,
+  deps: {
+    activeJobPreviewState,
+    gcodeToolLabel,
+    gcodeToolMetadata,
+    externalJobInfo,
+    fmtSize,
+    relPath,
+    machineActionState,
+    renderProgramToolLists,
+    renderJobControls,
+    setSoftDisabled,
+    setStatusMessage,
+    setTextIfChanged,
+    setElementBusy,
+    SYNC_LABEL,
+    currentDashboardProfile: () => currentDashboardProfile(),
+    clearConnectivityIssue,
+    clearNotice,
+    renderActiveGcode,
+    activeGcodeDisplaySegments,
+    axisValue,
+    cloneOutlineOrigin,
+    currentWorkOrigin,
+    buildHeightMeshVertices,
+    constrainedOutlineTriangles,
+    interpolateZ,
+    clearThreeGroup,
+    disposeObject,
+    panGcodeCamera,
+    updateGcodeProgress,
+    toolDisplayName,
+    fmtCoord,
+  },
+});
+
+// Work-area viewport/state ownership lives in a feature module. The outline
+// and probe renderers still live here for now, so these callbacks intentionally
+// close over the late-bound feature instance.
+let workareaOutline;
+workareaOutline = mountWorkareaOutline({
+  stateFacade: state,
+  documentRef: document,
+  constants: {
+    WORKAREA_PAD,
+    WORKAREA_VIEW_SIZE,
+    WORKAREA_MIN_ZOOM,
+    WORKAREA_MAX_ZOOM,
+    WORKAREA_ZOOM_STEP,
+    WORKAREA_PAN_THRESHOLD_PX,
+    OUTLINE_CAPTURE_POSITION_TOLERANCE_MM,
+  },
+  defaultWorkAreaView,
+  normalizeMachineSettings,
+  currentWorkOrigin,
+  currentAxisValues,
+  syncGcodeContextOverlay,
+  setWorkAreaToolRadius: (...args) => setWorkAreaToolRadius(...args),
+  markGcodeContextOverlayDirty,
+  hasGcodeRenderer: () => !!gcodeViewer.getGcodeView()?.renderer,
+  renderActiveGcode,
+  renderWorkAreaOutline: (...args) => renderWorkAreaOutline(...args),
+  renderWorkAreaFieldProbePreview: (...args) => renderWorkAreaFieldProbePreview(...args),
+  visualWorkOrigin,
+  tapMoveTargetBusy,
+  jogEstimateActive,
+  hasPendingOriginOperation: (...args) => originProbing.hasPendingOriginOperation(...args),
+  updateFieldProbePreview,
+  finiteOr,
+  clampNumber,
+  cloneOutlinePoint,
+  cloneOutlineOrigin,
+  pathNum,
+  fmtCoord,
+  newID,
+  clearNotice,
+  renderOutlineCapture: (...args) => renderOutlineCapture(...args),
+});
+const {
+  normalizeWorkAreaView,
+  workAreaViewCenter,
+  applyWorkAreaViewport,
+  resetWorkAreaView,
+  setWorkAreaZoom,
+  zoomWorkArea,
+  panWorkArea,
+  workAreaSVGPointFromClient,
+  workAreaLocalToContentPoint,
+  hideWorkAreaHoverPosition,
+  updateWorkAreaHoverPosition,
+  workAreaBounds,
+  workAreaRect,
+  workAreaMMToSVGUnits,
+  machineToWorkAreaPoint,
+  workAreaToMachinePoint,
+  renderWorkArea,
+  outlineSnapshot,
+  restoreOutlineSnapshot,
+  outlineCapturePositionsClose,
+  outlineCaptureIntentCount,
+  cancelOutlineCaptureIntents,
+  appendOutlineCapturedPosition,
+  resolveOutlineCaptureIntent,
+  clearFieldProbeData,
+  outlineEditingMarkersVisible,
+} = workareaOutline;
+
+
 const dashboardProfileState = {
   get ui() { return state.ui; },
   set ui(value) { state.ui = value; },
@@ -622,7 +702,8 @@ const dashboardProfiles = createDashboardProfiles({
   dashboardState: dashboardProfileState, documentRef: document, windowRef: window, navigatorRef: window.navigator,
   confirmRef: (message) => window.confirm(message),
   normalizeDashboardSettings, viewTabFromURL, setDashboardControlsOpen, renderDashboard, newID, saveUISettings, setNotice,
-  dashboardGcodeView, scheduleDashboardGcodeRender,
+  getDashboardGcodeView: () => gcodeViewer.getDashboardGcodeView(),
+  scheduleDashboardGcodeRender: () => gcodeViewer.scheduleDashboardGcodeRender(),
 });
 const { dashboardURLState, dashboardProfileByID, currentDashboardProfile, isWideSurfaceOverview, dashboardPanelVisible, resolveDashboardProfile, applyDashboardURLState, syncDashboardProfileURL, selectDashboardProfile, renderDashboardProfileControls, applyDashboardProfile, dashboardProfileSlug, renderDashboardPanelOrder, refreshDashboardPanelOrderButtons, openDashboardSettings, closeDashboardSettings, dashboardProfileFromForm, saveDashboardProfile, deleteDashboardProfile, copyDashboardURL } = dashboardProfiles;
 
@@ -732,53 +813,6 @@ function fmtActiveTool(t) {
   return Number.isFinite(t?.active) ? toolDisplayName(t.active) : "-";
 }
 
-function gcodeToolMetadata(toolMetadata, toolID) {
-  const number = Number(toolID);
-  if (!Number.isFinite(number) || !Array.isArray(toolMetadata)) return null;
-  return toolMetadata.find((tool) => Number(tool?.number) === number) || null;
-}
-
-function gcodeToolLabel(tool) {
-  if (!tool) return "";
-  const diameter = Number(tool.diameter_mm);
-  const kind = String(tool.kind || "").trim();
-  const descriptor = [Number.isFinite(diameter) && diameter > 0 ? `${diameter} mm` : "", kind].filter(Boolean).join(" ");
-  return descriptor ? `T${tool.number} · ${descriptor}` : `T${tool.number}`;
-}
-
-function programToolListModel(preview = {}, activeToolID = null) {
-  const metadata = new Map();
-  for (const tool of Array.isArray(preview?.tool_metadata) ? preview.tool_metadata : []) {
-    const number = Number(tool?.number);
-    if (Number.isInteger(number) && number > 0) metadata.set(number, tool);
-  }
-  const used = new Set(metadata.keys());
-  for (const tool of Array.isArray(preview?.tools) ? preview.tools : []) {
-    const number = Number(tool);
-    if (Number.isInteger(number) && number > 0) used.add(number);
-  }
-  const changes = new Map();
-  for (const event of Array.isArray(preview?.events) ? preview.events : []) {
-    if (event?.kind !== "tool_change") continue;
-    const number = Number(event.tool);
-    if (!Number.isInteger(number) || number <= 0) continue;
-    used.add(number);
-    changes.set(number, (changes.get(number) || 0) + 1);
-  }
-  const active = Number(activeToolID);
-  return [...used].sort((a, b) => a - b).map((number) => {
-    const tool = metadata.get(number) || null;
-    const changeCount = changes.get(number) || 0;
-    return {
-      number,
-      label: tool ? gcodeToolLabel(tool) : toolDisplayName(number),
-      detail: String(tool?.name || "").trim(),
-      changeCount,
-      active: Number.isFinite(active) && active === number,
-    };
-  });
-}
-
 function renderProgramToolLists(preview = {}, machine = state.machine) {
   const tools = programToolListModel(preview, machine?.tool?.active);
   const key = JSON.stringify(tools);
@@ -814,45 +848,6 @@ function renderProgramToolLists(preview = {}, machine = state.machine) {
   }
 }
 
-function toolChangeTargetLabel(machine = state.machine, preview = state.activeGcode?.preview) {
-  const target = Number(machine?.tool?.target);
-  if (!Number.isFinite(target)) return "";
-  const tool = gcodeToolMetadata(preview?.tool_metadata, target);
-  if (!tool) return toolDisplayName(target);
-  return [gcodeToolLabel(tool), String(tool.name || "").trim()].filter(Boolean).join(" · ");
-}
-
-function toolChangeAttentionDetail(machine = state.machine, preview = state.activeGcode?.preview) {
-  const target = toolChangeTargetLabel(machine, preview);
-  const subject = target ? `Tool change requested for ${target}.` : "Tool change requested.";
-  return `${subject} Confirm the physical change, then continue.`;
-}
-
-function machineReadoutModel(machine, positions = {}, toolMetadata = []) {
-  const wpos = positions.wpos || machine?.wpos || {};
-  const mpos = positions.mpos || machine?.mpos || {};
-  const feed = fmtDashboardFeed(machine?.feed);
-  const spindle = fmtDashboardSpindle(machine?.spindle);
-  const offset = Number(machine?.tool?.offset);
-  const toolInfo = gcodeToolMetadata(toolMetadata, machine?.tool?.active);
-  return {
-    axes: ["x", "y", "z", "a"].map((axis) => ({
-      axis,
-      work: fmtCoord(axisValue(wpos, axis)),
-      machine: fmtCoord(axisValue(mpos, axis)),
-      available: axisValue(wpos, axis) !== null || axisValue(mpos, axis) !== null,
-    })),
-    metrics: {
-      feed,
-      spindle,
-      tool: {
-        current: toolInfo ? gcodeToolLabel(toolInfo) : fmtActiveTool(machine?.tool),
-        detail: toolInfo?.name || (Number.isFinite(offset) ? `TLO ${offset.toFixed(3)}` : "TLO -"),
-      },
-    },
-  };
-}
-
 function mountMachineReadouts() {
   const template = document.getElementById("machine-readout-template");
   if (!template?.content) return;
@@ -878,46 +873,6 @@ function machineFeedOverrideControlModel(machine, pendingAction = "", pendingPer
     resetDisabled: busy || !available || reported === 100,
   };
 }
-
-function renderMachineReadouts(machine = state.machine || {}) {
-  for (const host of document.querySelectorAll("[data-machine-readout-host]")) {
-    const jogHost = !!host.closest("#jog-view");
-    const model = machineReadoutModel(machine, jogHost ? currentAxisValues() : { wpos: machine.wpos, mpos: machine.mpos }, state.activeGcode?.preview?.tool_metadata || []);
-    for (const axis of model.axes) {
-      const row = host.querySelector(`[data-machine-axis="${axis.axis}"]`);
-      if (!row) continue;
-      setTextIfChanged(row.querySelector('[data-machine-space="work"]'), axis.work);
-      setTextIfChanged(row.querySelector('[data-machine-space="machine"]'), axis.machine);
-      row.classList.toggle("is-unavailable", !axis.available);
-    }
-    for (const [name, metric] of Object.entries(model.metrics)) {
-      const row = host.querySelector(`[data-machine-metric="${name}"]`);
-      if (!row) continue;
-      setTextIfChanged(row.querySelector("[data-machine-primary]"), metric.current);
-      setTextIfChanged(row.querySelector("[data-machine-secondary]"), metric.detail);
-    }
-    const feedControls = host.querySelector("[data-machine-feed-override]");
-    if (feedControls) {
-      const control = machineFeedOverrideControlModel(
-        machine,
-        state.activeGcodePending,
-        state.feedOverridePendingPercent,
-        state.readOnly,
-      );
-      feedControls.hidden = state.readOnly || !host.closest(".dashboard-machine");
-      feedControls.setAttribute("aria-busy", String(control.pending));
-      const reset = feedControls.querySelector("[data-machine-feed-reset]");
-      setTextIfChanged(reset, control.value);
-      for (const button of feedControls.querySelectorAll("button")) {
-        if (button.dataset.machineFeedDelta === "-10") button.disabled = control.decreaseDisabled;
-        else if (button.dataset.machineFeedDelta === "10") button.disabled = control.increaseDisabled;
-        else button.disabled = control.resetDisabled;
-        button.title = control.available ? "" : "Feed override is available while the connected machine is Idle, running, held, or paused.";
-      }
-    }
-  }
-}
-
 function toolDisplayName(toolID) {
   switch (Number(toolID)) {
   case -1:
@@ -937,34 +892,6 @@ function validToolID(toolID, allowEmpty = false) {
   if (!Number.isInteger(toolID)) return false;
   if (toolID === -1) return allowEmpty;
   return toolID === 0 || toolID === 8888 || toolID === 9999 || (toolID >= 1 && toolID <= 999);
-}
-
-function haltReason(m) {
-  if (m?.halt_reason) return m.halt_reason;
-  const h = m?.fields?.H;
-  const code = Number.parseInt(String(h || "").split(",")[0], 10);
-  if (!Number.isFinite(code)) return null;
-  return {
-    code,
-    message: HALT_REASON[code] || "Unknown alarm",
-    recovery: code >= 41 ? "power_cycle" : (code >= 21 ? "reset" : "unlock"),
-  };
-}
-
-function recoveryText(recovery, reason = null) {
-  if (reason?.code === 10) {
-    return "Soft limit halt. Clear the physical cause, then recover; the proxy sends $X, verifies status, and falls back to M999 if firmware stays in Alarm.";
-  }
-  switch (recovery) {
-  case "unlock":
-    return "Clear the cause, unlock, then home before moving.";
-  case "reset":
-    return "Clear the cause, reset the machine, reconnect, then home.";
-  case "power_cycle":
-    return "Switch the machine off and on, reconnect, then home.";
-  default:
-    return "Inspect the cause before moving the machine.";
-  }
 }
 
 function escapeHtml(s) {
@@ -996,20 +923,6 @@ function rememberCommand(line) {
 function newID(prefix) {
   if (globalThis.crypto && globalThis.crypto.randomUUID) return prefix + "-" + globalThis.crypto.randomUUID();
   return prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
-}
-
-function defaultGamepadSettings() {
-  return {
-    axes: {
-      x: { axis: 0, invert: false, scale: 1 },
-      y: { axis: 1, invert: true, scale: 1 },
-      z: { axis: 3, invert: true, scale: 1 },
-    },
-    deadman_button: 0,
-    slow_buttons: [4, 5],
-    outline_button: 7,
-    macro_buttons: [],
-  };
 }
 
 function defaultSurfaceViewPreferences() {
@@ -1048,21 +961,6 @@ function saveSurfaceViewPreferences() {
 
 function isSurfaceKiosk() {
   return typeof window !== "undefined" && window.matchMedia?.("(any-pointer: coarse) and (min-width: 700px)")?.matches === true;
-}
-
-function defaultMachineSettings() {
-  return {
-    work_area: { x_min: -302, x_max: -1, y_min: -212, y_max: -1 },
-    origin: { x: 0, y: 0 },
-    saved_origins: [],
-    feed_min_mm_min: DEFAULT_MACHINE_FEED_MIN_MM_MIN,
-    feed_max_mm_min: DEFAULT_MACHINE_FEED_MAX_MM_MIN,
-    tap_feed_mm_min: 600,
-    safe_z_mm: DEFAULT_SAFE_Z_MM,
-    safe_z_disabled: false,
-    learned: {},
-	learned_profiles: {},
-  };
 }
 
 function defaultOutlineState() {
@@ -1138,193 +1036,9 @@ function clampNumber(n, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
-function normalizeMachineSettings(machine) {
-  const d = defaultMachineSettings();
-  machine = machine || {};
-  const learned = normalizeMachineLearned(machine.learned);
-  const work = machine.work_area || {};
-  const hasLearnedWorkArea = Number.isFinite(learned.work_area?.x_min) && Number.isFinite(learned.work_area?.x_max) &&
-    Number.isFinite(learned.work_area?.y_min) && Number.isFinite(learned.work_area?.y_max);
-  const oldNominalDefault = Number(work.x_min) === -300 && Number(work.x_max) === 0 &&
-    Number(work.y_min) === -200 && Number(work.y_max) === 0;
-  const oldTravelDefault = Number(work.x_min) === -302 && Number(work.x_max) === 0 &&
-    Number(work.y_min) === -212 && Number(work.y_max) === 0;
-  if (oldNominalDefault || oldTravelDefault) {
-    machine = {
-      ...machine,
-      work_area: hasLearnedWorkArea ? learned.work_area : d.work_area,
-    };
-  }
-  const normalizedWork = machine.work_area || {};
-  const out = {
-    work_area: {
-      x_min: finiteOr(normalizedWork.x_min, d.work_area.x_min),
-      x_max: finiteOr(normalizedWork.x_max, d.work_area.x_max),
-      y_min: finiteOr(normalizedWork.y_min, d.work_area.y_min),
-      y_max: finiteOr(normalizedWork.y_max, d.work_area.y_max),
-    },
-    origin: {
-      x: finiteOr(machine.origin?.x, d.origin.x),
-      y: finiteOr(machine.origin?.y, d.origin.y),
-    },
-    saved_origins: normalizeSavedOrigins(machine.saved_origins),
-    feed_min_mm_min: finiteOr(machine.feed_min_mm_min, d.feed_min_mm_min),
-    feed_max_mm_min: finiteOr(machine.feed_max_mm_min, d.feed_max_mm_min),
-    tap_feed_mm_min: finiteOr(machine.tap_feed_mm_min, d.tap_feed_mm_min),
-    safe_z_mm: finiteOr(machine.safe_z_mm, d.safe_z_mm),
-    safe_z_disabled: !!machine.safe_z_disabled,
-    learned,
-	learned_profiles: Object.fromEntries(Object.entries(machine.learned_profiles || {}).map(([key, profile]) => [key, normalizeMachineLearned(profile)])),
-  };
-  if (out.work_area.x_min >= out.work_area.x_max) {
-    out.work_area.x_min = d.work_area.x_min;
-    out.work_area.x_max = d.work_area.x_max;
-  }
-  if (out.work_area.y_min >= out.work_area.y_max) {
-    out.work_area.y_min = d.work_area.y_min;
-    out.work_area.y_max = d.work_area.y_max;
-  }
-  out.feed_min_mm_min = clampNumber(out.feed_min_mm_min, DEFAULT_MACHINE_FEED_MIN_MM_MIN, MAX_MACHINE_FEED_MM_MIN);
-  out.feed_max_mm_min = clampNumber(out.feed_max_mm_min, out.feed_min_mm_min, MAX_MACHINE_FEED_MM_MIN);
-  const bounds = feedBoundsFor(out);
-  out.tap_feed_mm_min = clampNumber(out.tap_feed_mm_min || d.tap_feed_mm_min, bounds.min, bounds.max);
-  out.safe_z_mm = safeZForTapMove(out);
-  return out;
-}
-
-function normalizeMachineLearned(learned) {
-  if (!learned || typeof learned !== "object") return {};
-  const out = { ...learned };
-  out.identity = learned.identity && typeof learned.identity === "object" ? { ...learned.identity } : {};
-  const work = learned.work_area && typeof learned.work_area === "object" ? {
-    x_min: finiteOr(learned.work_area.x_min, NaN),
-    x_max: finiteOr(learned.work_area.x_max, NaN),
-    y_min: finiteOr(learned.work_area.y_min, NaN),
-    y_max: finiteOr(learned.work_area.y_max, NaN),
-  } : null;
-  out.work_area = work && Number.isFinite(work.x_min) && Number.isFinite(work.x_max) &&
-    Number.isFinite(work.y_min) && Number.isFinite(work.y_max) && work.x_min < work.x_max && work.y_min < work.y_max ? work : {};
-  out.feed = learned.feed && typeof learned.feed === "object" ? { ...learned.feed } : {};
-  out.soft_endstop = learned.soft_endstop && typeof learned.soft_endstop === "object" ? { ...learned.soft_endstop } : {};
-  const anchors = learned.anchors && typeof learned.anchors === "object" ? learned.anchors : {};
-  const anchorPoint = (point) => ({ x: finiteOr(point?.x, NaN), y: finiteOr(point?.y, NaN) });
-  const anchor1 = anchorPoint(anchors.anchor1);
-  const anchor2 = anchorPoint(anchors.anchor2);
-  out.anchors = !!anchors.available && Number.isFinite(anchor1.x) && Number.isFinite(anchor1.y) &&
-    Number.isFinite(anchor2.x) && Number.isFinite(anchor2.y) ? { available: true, anchor1, anchor2 } : {};
-  out.clearance = learned.clearance && typeof learned.clearance === "object" ? { ...learned.clearance } : {};
-  out.probe = learned.probe && typeof learned.probe === "object" ? { ...learned.probe } : {};
-  out.config = learned.config && typeof learned.config === "object" ? { ...learned.config } : {};
-  out.config_numbers = learned.config_numbers && typeof learned.config_numbers === "object" ? { ...learned.config_numbers } : {};
-  out.config_bools = learned.config_bools && typeof learned.config_bools === "object" ? { ...learned.config_bools } : {};
-  out.diagnostics = learned.diagnostics && typeof learned.diagnostics === "object" ? { ...learned.diagnostics } : {};
-  return out;
-}
-
-function feedBoundsFor(machine) {
-  const d = defaultMachineSettings();
-  const configuredMin = clampNumber(finiteOr(machine?.feed_min_mm_min, d.feed_min_mm_min), DEFAULT_MACHINE_FEED_MIN_MM_MIN, MAX_MACHINE_FEED_MM_MIN);
-  const configuredMax = clampNumber(finiteOr(machine?.feed_max_mm_min, d.feed_max_mm_min), configuredMin, MAX_MACHINE_FEED_MM_MIN);
-  return { min: configuredMin, max: configuredMax, configuredMin, configuredMax };
-}
-
-function safeZForTapMove(machine) {
-  const safeZ = finiteOr(machine?.safe_z_mm, DEFAULT_SAFE_Z_MM);
-  return Math.min(safeZ, safeZCeiling(machine));
-}
-
 // The server repeats this policy authoritatively for every proxy-managed safe
 // move. Keeping the browser mirror here makes the configured target visible
 // before a command is sent, without trusting the browser for enforcement.
-function safeZCeiling(machine) {
-  const learned = normalizeMachineLearned(machine?.learned);
-  const zMin = finiteOr(learned.z_min_mm, NaN);
-  const zMax = finiteOr(learned.z_max_mm, NaN);
-  const clearance = finiteOr(learned.config_numbers?.["coordinate.clearance_z"], NaN);
-  let ceiling = DEFAULT_SAFE_Z_MM;
-  if (Number.isFinite(clearance)) ceiling = Math.min(ceiling, clearance);
-  if (Number.isFinite(zMin) && Number.isFinite(zMax) && zMax - zMin > 2 * SAFE_Z_LIMIT_MARGIN_MM) {
-    ceiling = Math.min(ceiling, zMax - SAFE_Z_LIMIT_MARGIN_MM);
-  }
-  return ceiling;
-}
-
-function normalizeSavedOrigins(origins) {
-  if (!Array.isArray(origins)) return [];
-  const out = [];
-  const seen = new Set();
-  for (let i = 0; i < origins.length && out.length < 48; i++) {
-    const saved = origins[i] || {};
-    const id = String(saved.id || newID("origin"));
-    if (seen.has(id)) continue;
-    const label = String(saved.label || "").trim().slice(0, 80);
-    const x = finiteOr(saved.origin?.x, NaN);
-    const y = finiteOr(saved.origin?.y, NaN);
-    if (!label || !Number.isFinite(x) || !Number.isFinite(y)) continue;
-    seen.add(id);
-    out.push({
-      id,
-      label,
-      origin: { x, y },
-      created_at: saved.created_at || new Date().toISOString(),
-    });
-  }
-  return out;
-}
-
-function normalizeAxisSetting(axis, fallback) {
-  axis = axis || {};
-  const idx = Number.isInteger(axis.axis) ? axis.axis : fallback.axis;
-  const scale = Number.isFinite(axis.scale) && axis.scale > 0 ? axis.scale : fallback.scale;
-  return {
-    axis: Math.max(0, Math.min(31, idx)),
-    invert: Object.prototype.hasOwnProperty.call(axis, "invert") ? !!axis.invert : fallback.invert,
-    scale: Math.max(0.05, Math.min(1, scale)),
-  };
-}
-
-function normalizeButtonList(buttons, fallback) {
-  const raw = Array.isArray(buttons) ? buttons : fallback;
-  const out = [];
-  const seen = new Set();
-  for (const btn of raw) {
-    const n = Number(btn);
-    if (!Number.isInteger(n) || n < 0 || n > 63 || seen.has(n)) continue;
-    seen.add(n);
-    out.push(n);
-  }
-  return out;
-}
-
-function normalizeGamepadSettings(gamepad, macroIDs) {
-  const d = defaultGamepadSettings();
-  gamepad = gamepad || {};
-  const rawBindings = Array.isArray(gamepad.macro_buttons) ? gamepad.macro_buttons : [];
-  const bindings = [];
-  const seenButtons = new Set();
-  for (const binding of rawBindings) {
-    const button = Number(binding.button);
-    if (!Number.isInteger(button) || button < 0 || button > 63 || seenButtons.has(button)) continue;
-    if (!macroIDs.has(binding.macro_id)) continue;
-    seenButtons.add(button);
-    bindings.push({ id: binding.id || newID("gamepad-macro"), button, macro_id: binding.macro_id });
-  }
-  bindings.sort((a, b) => a.button - b.button);
-  const deadman = Number(gamepad.deadman_button);
-  const outlineButton = Number(gamepad.outline_button);
-  return {
-    axes: {
-      x: normalizeAxisSetting(gamepad.axes?.x, d.axes.x),
-      y: normalizeAxisSetting(gamepad.axes?.y, d.axes.y),
-      z: normalizeAxisSetting(gamepad.axes?.z, d.axes.z),
-    },
-    deadman_button: Number.isInteger(deadman) && deadman >= 0 && deadman <= 63 ? deadman : d.deadman_button,
-    slow_buttons: normalizeButtonList(gamepad.slow_buttons, d.slow_buttons),
-    outline_button: Number.isInteger(outlineButton) && outlineButton >= 0 && outlineButton <= 63 ? outlineButton : d.outline_button,
-    macro_buttons: bindings,
-  };
-}
-
 function gamepadLabel(gp) {
   if (!gp) return "";
   const raw = String(gp.id || "").trim();
@@ -1355,56 +1069,6 @@ function isXboxGamepad(gp) {
 function isXboxGamepadID(id) {
   const s = String(id || "").toLowerCase();
   return /\bxbox\b/.test(s) || /\bxinput\b/.test(s) || s.includes("x-input") || s.includes("vendor: 045e") || s.includes("vid_045e");
-}
-
-function normalizeUISettings(ui) {
-  ui = ui || {};
-  const macrosIn = Array.isArray(ui.macros) ? ui.macros : [];
-  const slotsIn = Array.isArray(ui.macro_buttons) ? ui.macro_buttons : [];
-  const macros = [];
-  const macroIDs = new Set();
-  for (let i = 0; i < macrosIn.length; i++) {
-    const m = macrosIn[i];
-    const macro = {
-      id: m.id || newID("macro"),
-      name: m.name || "Macro " + (i + 1),
-      description: m.description || "",
-      lines: Array.isArray(m.lines) ? m.lines : String(m.lines || "").split(/\r?\n/),
-      color: m.color || "",
-      created_at: m.created_at,
-      updated_at: m.updated_at,
-    };
-    if (macroIDs.has(macro.id)) continue;
-    macroIDs.add(macro.id);
-    macros.push(macro);
-  }
-  const macroButtons = [];
-  const slotIDs = new Set();
-  const placedMacros = new Set();
-  for (let i = 0; i < slotsIn.length; i++) {
-    const s = slotsIn[i];
-    const slot = {
-      id: s.id || newID("slot"),
-      macro_id: s.macro_id,
-      region: s.region === "toolbar" ? "toolbar" : "panel",
-      order: Number.isFinite(s.order) ? s.order : i,
-    };
-    if (!macroIDs.has(slot.macro_id) || slotIDs.has(slot.id) || placedMacros.has(slot.macro_id)) continue;
-    slotIDs.add(slot.id);
-    placedMacros.add(slot.macro_id);
-    macroButtons.push(slot);
-  }
-  return {
-    macros,
-    macro_buttons: macroButtons,
-    log: {
-      filter: ui.log?.filter || "all",
-      autoscroll: ui.log?.autoscroll !== false,
-    },
-    gamepad: normalizeGamepadSettings(ui.gamepad, macroIDs),
-    machine: normalizeMachineSettings(ui.machine),
-    dashboard: normalizeDashboardSettings(ui.dashboard),
-  };
 }
 
 function defaultDashboardSettings() {
@@ -1496,27 +1160,6 @@ async function loadAPICapabilities() {
     clearConnectivityIssue("api-capabilities");
   } catch (e) {
     setConnectivityIssue("api-capabilities", "API capabilities unavailable: " + e.message);
-  }
-}
-
-async function refreshMachineLearnedSettings() {
-  try {
-    const r = await request("/api/ui/settings");
-    const incoming = normalizeMachineSettings((await r.json()).machine);
-    const current = normalizeMachineSettings(state.ui.machine);
-    const incomingLearnedAt = Date.parse(incoming.learned?.learned_at || "");
-    const currentLearnedAt = Date.parse(current.learned?.learned_at || "");
-    if (Number.isFinite(currentLearnedAt) && (!Number.isFinite(incomingLearnedAt) || incomingLearnedAt < currentLearnedAt)) return;
-    state.ui.machine = {
-      ...current,
-      learned: incoming.learned,
-      learned_profiles: incoming.learned_profiles,
-    };
-    renderMachineSettings();
-    renderJog();
-  } catch {
-    // The normal connection/status surfaces report outages. A read-only
-    // refresh must not replace local action feedback with a duplicate notice.
   }
 }
 
@@ -1676,7 +1319,7 @@ function recoverForegroundSession() {
   resetEventStream("controlES");
   resetEventStream("filesES");
   connectControlSSE();
-  if (state.filesLoaded) connectFilesSSE();
+  if (filesFeature.isLoaded()) connectFilesSSE();
   loadDashboardCameras();
   loadActiveGcode();
   loadAPICapabilities();
@@ -1750,15 +1393,11 @@ function installPullToRefresh() {
 }
 
 function queuePendingCount() {
-  let n = 0;
-  for (const j of state.jobs.values()) {
-    if (j.state === "queued" || j.state === "running") n++;
-  }
-  return n;
+  return filesFeature.queuePendingCount();
 }
 
 async function refreshJobs() {
-  return filesJobRefresh.refreshJobs();
+  return filesFeature.refreshJobs();
 }
 
 function pendingCount() {
@@ -1766,232 +1405,10 @@ function pendingCount() {
   return Number.isFinite(n) ? n : queuePendingCount();
 }
 
-function machineActionState(machine = state.machine) {
-  const age = Number(machine?.age_ms);
-  if (!machine?.connected || machine?.stale || (Number.isFinite(age) && age > 10000)) return "Unknown";
-  return String(machine?.state || "Unknown");
-}
-
 // Job controls intentionally take spindle authority from the server-side job
 // context. The browser may use the observed state as a compatibility fallback
 // for existing Pause/Resume/Stop endpoints, but it never guesses a spindle
 // speed or direction for Start.
-function jobControlModel(machine = state.machine, pendingAction = "", readOnly = state.readOnly) {
-  const actionState = machineActionState(machine);
-  const control = machine?.job_control;
-  const hasContract = !!control && typeof control === "object";
-  const spindle = control?.spindle && typeof control.spindle === "object" ? control.spindle : {};
-  const speed = Number(spindle.speed_rpm);
-  const speedKnown = spindle.speed_known === true && Number.isFinite(speed) && speed > 0;
-  const pending = String(pendingAction || "");
-  const usable = !readOnly && actionState !== "Unknown";
-  const available = {
-    pause: hasContract ? control.can_pause === true : actionState === "Run",
-    resume: hasContract ? control.can_resume === true : actionState === "Pause",
-    "stop-spindle": hasContract ? control.can_stop_spindle === true : actionState === "Pause",
-    // An explicitly supplied speed/direction is safe to expose only after the
-    // server has confirmed a paused job. The request remains server-validated;
-    // the browser does not manufacture a value from telemetry.
-    "start-spindle": hasContract && (control.can_start_spindle === true || (control.paused === true && !speedKnown)),
-  };
-  const actions = {};
-  for (const [action, visible] of Object.entries(available)) {
-    const actionPending = pending === action ||
-      (action === "pause" && pending === "pause_job") ||
-      (action === "resume" && pending === "resume_job") ||
-      (action === "stop-spindle" && pending === "stop_spindle") ||
-      (action === "start-spindle" && pending === "start_spindle");
-    actions[action] = {
-      visible: !!visible && usable,
-      disabled: !!pending || !usable,
-      pending: actionPending,
-    };
-  }
-  return { actions, speed: speedKnown ? Math.round(speed) : null };
-}
-
-function jobControlLabel(action, model, compact = false) {
-  switch (action) {
-  case "pause":
-    return compact ? "Pause" : "Pause job";
-  case "resume":
-    return compact ? "Resume" : "Resume job";
-  case "stop-spindle":
-    return "Stop spindle";
-  case "start-spindle":
-    return model.speed === null ? "Start spindle" : `Start · ${model.speed.toLocaleString("en-US")} rpm`;
-  default:
-    return action;
-  }
-}
-
-function renderJobControls(machine = state.machine || {}) {
-  const model = jobControlModel(machine, state.activeGcodePending, state.readOnly);
-  for (const group of document.querySelectorAll("[data-job-controls]")) {
-    const compact = group.classList.contains("dashboard-job-controls");
-    group.setAttribute("aria-busy", String(!!state.activeGcodePending));
-    let visibleAction = false;
-    for (const button of group.querySelectorAll("[data-job-control]")) {
-      const action = button.dataset.jobControl;
-      const control = model.actions[action];
-      if (!control) continue;
-      // Overview is deliberately shortcut-only: an unknown speed belongs in
-      // Active Job, where its explicit direction/speed fields are visible.
-      const visible = control.visible && !(compact && action === "start-spindle" && model.speed === null);
-      button.hidden = !visible;
-      button.disabled = control.disabled;
-      button.setAttribute("aria-busy", String(control.pending));
-      setTextIfChanged(button, jobControlLabel(action, model, compact));
-      visibleAction ||= visible;
-    }
-    const explicitStart = !compact && model.actions["start-spindle"].visible && model.speed === null;
-    for (const field of group.querySelectorAll("[data-job-start-field]")) {
-      field.hidden = !explicitStart;
-      const input = field.querySelector("input, select");
-      if (input) input.disabled = model.actions["start-spindle"].disabled;
-    }
-    group.hidden = !visibleAction;
-    group.classList.toggle("has-explicit-start", explicitStart);
-  }
-}
-
-function renderMachine() {
-  const m = state.machine || {};
-  document.getElementById("mode").textContent = m.mode || "owner";
-  document.getElementById("age").textContent = fmtAge(m.age_ms);
-  document.getElementById("pending").textContent = String(pendingCount());
-  const el = document.getElementById("state");
-  const actionableState = machineActionState(m);
-  const displayState = actionableState === "Unknown" && m.reconnecting ? "Reconnecting" : actionableState;
-  el.textContent = displayState;
-  el.className = "badge state-" + actionableState;
-  document.getElementById("status-mpos").textContent = fmtPos(m.mpos, !!m.motion_estimated);
-  document.getElementById("status-wpos").textContent = fmtPos(m.wpos, !!m.motion_estimated);
-  document.getElementById("status-feed").textContent = fmtActiveFeed(m.feed);
-  document.getElementById("status-spindle").textContent = fmtSpindle(m.spindle);
-  document.getElementById("status-tool").textContent = fmtActiveTool(m.tool);
-  renderToolStatus(m);
-  const connection = document.getElementById("status-connection");
-  if (connection) {
-    const status = m.reconnecting ? "reconnecting" : (m.connected ? "connected" : "outage");
-    const label = status === "connected" ? "Connected to machine" :
-      (status === "reconnecting" ? "Reconnecting to machine" : "Machine connection outage");
-    connection.className = "connection-status " + status;
-    connection.setAttribute("aria-label", label);
-    connection.title = label;
-  }
-  renderAlarmPanel(m);
-  renderAttention(m);
-  renderJobControls(m);
-  renderActiveGcode();
-  syncJogAvailabilityFromMachine(m);
-  checkOriginVerification();
-  renderJog();
-  renderOutlineCapture();
-}
-
-function renderAttention(m) {
-  const machineState = machineActionState(m);
-  const details = {
-    Pause: "The job is paused. Review the job before resuming motion.",
-    Wait: "The controller is waiting for an operator decision. Review the active job before resuming.",
-    Hold: "Motion is on hold. Make sure the work area is clear before resuming.",
-    Alarm: "The machine reported an alarm. Clear the physical cause before attempting recovery.",
-  };
-  setTextIfChanged(document.getElementById("attention-state"), "Machine state: " + machineState);
-  const detail = machineState === "Tool"
-    ? toolChangeAttentionDetail(m, state.activeGcode?.preview)
-    : (details[machineState] || "No operator action is currently requested.");
-  setTextIfChanged(document.getElementById("attention-detail"), detail);
-  const resume = document.getElementById("attention-resume");
-  const recover = document.getElementById("attention-recover");
-  const tool = document.getElementById("attention-open-tool");
-  const resumeAction = attentionResumeAction(machineState);
-  if (resume) {
-    resume.hidden = state.readOnly || !resumeAction;
-    resume.disabled = !!state.activeGcodePending || !!state.controlPendingAction;
-    resume.setAttribute("aria-busy", String(
-      state.activeGcodePending === "resume_job" || state.controlPendingAction === "resume",
-    ));
-    resume.dataset.resumeAction = resumeAction;
-    setTextIfChanged(resume, machineState === "Pause" ? "Resume paused job" : "Resume motion");
-  }
-  if (recover) recover.hidden = state.readOnly || machineState !== "Alarm";
-  if (tool) tool.hidden = state.readOnly || machineState !== "Tool";
-}
-
-function attentionResumeAction(machineState) {
-  if (machineState === "Pause") return "resume_job";
-  if (machineState === "Hold") return "resume";
-  return "";
-}
-
-function renderToolStatus(m) {
-  const tool = m.tool || null;
-  const active = Number.isFinite(tool?.active) ? toolDisplayName(tool.active) : "-";
-  const target = Number.isFinite(tool?.target) ? " -> " + toolDisplayName(tool.target) : "";
-  const tlo = Number.isFinite(tool?.offset) ? tool.offset.toFixed(3) : "N/A";
-  const wpRaw = String(m.fields?.W || "").split(",")[0];
-  const wp = Number.parseFloat(wpRaw);
-  const setText = (id, value) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = value;
-  };
-  setText("tool-active-status", active + target);
-  setText("tool-tlo-status", tlo);
-  setText("tool-wp-status", Number.isFinite(wp) ? wp.toFixed(2) + "v" : "-");
-  renderToolActions(m);
-}
-
-function renderAlarmPanel(m) {
-  const panel = document.getElementById("alarm-panel");
-  const reason = haltReason(m);
-  panel.hidden = m.state !== "Alarm";
-  if (panel.hidden) {
-    clearNotice("alarm");
-    if (state.controlPendingAction !== "recover") {
-      state.lastControlResult = null;
-      clearNotice("control-recover");
-    }
-    return;
-  }
-
-  const code = reason ? "H:" + reason.code : "H:-";
-  const message = reason?.message || "Unknown alarm";
-  const recovery = reason?.recovery || "inspect";
-  document.getElementById("alarm-title").textContent = `Alarm ${code}: ${message}`;
-  document.getElementById("alarm-detail").textContent = recoveryText(recovery, reason);
-  const btn = document.getElementById("alarm-recover");
-  const pending = state.controlPendingAction === "recover";
-  btn.hidden = recovery === "power_cycle";
-  btn.disabled = pending || recovery === "inspect";
-  btn.textContent = pending ? "Recovering..." : recoveryButtonText(recovery, reason);
-  let statusText = "";
-  let statusKind = "";
-  if (pending) {
-    statusText = "Sending recovery command and verifying machine status...";
-  } else if (state.lastControlResult?.action === "recover" && state.lastControlResult?.message) {
-    statusText = state.lastControlResult.message;
-    statusKind = state.lastControlResult.failed ? "error" : "ok";
-  } else {
-    statusText = recovery === "power_cycle" ? "This halt class cannot be cleared in software." : "";
-    statusKind = recovery === "power_cycle" ? "error" : "";
-  }
-  setStatusMessage("alarm", statusText, statusKind);
-}
-
-function recoveryButtonText(recovery, reason = null) {
-  if (reason?.code === 10) return "Unlock Soft Limit";
-  switch (recovery) {
-  case "unlock":
-    return "Unlock Alarm";
-  case "reset":
-    return "Reset Machine";
-  default:
-    return "Recover";
-  }
-}
-
 function syncJogAvailabilityFromMachine(m) {
   if (!state.jog.caps?.enabled) return;
   // Movement ownership comes from the jog service, not the shared machine
@@ -2458,187 +1875,6 @@ function bindButtonAction(el, handler) {
   });
 }
 
-function machineReadyForOriginSet() {
-  const m = state.machine || {};
-  const age = Number(m.age_ms);
-  return !!m.connected && m.state === "Idle" && !m.stale && (!Number.isFinite(age) || age <= 10000);
-}
-
-function renderOriginButtons() {
-  const j = state.jog;
-  const pendingAxis = hasPendingOriginOperation();
-  const zProbePending = !!j.zProbePending;
-  const probe3DPending = !!j.probe3DPending;
-  const jogReady = !!j.caps?.enabled && j.link === "online" && j.armed;
-  const externalJogBusy = !j.armed && j.availability && !j.availability.available && j.availability.reason === "busy";
-  const apiReady = !j.armed && machineReadyForOriginSet() && !externalJogBusy;
-  const ready = (jogReady || apiReady) && !j.armPending && !tapMoveTargetBusy() && !j.zStepPending && !pendingAxis && !zProbePending;
-  const busy = !!j.armPending || tapMoveTargetBusy() || !!j.zStepPending || !!pendingAxis || zProbePending;
-  const probeReady = apiReady && isProbeToolActive();
-  const probe3DReady = apiReady && is3DProbeToolActive();
-  for (const btn of document.querySelectorAll("[data-origin-zero]")) {
-    btn.disabled = busy;
-    setSoftDisabled(btn, !busy && !ready);
-  }
-  const probe = document.getElementById("origin-probe-z");
-  if (probe) {
-    probe.disabled = busy;
-    setSoftDisabled(probe, !busy && !probeReady);
-    setTextIfChanged(probe, zProbePending && !probe3DPending ? "Probing..." : "Probe Z");
-  }
-  const probe3D = document.getElementById("origin-probe-3d");
-  if (probe3D) {
-    probe3D.disabled = busy;
-    setSoftDisabled(probe3D, !busy && !probe3DReady);
-    setTextIfChanged(probe3D, probe3DPending ? "Probing..." : "3D Probe");
-  }
-  for (const id of ["origin-set-xyz-open", "origin-set-open", "origin-presets-open"]) {
-    const btn = document.getElementById(id);
-    if (btn) btn.disabled = busy;
-  }
-  for (const id of ["origin-xyz-x", "origin-xyz-y", "origin-xyz-z", "origin-set-source", "origin-set-x", "origin-set-y"]) {
-    const input = document.getElementById(id);
-    if (input) input.disabled = busy;
-  }
-  for (const id of ["origin-xyz-apply", "origin-set-apply"]) {
-    const btn = document.getElementById(id);
-    if (!btn) continue;
-    btn.disabled = busy;
-    setSoftDisabled(btn, !busy && !ready);
-    setTextIfChanged(btn, pendingAxis ? "Setting..." : (id === "origin-xyz-apply" ? "Set XYZ" : "Set Origin"));
-  }
-  renderSavedOriginSelect();
-  const save = document.getElementById("saved-origin-save");
-  const label = document.getElementById("saved-origin-label");
-  const currentOrigin = currentWorkOrigin();
-  if (label) label.disabled = busy;
-  if (save) {
-    save.disabled = busy;
-    setSoftDisabled(save, !busy && !currentOrigin);
-  }
-  const del = document.getElementById("saved-origin-delete");
-  const selected = selectedSavedOrigin();
-  const recall = document.getElementById("saved-origin-recall");
-  if (recall) {
-    recall.disabled = busy || !selected;
-    setSoftDisabled(recall, !busy && !!selected && !ready);
-  }
-  if (del) {
-    del.disabled = busy || !selected;
-  }
-  renderOriginSetSourceLabels();
-}
-
-function setOriginFeedback(text, kind = "") {
-  setStatusMessage("origin-action", text, kind, { force: true });
-}
-
-function renderOriginSetSourceLabels() {
-  const machineCoordinates = document.getElementById("origin-set-source")?.value === "machine";
-  const xLabel = document.getElementById("origin-set-x-label");
-  const yLabel = document.getElementById("origin-set-y-label");
-  if (xLabel) xLabel.textContent = machineCoordinates ? "Machine X" : "X Offset";
-  if (yLabel) yLabel.textContent = machineCoordinates ? "Machine Y" : "Y Offset";
-  renderOriginSetChange();
-}
-
-function hasPendingOriginOperation() {
-  return !!state.jog.originPendingAxis || !!state.jog.originPending || !!state.jog.originPendingTargets;
-}
-
-function savedOrigins() {
-  const machine = state.ui.machine || defaultMachineSettings();
-  return Array.isArray(machine.saved_origins) ? machine.saved_origins : [];
-}
-
-function selectedSavedOrigin() {
-  const id = document.getElementById("saved-origin-select")?.value || "";
-  return savedOrigins().find((origin) => origin.id === id) || null;
-}
-
-function savedOriginLabel(origin) {
-  if (!origin) return "";
-  return `${origin.label} (${fmtCoord(origin.origin?.x)}, ${fmtCoord(origin.origin?.y)})`;
-}
-
-function renderSavedOriginSelect() {
-  const select = document.getElementById("saved-origin-select");
-  if (!select) return;
-  const origins = savedOrigins();
-  const signature = JSON.stringify(origins.map((origin) => [origin.id, savedOriginLabel(origin)]));
-  // Rebuild options only when the backing list changed and the operator does
-  // not own the control (focused/open); a deferred rebuild happens on the next
-  // render after blur.
-  if (select.dataset.originsSignature !== signature && !controlLocallyOwned(select)) {
-    const previous = select.value;
-    select.innerHTML = "";
-    const empty = document.createElement("option");
-    empty.value = "";
-    empty.textContent = origins.length ? "Select saved zero" : "No saved zeros";
-    select.appendChild(empty);
-    for (const origin of origins) {
-      const option = document.createElement("option");
-      option.value = origin.id;
-      option.textContent = savedOriginLabel(origin);
-      select.appendChild(option);
-    }
-    if (origins.some((origin) => origin.id === previous)) select.value = previous;
-    select.dataset.originsSignature = signature;
-  }
-  select.disabled = hasPendingOriginOperation();
-}
-
-function saveCurrentOrigin() {
-  if (hasPendingOriginOperation()) return;
-  const origin = currentWorkOrigin();
-  if (!origin || axisValue(origin, "x") === null || axisValue(origin, "y") === null) {
-    setTapFeedback("Current work zero is unavailable.", "error");
-    return;
-  }
-  const input = document.getElementById("saved-origin-label");
-  const label = String(input?.value || "").trim();
-  if (!label) {
-    setTapFeedback("Enter a label before saving the current zero.", "error");
-    return;
-  }
-  const machine = normalizeMachineSettings(state.ui.machine);
-  const saved = {
-    id: newID("origin"),
-    label: label.slice(0, 80),
-    origin: { x: axisValue(origin, "x"), y: axisValue(origin, "y") },
-    created_at: new Date().toISOString(),
-  };
-  state.ui.machine = normalizeMachineSettings({
-    ...machine,
-    saved_origins: [...savedOrigins(), saved],
-  });
-  if (input) input.value = "";
-  queueSaveUISettings();
-  renderMachineSettings();
-  renderJog();
-  const select = document.getElementById("saved-origin-select");
-  if (select) select.value = saved.id;
-  setOriginFeedback("Saved origin " + saved.label + ".", "ok");
-}
-
-function deleteSelectedOrigin() {
-  if (hasPendingOriginOperation()) return;
-  const selected = selectedSavedOrigin();
-  if (!selected) {
-    setTapFeedback("Select a saved zero to delete.", "error");
-    return;
-  }
-  const machine = normalizeMachineSettings(state.ui.machine);
-  state.ui.machine = normalizeMachineSettings({
-    ...machine,
-    saved_origins: savedOrigins().filter((origin) => origin.id !== selected.id),
-  });
-  queueSaveUISettings();
-  renderMachineSettings();
-  renderJog();
-  setOriginFeedback("Deleted saved origin " + selected.label + ".");
-}
-
 function jogPanelMessage() {
   const j = state.jog;
   if (j.error) return { text: jogErrorText(j.error), kind: "error" };
@@ -2675,247 +1911,8 @@ function jogErrorText(err) {
   }
 }
 
-const WORKAREA_PAD = 6;
-const WORKAREA_VIEW_SIZE = 100;
-const WORKAREA_MIN_ZOOM = 1;
-const WORKAREA_MAX_ZOOM = 8;
-const WORKAREA_ZOOM_STEP = 1.25;
-const WORKAREA_PAN_THRESHOLD_PX = 4;
-const SPINDLE_DIAMETER_MM = 3.175;
-const OUTLINE_POINT_DIAMETER_MM = SPINDLE_DIAMETER_MM + 0.5;
 const OUTLINE_FIELD_SPACING_DEBOUNCE_MS = 450;
 let outlineFieldSpacingTimer = null;
-
-function renderMachineSettings() {
-  const m = state.ui.machine || defaultMachineSettings();
-  setInputValue("machine-x-min", m.work_area.x_min);
-  setInputValue("machine-x-max", m.work_area.x_max);
-  setInputValue("machine-y-min", m.work_area.y_min);
-  setInputValue("machine-y-max", m.work_area.y_max);
-  setInputValue("machine-origin-x", m.origin.x);
-  setInputValue("machine-origin-y", m.origin.y);
-  setInputValue("machine-feed-min", m.feed_min_mm_min);
-  setInputValue("machine-feed-max", m.feed_max_mm_min);
-  setInputValue("tap-feed-mm-min", m.tap_feed_mm_min);
-  setInputValue("machine-safe-z", m.safe_z_mm);
-  const safeToggle = document.getElementById("tap-safe-z-enabled");
-  if (safeToggle && safeToggle !== document.activeElement) safeToggle.checked = !m.safe_z_disabled;
-  const learn = document.getElementById("machine-learn");
-  if (learn) {
-    learn.disabled = state.machineLearnPending;
-    learn.setAttribute("aria-busy", state.machineLearnPending ? "true" : "false");
-    setTextIfChanged(learn, state.machineLearnPending ? "Learning..." : "Learn from machine");
-  }
-  renderMachineLearnedSummary(m.learned);
-}
-
-function setInputValue(id, value) {
-  const el = document.getElementById(id);
-  if (controlLocallyOwned(el)) return;
-  el.value = Number.isFinite(value) ? String(value) : "";
-}
-
-function setControlValueIfIdle(id, value) {
-  const el = document.getElementById(id);
-  if (controlLocallyOwned(el)) return;
-  el.value = value == null ? "" : String(value);
-}
-
-function setCheckedIfIdle(id, checked) {
-  const el = document.getElementById(id);
-  if (controlLocallyOwned(el)) return;
-  el.checked = !!checked;
-}
-
-function controlLocallyOwned(el) {
-  return !el || el === document.activeElement || el.dataset.dirty === "1" || el.dataset.dragging === "1";
-}
-
-function markControlDirty(el) {
-  if (el) el.dataset.dirty = "1";
-}
-
-function clearControlDrafts(...items) {
-  for (const item of items.flat()) {
-    const el = typeof item === "string" ? document.getElementById(item) : item;
-    if (!el) continue;
-    delete el.dataset.dirty;
-    delete el.dataset.dragging;
-    el.setCustomValidity?.("");
-  }
-}
-
-function bindDirtyDraftControls(ids) {
-  for (const id of ids) {
-    const el = document.getElementById(id);
-    if (!el) continue;
-    el.addEventListener("input", () => markControlDirty(el));
-    el.addEventListener("change", () => markControlDirty(el));
-  }
-}
-
-function renderMachineLearnedSummary(learned) {
-  const box = document.getElementById("machine-learned-summary");
-  if (!box) return;
-  box.innerHTML = "";
-  const lines = machineLearnedSummaryLines(learned);
-  for (const line of lines) {
-    const div = document.createElement("div");
-    div.textContent = line;
-    box.appendChild(div);
-  }
-}
-
-function machineLearnedSummaryLines(learned) {
-  learned = normalizeMachineLearned(learned);
-  const lines = [];
-  const id = learned.identity || {};
-  const identity = [id.model, id.version, id.file_type].filter(Boolean).join(" / ");
-  if (identity) lines.push(identity);
-  const area = learned.work_area || {};
-  if (Number.isFinite(area.x_min) && Number.isFinite(area.x_max) && Number.isFinite(area.y_min) && Number.isFinite(area.y_max)) {
-    lines.push(`travel X ${fmtCoord(area.x_min)}..${fmtCoord(area.x_max)}  Y ${fmtCoord(area.y_min)}..${fmtCoord(area.y_max)}`);
-  }
-  const zMin = finiteOr(learned.z_min_mm, NaN);
-  const zMax = finiteOr(learned.z_max_mm, NaN);
-  if (Number.isFinite(zMin) || Number.isFinite(zMax)) lines.push(`Z ${fmtCoord(zMin)}..${fmtCoord(zMax)}`);
-  const feed = learned.feed || {};
-  const maxXY = finiteOr(feed.max_xy_mm_min, NaN);
-  const seek = finiteOr(feed.seek_mm_min, NaN);
-  if (Number.isFinite(maxXY)) lines.push(`XY max feed ${Math.round(maxXY)} mm/min`);
-  else if (Number.isFinite(seek)) lines.push(`seek feed ${Math.round(seek)} mm/min`);
-  const configCount = Object.keys(learned.config || {}).length;
-  const diagCount = Object.keys(learned.diagnostics || {}).length;
-  const anchors = learned.anchors || {};
-  if (anchors.available) {
-    lines.push(`Anchor 1 ${fmtCoord(anchors.anchor1?.x)}, ${fmtCoord(anchors.anchor1?.y)}  Anchor 2 ${fmtCoord(anchors.anchor2?.x)}, ${fmtCoord(anchors.anchor2?.y)}`);
-  }
-  if (configCount || diagCount) lines.push(`${configCount} config values, ${diagCount} diagnostic groups`);
-  return lines;
-}
-
-async function learnMachineParameters() {
-  if (state.machineLearnPending) return;
-  if (state.settingsSaveTimer) {
-    clearTimeout(state.settingsSaveTimer);
-    state.settingsSaveTimer = null;
-  }
-  state.machineLearnPending = true;
-  setStatusMessage("machine-learn", "Learning machine parameters...", "info", { timeoutMs: 0, force: true });
-  try {
-    renderMachineSettings();
-    const r = await request("/api/machine/learn", { method: "POST" });
-    const result = await r.json();
-    // Clear pending before applying the refreshed settings. A render or
-    // normalization failure must never leave this action stranded on
-    // "Learning..." after the machine operation has completed.
-    state.machineLearnPending = false;
-    if (result.ui) applyUISettings(result.ui);
-    setStatusMessage("machine-learn", result.message || "Learned machine parameters from firmware.", "ok", { force: true });
-    renderMachineSettings();
-    renderJog();
-  } catch (e) {
-    setStatusMessage("machine-learn", "Learning machine parameters failed: " + e.message, "error", { force: true });
-    renderMachineSettings();
-  } finally {
-    state.machineLearnPending = false;
-    renderMachineSettings();
-  }
-}
-
-function openMachineSettings() {
-  const dialog = document.getElementById("machine-settings-modal");
-  if (!dialog || dialog.open) return;
-  renderMachineSettings();
-  dialog.showModal();
-  refreshMachineLearnedSettings();
-}
-
-function closeMachineSettings() {
-  document.getElementById("machine-settings-modal")?.close();
-}
-
-function updateMachineSettings() {
-  const current = state.ui.machine || defaultMachineSettings();
-  const read = (id) => {
-    const el = document.getElementById(id);
-    const raw = String(el?.value ?? "").trim();
-    const value = Number(raw);
-    const ok = raw !== "" && Number.isFinite(value);
-    if (el) el.setCustomValidity(ok ? "" : "Enter a number.");
-    return { ok, value };
-  };
-  const values = {};
-  let valid = true;
-  for (const id of MACHINE_SETTING_IDS) {
-    const result = read(id);
-    values[id] = result.value;
-    if (!result.ok) valid = false;
-  }
-  if (!valid) {
-    for (const id of MACHINE_SETTING_IDS) {
-      const el = document.getElementById(id);
-      if (el?.validationMessage) {
-        el.reportValidity?.();
-        break;
-      }
-    }
-    return;
-  }
-  state.ui.machine = normalizeMachineSettings({
-    work_area: {
-      x_min: values["machine-x-min"],
-      x_max: values["machine-x-max"],
-      y_min: values["machine-y-min"],
-      y_max: values["machine-y-max"],
-    },
-    origin: {
-      x: values["machine-origin-x"],
-      y: values["machine-origin-y"],
-    },
-    saved_origins: current.saved_origins || [],
-    feed_min_mm_min: values["machine-feed-min"],
-    feed_max_mm_min: values["machine-feed-max"],
-    tap_feed_mm_min: values["tap-feed-mm-min"],
-    safe_z_mm: values["machine-safe-z"],
-    safe_z_disabled: !!current.safe_z_disabled,
-    learned: current.learned || {},
-    learned_profiles: current.learned_profiles || {},
-  });
-  clearControlDrafts(MACHINE_SETTING_IDS);
-  queueSaveUISettings();
-  renderMachineSettings();
-  renderWorkArea();
-}
-
-function stepTapFeed(delta) {
-  const input = document.getElementById("tap-feed-mm-min");
-  if (!input || input.disabled) return;
-  const current = state.ui.machine || defaultMachineSettings();
-  const bounds = feedBoundsFor(current);
-  const next = clampNumber(finiteOr(input.value, current.tap_feed_mm_min) + delta, bounds.min, bounds.max);
-  input.value = String(Math.round(next));
-  updateMachineSettings();
-  renderJog();
-}
-
-function updateSafeZToggle() {
-  const current = state.ui.machine || defaultMachineSettings();
-  const nextEnabled = !!document.getElementById("tap-safe-z-enabled")?.checked;
-  if (!nextEnabled && !confirm("Disable safe Z before click-jog XY moves?")) {
-    renderMachineSettings();
-    return;
-  }
-  state.ui.machine = normalizeMachineSettings({
-    ...current,
-    safe_z_disabled: !nextEnabled,
-  });
-  state.jog.tapFeedback = nextEnabled ? "Safe Z before click-jog enabled." : "Safe Z before click-jog disabled.";
-  state.jog.tapFeedbackKind = nextEnabled ? "ok" : "";
-  queueSaveUISettings();
-  renderMachineSettings();
-  renderJog();
-}
 
 function axisValue(values, axis) {
   const n = Number(values?.[axis]);
@@ -2932,116 +1929,6 @@ function currentAxisValues() {
 
 function tapMoveTargetBusy() {
   return !!state.jog.targetPending || !!state.jog.targetMotionPending;
-}
-
-function normalizeWorkAreaView() {
-  const v = state.workarea || (state.workarea = defaultWorkAreaView());
-  v.zoom = clampNumber(Number(v.zoom) || WORKAREA_MIN_ZOOM, WORKAREA_MIN_ZOOM, WORKAREA_MAX_ZOOM);
-  const half = WORKAREA_VIEW_SIZE / (2 * v.zoom);
-  const cx = clampNumber(WORKAREA_VIEW_SIZE / 2 + finiteOr(v.panX, 0), half, WORKAREA_VIEW_SIZE - half);
-  const cy = clampNumber(WORKAREA_VIEW_SIZE / 2 + finiteOr(v.panY, 0), half, WORKAREA_VIEW_SIZE - half);
-  v.panX = cx - WORKAREA_VIEW_SIZE / 2;
-  v.panY = cy - WORKAREA_VIEW_SIZE / 2;
-  return v;
-}
-
-function workAreaViewCenter() {
-  const v = normalizeWorkAreaView();
-  return {
-    x: WORKAREA_VIEW_SIZE / 2 + v.panX,
-    y: WORKAREA_VIEW_SIZE / 2 + v.panY,
-  };
-}
-
-function applyWorkAreaViewport() {
-  const group = document.getElementById("workarea-viewport");
-  const v = normalizeWorkAreaView();
-  const c = workAreaViewCenter();
-  if (group) {
-    group.setAttribute("transform", `translate(${WORKAREA_VIEW_SIZE / 2} ${WORKAREA_VIEW_SIZE / 2}) scale(${pathNum(v.zoom)}) translate(${pathNum(-c.x)} ${pathNum(-c.y)})`);
-  }
-  const zoomOut = document.getElementById("workarea-zoom-out");
-  const reset = document.getElementById("workarea-zoom-reset");
-  const zoomIn = document.getElementById("workarea-zoom-in");
-  if (zoomOut) zoomOut.disabled = v.zoom <= WORKAREA_MIN_ZOOM + 1e-6;
-  if (zoomIn) zoomIn.disabled = v.zoom >= WORKAREA_MAX_ZOOM - 1e-6;
-  if (reset) reset.disabled = v.zoom <= WORKAREA_MIN_ZOOM + 1e-6 && Math.abs(v.panX) < 1e-6 && Math.abs(v.panY) < 1e-6;
-}
-
-function resetWorkAreaView() {
-  state.workarea = { ...defaultWorkAreaView() };
-  applyWorkAreaViewport();
-}
-
-function setWorkAreaZoom(nextZoom, anchorLocal = null) {
-  const v = normalizeWorkAreaView();
-  const anchor = anchorLocal || { x: WORKAREA_VIEW_SIZE / 2, y: WORKAREA_VIEW_SIZE / 2 };
-  const anchorContent = workAreaLocalToContentPoint(anchor);
-  v.zoom = clampNumber(Number(nextZoom) || v.zoom, WORKAREA_MIN_ZOOM, WORKAREA_MAX_ZOOM);
-  v.panX = anchorContent.x - ((anchor.x - WORKAREA_VIEW_SIZE / 2) / v.zoom) - WORKAREA_VIEW_SIZE / 2;
-  v.panY = anchorContent.y - ((anchor.y - WORKAREA_VIEW_SIZE / 2) / v.zoom) - WORKAREA_VIEW_SIZE / 2;
-  applyWorkAreaViewport();
-}
-
-function zoomWorkArea(multiplier, anchorLocal = null) {
-  const v = normalizeWorkAreaView();
-  setWorkAreaZoom(v.zoom * multiplier, anchorLocal);
-}
-
-function panWorkArea(deltaX, deltaY) {
-  const v = normalizeWorkAreaView();
-  v.panX -= deltaX / v.zoom;
-  v.panY -= deltaY / v.zoom;
-  applyWorkAreaViewport();
-}
-
-function workAreaSVGPointFromClient(e) {
-  const svg = document.getElementById("workarea-plot");
-  if (!svg) return null;
-  const ctm = svg.getScreenCTM();
-  if (!ctm) return null;
-  const pt = svg.createSVGPoint();
-  pt.x = e.clientX;
-  pt.y = e.clientY;
-  return pt.matrixTransform(ctm.inverse());
-}
-
-function workAreaLocalToContentPoint(local) {
-  const v = normalizeWorkAreaView();
-  const c = workAreaViewCenter();
-  return {
-    x: ((local.x - WORKAREA_VIEW_SIZE / 2) / v.zoom) + c.x,
-    y: ((local.y - WORKAREA_VIEW_SIZE / 2) / v.zoom) + c.y,
-  };
-}
-
-function hideWorkAreaHoverPosition() {
-  const el = document.getElementById("workarea-hover-position");
-  if (!el) return;
-  el.hidden = true;
-}
-
-function updateWorkAreaHoverPosition(local) {
-  const el = document.getElementById("workarea-hover-position");
-  if (!el) return;
-  if (!local) {
-    hideWorkAreaHoverPosition();
-    return;
-  }
-  const machine = workAreaToMachinePoint(workAreaLocalToContentPoint(local));
-  if (!machine) {
-    hideWorkAreaHoverPosition();
-    return;
-  }
-  const origin = visualWorkOrigin();
-  const ox = axisValue(origin, "x");
-  const oy = axisValue(origin, "y");
-  const work = {
-    x: ox === null ? NaN : machine.x - ox,
-    y: oy === null ? NaN : machine.y - oy,
-  };
-  el.textContent = `M ${fmtCoord(machine.x)}, ${fmtCoord(machine.y)}  W ${fmtCoord(work.x)}, ${fmtCoord(work.y)}`;
-  el.hidden = false;
 }
 
 function currentWorkOrigin() {
@@ -3064,78 +1951,11 @@ function visualWorkOrigin() {
   return state.ui.machine?.origin || defaultMachineSettings().origin;
 }
 
-function workAreaBounds() {
-  const m = normalizeMachineSettings(state.ui.machine);
-  return m.work_area;
-}
-
-function workAreaRect() {
-  const b = workAreaBounds();
-  const spanX = Math.max(1, b.x_max - b.x_min);
-  const spanY = Math.max(1, b.y_max - b.y_min);
-  const usable = WORKAREA_VIEW_SIZE - WORKAREA_PAD * 2;
-  if (spanX >= spanY) {
-    const height = usable * (spanY / spanX);
-    return { x: WORKAREA_PAD, y: WORKAREA_PAD + (usable - height) / 2, width: usable, height };
-  }
-  const width = usable * (spanX / spanY);
-  return { x: WORKAREA_PAD + (usable - width) / 2, y: WORKAREA_PAD, width, height: usable };
-}
-
-function workAreaMMToSVGUnits() {
-  const b = workAreaBounds();
-  const r = workAreaRect();
-  const spanX = Math.max(1, b.x_max - b.x_min);
-  const spanY = Math.max(1, b.y_max - b.y_min);
-  return Math.min(r.width / spanX, r.height / spanY);
-}
-
 function setWorkAreaToolRadius() {
   const radius = (SPINDLE_DIAMETER_MM / 2) * workAreaMMToSVGUnits();
   for (const id of ["workarea-spindle-marker", "workarea-target-marker"]) {
     const el = document.getElementById(id);
     if (el) el.setAttribute("r", radius.toFixed(3));
-  }
-}
-
-function machineToWorkAreaPoint(p) {
-  if (!p || !Number.isFinite(Number(p.x)) || !Number.isFinite(Number(p.y))) return null;
-  const b = workAreaBounds();
-  const r = workAreaRect();
-  const x = r.x + ((Number(p.x) - b.x_min) / (b.x_max - b.x_min)) * r.width;
-  const y = r.y + ((b.y_max - Number(p.y)) / (b.y_max - b.y_min)) * r.height;
-  return { x, y };
-}
-
-function workAreaToMachinePoint(p) {
-  const b = workAreaBounds();
-  const r = workAreaRect();
-  if (p.x < r.x || p.x > r.x + r.width || p.y < r.y || p.y > r.y + r.height) {
-    return null;
-  }
-  return {
-    x: b.x_min + ((p.x - r.x) / r.width) * (b.x_max - b.x_min),
-    y: b.y_max - ((p.y - r.y) / r.height) * (b.y_max - b.y_min),
-  };
-}
-
-function renderWorkArea() {
-  applyWorkAreaViewport();
-  renderWorkAreaBoundary();
-  renderWorkAreaGrid();
-  renderWorkAreaOrigin();
-  renderWorkAreaOutline();
-  renderWorkAreaFieldProbePreview();
-  setWorkAreaToolRadius();
-  // `observed` is deliberately kept as raw reconciliation input. It can lag
-  // several status polls behind the planner estimate and must never become the
-  // displayed position merely because the estimate's wall-clock timer elapsed.
-  const spindle = state.jog.mpos || state.machine.mpos || state.jog.observed;
-  const target = state.jog.target;
-  setWorkAreaMarker("workarea-spindle", spindle);
-  setWorkAreaMarker("workarea-target", target);
-  if (gcodeView.renderer && syncGcodeContextOverlay() && state.activeTab === "active-job") {
-    renderActiveGcode();
   }
 }
 
@@ -3229,35 +2049,6 @@ function cloneFloorProbe(probe) {
 
 function markGcodeContextOverlayDirty() {
   outlineContextRevision++;
-}
-
-function outlineSnapshot() {
-  const o = state.outline;
-  return {
-    active: o.active,
-    points: o.points.map(cloneOutlinePoint),
-    closed: !!o.closed,
-    origin: cloneOutlineOrigin(o.origin),
-  };
-}
-
-function restoreOutlineSnapshot(snap) {
-  const o = state.outline;
-  const floorZ = finiteOr(o.floorMachineZ, NaN);
-  o.active = !!snap.active;
-  o.points = snap.points.map(cloneOutlinePoint);
-  o.closed = !!snap.closed;
-  o.origin = cloneOutlineOrigin(snap.origin);
-  if (Number.isFinite(floorZ)) {
-    o.origin = o.origin || {};
-    o.origin.z = floorZ;
-    for (const point of o.points) {
-      const machineZ = Number(point.machine_z);
-      if (Number.isFinite(machineZ)) point.z = machineZ - floorZ;
-    }
-  }
-  clearFieldProbeData();
-  if (o.closed) updateFieldProbePreview();
 }
 
 function pushOutlineUndo() {
@@ -3355,15 +2146,6 @@ function outlineCaptureMotionPending() {
     liveInput ||
     !!state.machine.motion_estimated ||
     jogEstimateActive();
-}
-
-function outlineCapturePositionsClose(a, b, tolerance = OUTLINE_CAPTURE_POSITION_TOLERANCE_MM) {
-  if (!a?.machine || !b?.machine) return false;
-  return ["x", "y", "z"].every((axis) => {
-    const av = axisValue(a.machine, axis);
-    const bv = axisValue(b.machine, axis);
-    return av !== null && bv !== null && Math.abs(av - bv) <= tolerance;
-  });
 }
 
 async function waitForOutlineCapturePosition(options = {}) {
@@ -3464,15 +2246,6 @@ async function processOutlinePointQueue(o) {
   }
 }
 
-function outlineCaptureIntentCount(o = state.outline) {
-  return (state.jog?.outlineCaptureIntents || []).filter((intent) => intent.outline === o).length;
-}
-
-function cancelOutlineCaptureIntents(o = state.outline) {
-  if (!state.jog) return;
-  state.jog.outlineCaptureIntents = (state.jog.outlineCaptureIntents || []).filter((intent) => intent.outline !== o);
-}
-
 function capturedOutlinePosition(position) {
   const machine = {};
   const work = {};
@@ -3488,52 +2261,6 @@ function capturedOutlinePosition(position) {
     origin[axis] = m - w;
   }
   return { machine, work, origin };
-}
-
-function appendOutlineCapturedPosition(o, pos, capturedAt = new Date().toISOString()) {
-  if (state.outline !== o || !o.active || o.closed) return false;
-  pushOutlineUndo();
-  o.active = true;
-  if (!o.origin) o.origin = cloneOutlineOrigin(pos.origin);
-  o.points.push({
-    id: newID("outline-point"),
-    x: pos.work.x,
-    y: pos.work.y,
-    z: pos.work.z,
-    machine_x: pos.machine.x,
-    machine_y: pos.machine.y,
-    machine_z: pos.machine.z,
-    captured_at: capturedAt,
-  });
-  clearFieldProbeData();
-  clearNotice("outline-point");
-  return true;
-}
-
-function resolveOutlineCaptureIntent(seq, position = null, error = "") {
-  const intents = state.jog.outlineCaptureIntents || [];
-  const intent = intents.find((candidate) => candidate.seq === seq);
-  if (!intent) return false;
-  intent.position = position;
-  intent.error = error;
-  intent.resolved = true;
-
-  while (intents.length && intents[0].resolved) {
-    const next = intents.shift();
-    if (state.outline !== next.outline || !next.outline.active || next.outline.closed) continue;
-    if (next.error) {
-      setStatusMessage("outline-point", "Add point failed: " + next.error, "error", { force: true });
-      continue;
-    }
-    try {
-      appendOutlineCapturedPosition(next.outline, capturedOutlinePosition(next.position), next.capturedAt);
-    } catch (e) {
-      setStatusMessage("outline-point", "Add point failed: " + e.message, "error", { force: true });
-    }
-  }
-  renderOutlineCapture();
-  renderWorkArea();
-  return true;
 }
 
 function failOutlineCaptureIntents(message) {
@@ -4137,32 +2864,12 @@ function unprobedFieldProbePoints(plan, results) {
     .filter(({ point }) => !samples.some((sample) => fieldProbePlanPointMatchesResult(point, sample)));
 }
 
-function outlineEditingMarkersVisible(outline, probes) {
-  return !outline?.closed || !(probes || []).length;
-}
-
 function workAreaMMRadius(mm) {
   const b = workAreaBounds();
   const r = workAreaRect();
   const sx = r.width / Math.max(1e-9, b.x_max - b.x_min);
   const sy = r.height / Math.max(1e-9, b.y_max - b.y_min);
   return Math.max(0.45, Number(mm) * Math.min(sx, sy));
-}
-
-function clearFieldProbeData(keepPreview = false) {
-  const o = state.outline;
-  markGcodeContextOverlayDirty();
-  o.fieldProbeResults = [];
-  o.fieldProbeComplete = false;
-  o.fieldReferenceMachineZ = null;
-  o.fieldReferenceKind = "";
-  o.fieldProbeIndex = 0;
-  o.fieldProbeTooDense = false;
-  o.fieldProbeIssue = "";
-  if (!keepPreview) {
-    o.fieldProbePreview = [];
-    o.fieldProbeSelectedID = "";
-  }
 }
 
 function updateFieldProbePreview() {
@@ -5415,248 +4122,6 @@ function interpolateZ(x, y, samples) {
   return den ? num / den : 0;
 }
 
-function renderGamepadSettings() {
-  const gp = state.ui.gamepad || defaultGamepadSettings();
-  for (const axis of ["x", "y", "z"]) {
-    const cfg = gp.axes[axis];
-    const pct = Math.round(cfg.scale * 100);
-    setControlValueIfIdle("gamepad-axis-" + axis, cfg.axis);
-    setCheckedIfIdle("gamepad-invert-" + axis, cfg.invert);
-    setControlValueIfIdle("gamepad-speed-" + axis, pct);
-    document.getElementById("gamepad-speed-" + axis + "-value").textContent = pct + "%";
-  }
-  setControlValueIfIdle("gamepad-deadman-button", gp.deadman_button);
-  setControlValueIfIdle("gamepad-slow-button-0", gp.slow_buttons[0] ?? "");
-  setControlValueIfIdle("gamepad-slow-button-1", gp.slow_buttons[1] ?? "");
-  setControlValueIfIdle("gamepad-outline-button", gp.outline_button);
-  renderGamepadMacroBindings();
-}
-
-function renderGamepadMacroBindings(opts = {}) {
-  const box = document.getElementById("gamepad-macro-bindings");
-  if (!opts.force && gamepadMacroBindingsLocallyOwned(box)) return;
-  state.gamepadMacroBindingDirty = false;
-  box.innerHTML = "";
-  if (!state.ui.gamepad.macro_buttons.length) {
-    box.innerHTML = `<div class="empty compact">No gamepad macro buttons.</div>`;
-    return;
-  }
-  for (const binding of state.ui.gamepad.macro_buttons) {
-    const row = document.createElement("div");
-    row.className = "gamepad-binding";
-
-    const button = document.createElement("input");
-    button.type = "number";
-    button.min = "0";
-    button.max = "63";
-    button.value = String(binding.button);
-    button.oninput = () => {
-      state.gamepadMacroBindingDirty = true;
-      markControlDirty(button);
-    };
-    button.onfocus = () => {
-      state.gamepadMacroBindingDirty = true;
-    };
-    button.onblur = () => {
-      if (button.dataset.dirty !== "1") state.gamepadMacroBindingDirty = false;
-    };
-    button.onchange = () => {
-      const next = readInt(button.value, binding.button, 0, 63);
-      binding.button = next;
-      clearControlDrafts(button);
-      state.gamepadMacroBindingDirty = false;
-      normalizeGamepadMacroOrder();
-      renderGamepadMacroBindings({ force: true });
-      queueSaveUISettings();
-    };
-
-    const select = document.createElement("select");
-    for (const macro of state.ui.macros) {
-      const option = document.createElement("option");
-      option.value = macro.id;
-      option.textContent = macro.name;
-      option.selected = macro.id === binding.macro_id;
-      select.appendChild(option);
-    }
-    select.onfocus = () => {
-      state.gamepadMacroBindingDirty = true;
-    };
-    select.onblur = () => {
-      state.gamepadMacroBindingDirty = false;
-    };
-    select.onchange = () => {
-      binding.macro_id = select.value;
-      state.gamepadMacroBindingDirty = false;
-      queueSaveUISettings();
-    };
-
-    const del = document.createElement("button");
-    del.type = "button";
-    del.textContent = "Remove";
-    del.onclick = () => {
-      state.ui.gamepad.macro_buttons = state.ui.gamepad.macro_buttons.filter((b) => b.id !== binding.id);
-      state.gamepadMacroBindingDirty = false;
-      renderGamepadMacroBindings({ force: true });
-      queueSaveUISettings();
-    };
-
-    row.append(button, select, del);
-    box.appendChild(row);
-  }
-}
-
-function gamepadMacroBindingsLocallyOwned(box = document.getElementById("gamepad-macro-bindings")) {
-  return !!box && (box.contains(document.activeElement) || state.gamepadMacroBindingDirty);
-}
-
-function readInt(value, fallback, min, max) {
-  const n = Number(value);
-  if (!Number.isInteger(n)) return fallback;
-  return Math.max(min, Math.min(max, n));
-}
-
-function updateGamepadAxis(axis) {
-  const cfg = state.ui.gamepad.axes[axis];
-  cfg.axis = readInt(document.getElementById("gamepad-axis-" + axis).value, cfg.axis, 0, 31);
-  cfg.invert = document.getElementById("gamepad-invert-" + axis).checked;
-  cfg.scale = Math.max(0.05, Math.min(1, Number(document.getElementById("gamepad-speed-" + axis).value) / 100 || cfg.scale));
-  document.getElementById("gamepad-speed-" + axis + "-value").textContent = Math.round(cfg.scale * 100) + "%";
-  queueSaveUISettings();
-}
-
-function updateGamepadButtons() {
-  const gp = state.ui.gamepad;
-  gp.deadman_button = readInt(document.getElementById("gamepad-deadman-button").value, gp.deadman_button, 0, 63);
-  gp.slow_buttons = [
-    document.getElementById("gamepad-slow-button-0").value,
-    document.getElementById("gamepad-slow-button-1").value,
-  ].filter((v) => v !== "").map((v) => readInt(v, 0, 0, 63));
-  gp.outline_button = readInt(document.getElementById("gamepad-outline-button").value, gp.outline_button, 0, 63);
-  queueSaveUISettings();
-}
-
-function addGamepadMacroBinding() {
-  const macro = macroByID(state.selectedMacroId) || state.ui.macros[0];
-  if (!macro) {
-    setNotice("Create a macro before assigning a gamepad button.", "error", "gamepad-macro-binding");
-    return;
-  }
-  const used = new Set(state.ui.gamepad.macro_buttons.map((b) => b.button));
-  let button = 1;
-  while (used.has(button) && button < 64) button++;
-  state.ui.gamepad.macro_buttons.push({ id: newID("gamepad-macro"), button, macro_id: macro.id });
-  normalizeGamepadMacroOrder();
-  renderGamepadMacroBindings({ force: true });
-  clearNotice("gamepad-macro-binding");
-  queueSaveUISettings();
-}
-
-function normalizeGamepadMacroOrder() {
-  state.ui.gamepad.macro_buttons.sort((a, b) => a.button - b.button);
-  const seen = new Set();
-  state.ui.gamepad.macro_buttons = state.ui.gamepad.macro_buttons.filter((binding) => {
-    if (seen.has(binding.button) || !macroByID(binding.macro_id)) return false;
-    seen.add(binding.button);
-    return true;
-  });
-}
-
-function renderFiles() {
-  filesRows.renderFiles();
-}
-
-function fileRowLocallyOwned(tr) {
-  return filesRows.fileRowLocallyOwned(tr);
-}
-
-function scheduleFileRender() {
-  filesRows.scheduleFileRender();
-}
-
-function fileRowSignature(f, q) {
-  return filesRows.fileRowSignature(f, q);
-}
-
-function buildFileRow(tr, f, q) {
-  filesRows.buildFileRow(tr, f, q);
-}
-
-function appendFileActions(actions, f) {
-  filesRows.appendFileActions(actions, f);
-}
-
-function fileOverflowMenu(actions) {
-  return filesRows.fileOverflowMenu(actions);
-}
-
-function appendFileOverflowAction(actions, labelOrButton, onclick, danger = false) {
-  filesRows.appendFileOverflowAction(actions, labelOrButton, onclick, danger);
-}
-
-function directoryRows(dir) {
-  return fileCatalog.directoryRows(dir);
-}
-
-function searchFileRows(q) {
-  return fileCatalog.searchFileRows(q);
-}
-
-function sortFileRows(rows) {
-  return fileCatalog.sortFileRows(rows);
-}
-
-function synthFolder(rel) {
-  return fileCatalog.synthFolder(rel);
-}
-
-function countChildren(dir) {
-  return fileCatalog.countChildren(dir);
-}
-
-function newestDescendantMTime(dir) {
-  return fileCatalog.newestDescendantMTime(dir);
-}
-
-function allFolderRows() {
-  return fileCatalog.allFolderRows();
-}
-
-function openDir(dir) {
-  filesNavigation.openDir(dir);
-}
-
-function renderFolderChrome() {
-  filesNavigation.renderFolderChrome();
-}
-
-function renderFolderTree() {
-  filesNavigation.renderFolderTree();
-}
-
-function folderTreeButton(rel, label, depth) {
-  return filesNavigation.folderTreeButton(rel, label, depth);
-}
-
-function renderFileSummary() {
-  filesPresentation.renderFileSummary();
-}
-
-function renderJobs() {
-  filesPresentation.renderJobs();
-}
-
-function jobStatusText(j) {
-  return filesPresentation.jobStatusText(j);
-}
-
-function jobDetailHTML(j) {
-  return filesPresentation.jobDetailHTML(j);
-}
-
-function appendJobActions(box, job) {
-  filesPresentation.appendJobActions(box, job);
-}
-
 function renderActiveGcode() {
   const active = state.activeGcode || {};
   const external = externalJobInfo(state.machine, active);
@@ -5691,7 +4156,7 @@ function renderActiveGcode() {
   const tools = Array.isArray(preview.tool_metadata) && preview.tool_metadata.length
     ? preview.tool_metadata.map((tool) => [gcodeToolLabel(tool), tool.name].filter(Boolean).join(" · ")).join(" | ")
     : (Array.isArray(preview.tools) && preview.tools.length ? "tools T" + preview.tools.join(", T") : "");
-  const entry = active.entry || state.files.get(active.path) || {};
+  const entry = active.entry || filesFeature.getFile(active.path) || {};
   const sync = SYNC_LABEL[entry.sync] || entry.sync || "";
   meta.textContent = [
     fmtSize(entry.size || 0, false),
@@ -5748,6 +4213,7 @@ function renderActiveGcodeControls(active) {
 }
 
 function activeGcodeDisplaySegments(active) {
+  const activeGcodeGeometry = gcodeViewer.getActiveGcodeGeometry();
   if (activeGcodeGeometry.signature === activeGcodeSourceSignature(active)) {
     return activeGcodeGeometry.segments;
   }
@@ -5854,72 +4320,9 @@ function renderDashboardTelemetry(machine) {
   if (empty) empty.hidden = visible > 0;
 }
 
-function dashboardGcodeWindow(totalLines, currentLine, visibleLines) {
-  const total = Math.max(0, Math.trunc(Number(totalLines) || 0));
-  const count = Math.max(3, Math.min(30, Math.trunc(Number(visibleLines) || 9)));
-  const current = Math.max(0, Math.min(total, Math.trunc(Number(currentLine) || 0)));
-  if (!total) return { start: 0, end: 0, current: 0 };
-  if (!current) return { start: 0, end: Math.min(total, count), current: 0 };
-  const before = Math.floor((count - 1) / 2);
-  let start = Math.max(0, current - 1 - before);
-  let end = Math.min(total, start + count);
-  start = Math.max(0, end - count);
-  return { start, end, current };
-}
+function dashboardGcodeWindow(...args) { return gcodeViewer.dashboardGcodeWindow(...args); }
 
-function renderDashboardGcodeStream(live = null) {
-  const container = document.getElementById("dashboard-gcode-lines");
-  const position = document.getElementById("dashboard-gcode-position");
-  if (!container || !position) return;
-  if (!activeGcodeSource.path) {
-    position.textContent = "-";
-    const empty = document.createElement("div");
-    empty.className = "dashboard-gcode-line dashboard-gcode-empty";
-    empty.textContent = "No gcode loaded";
-    container.replaceChildren(empty);
-    return;
-  }
-
-  const currentLine = Math.max(0, Math.trunc(Number(live?.playedLines) || 0));
-  const range = dashboardGcodeWindow(
-    activeGcodeSource.totalLines,
-    currentLine,
-    currentDashboardProfile()?.gcode_lines,
-  );
-  position.textContent = range.current
-    ? `Ln ${range.current} / ${activeGcodeSource.totalLines || "—"}`
-    : (activeGcodeSource.totalLines ? `${activeGcodeSource.totalLines} lines` : "Loading…");
-  if (range.end > range.start) {
-    fetchActiveGcodeSourcePage(range.start);
-    fetchActiveGcodeSourcePage(range.end - 1);
-  } else {
-    fetchActiveGcodeSourcePage(0);
-  }
-
-  const fragment = document.createDocumentFragment();
-  for (let index = range.start; index < range.end; index++) {
-    const lineNumber = index + 1;
-    const row = document.createElement("div");
-    row.className = "dashboard-gcode-line" + (lineNumber === range.current ? " current" : "");
-    if (lineNumber === range.current) row.setAttribute("aria-current", "step");
-    const number = document.createElement("span");
-    number.className = "dashboard-gcode-number";
-    number.textContent = String(lineNumber);
-    number.setAttribute("aria-hidden", "true");
-    const code = document.createElement("span");
-    code.className = "dashboard-gcode-code";
-    code.textContent = activeGcodeSourceLine(index) || " ";
-    row.append(number, code);
-    fragment.appendChild(row);
-  }
-  if (!range.end) {
-    const loading = document.createElement("div");
-    loading.className = "dashboard-gcode-line dashboard-gcode-empty";
-    loading.textContent = "Loading gcode…";
-    fragment.appendChild(loading);
-  }
-  container.replaceChildren(fragment);
-}
+function renderDashboardGcodeStream(...args) { return gcodeViewer.renderDashboardGcodeStream(...args); }
 
 function dashboardCameraShouldRun() {
   return dashboardCamera.dashboardCameraShouldRun();
@@ -6001,682 +4404,67 @@ function renderDashboard() {
   drawDashboardGcodePreview(dashboardPreview, live);
 }
 
-function drawDashboardGcodePreview(preview, live = null) {
-  const segments = Array.isArray(preview?.segments) ? preview.segments : [];
-  const hasToolpath = segments.length > 0 && !!preview?.bounds;
-  if (!hasToolpath) {
-    // Machine status arrives several times per second. Once the viewer is
-    // empty, clearing and rendering the same empty WebGL scene again makes the
-    // Overview visibly flash on slower touch hardware.
-    if (dashboardGcodeView.key || dashboardGcodeView.segments.length) clearDashboardGcodeScene();
-    setDashboardGcodePreviewEmpty("No plotted moves");
-    return;
-  }
-  if (!ensureDashboardGcodeViewer()) return;
+function drawDashboardGcodePreview(...args) { return gcodeViewer.drawDashboardGcodePreview(...args); }
 
-  const origin = activeJobOverlayOrigin();
-  const context = activeJobContextOverlayData(state.outline, origin);
-  const contextKey = activeJobContextOverlayKey(origin);
-  const sceneBounds = combineGcodeBounds(preview.bounds, context.bounds);
-  const key = [
-    activeGcodeSourceSignature(state.activeGcode),
-    activeGcodeGeometry.signature ? "full" : "overview",
-    segments.length,
-    preview.has_4axis ? "4" : "3",
-    contextKey,
-  ].join("|");
-  let sceneChanged = false;
-  if (dashboardGcodeView.key !== key) {
-    dashboardGcodeView.key = key;
-    dashboardGcodeView.segments = segments;
-    dashboardGcodeView.has4Axis = !!preview.has_4axis;
-    populateGcodePathScene(dashboardGcodeView, { ...preview, bounds: sceneBounds }, segments);
-    clearThreeGroup(dashboardGcodeView.contextGroup);
-    rebuildGcodeContextOverlayForGroup(dashboardGcodeView.contextGroup, context);
-    fitDashboardGcodeCamera(sceneBounds);
-    sceneChanged = true;
-  }
+function dashboardGcodeRenderStateKey(...args) { return gcodeViewer.dashboardGcodeRenderStateKey(...args); }
 
-  const cursor = live
-    ? Math.max(0, Math.min(segments.length, Number(live.cursor) || 0))
-    : segments.length;
-  const markerPosition = live?.position || segments[Math.max(0, cursor - 1)]?.to;
-  const renderStateKey = dashboardGcodeRenderStateKey(key, cursor, markerPosition);
-  if (sceneChanged || dashboardGcodeView.renderStateKey !== renderStateKey) {
-    dashboardGcodeView.renderStateKey = renderStateKey;
-    if (dashboardGcodeView.progressLine) {
-      dashboardGcodeView.progressLine.geometry.setDrawRange(0, cursor * 2);
-    }
-    if (markerPosition) {
-      dashboardGcodeView.marker.position.copy(gcodeWorldPoint(markerPosition, dashboardGcodeView.has4Axis));
-      dashboardGcodeView.marker.scale.setScalar(Math.max(0.8, dashboardGcodeView.orbit.radius * 0.008));
-      dashboardGcodeView.marker.visible = true;
-    } else {
-      dashboardGcodeView.marker.visible = false;
-    }
-    scheduleDashboardGcodeRender();
-  }
-  if (dashboardGcodeView.canvas) {
-    dashboardGcodeView.canvas.setAttribute(
-      "aria-label",
-      live?.position
-        ? `Active job 3D preview; live spindle at X ${fmtCoord(live.position[0])}, Y ${fmtCoord(live.position[1])}, Z ${fmtCoord(live.position[2])}`
-        : "Active job 3D preview",
-    );
-  }
-  setDashboardGcodePreviewEmpty("");
-}
-
-function dashboardGcodeRenderStateKey(sceneKey, cursor, markerPosition) {
-  const point = Array.isArray(markerPosition)
-    ? markerPosition.slice(0, 4).map((value) => {
-      const number = Number(value);
-      return Number.isFinite(number) ? number.toFixed(4) : "";
-    }).join(",")
-    : "";
-  return `${sceneKey}|${Math.trunc(Number(cursor) || 0)}|${point}`;
-}
-
-function activeGcodeSourceSignature(active) {
-  if (!active?.path) return "";
-  const entry = active.entry || state.files.get(active.path) || {};
-  const preview = active.preview || {};
-  return JSON.stringify([
-    active.path,
-    entry.md5 || "",
-    Number(entry.size) || 0,
-    entry.mtime || "",
-    Number(preview.line_count) || 0,
-    active.updated_at || "",
-  ]);
-}
+function activeGcodeSourceSignature(...args) { return gcodeViewer.activeGcodeSourceSignature(...args); }
 
 // A running job updates progress metadata for every executed G-code line. That
 // is deliberately not part of the camera identity: rebuilding the line mesh is
 // fine when its detail level changes, but an operator's orbit/zoom must remain
 // intact until the selected file itself changes.
-function gcodeCameraFitKey(path, entry = {}, preview = {}, hasToolpath = false) {
-  if (!hasToolpath) return "context-only";
-  return JSON.stringify([
-    String(path || ""),
-    entry.md5 || "",
-    Number(entry.size) || 0,
-    entry.mtime || "",
-    Number(preview.line_count) || 0,
-    preview.has_4axis ? "4" : "3",
-  ]);
-}
+function gcodeCameraFitKey(...args) { return gcodeViewer.gcodeCameraFitKey(...args); }
 
-async function ensureActiveGcodeGeometry(active) {
-  const signature = activeGcodeSourceSignature(active);
-  if (!signature) {
-    activeGcodeGeometry.requestID++;
-    activeGcodeGeometry.signature = "";
-    activeGcodeGeometry.requestedSignature = "";
-    activeGcodeGeometry.total = 0;
-    activeGcodeGeometry.segments = [];
-    return;
-  }
-  if (activeGcodeGeometry.signature === signature || activeGcodeGeometry.requestedSignature === signature) return;
-  const requestID = ++activeGcodeGeometry.requestID;
-  activeGcodeGeometry.requestedSignature = signature;
-  activeGcodeGeometry.signature = "";
-  activeGcodeGeometry.total = Math.max(0, Number(active?.preview?.plotted_segments) || 0);
-  activeGcodeGeometry.segments = [];
-  try {
-    let start = 0;
-    while (start < activeGcodeGeometry.total || start === 0) {
-      const response = await request(`/api/gcode/active/segments?start=${start}&limit=${GCODE_SEGMENT_PAGE_SIZE}`);
-      if (response.status === 204) {
-        if (requestID !== activeGcodeGeometry.requestID || activeGcodeGeometry.requestedSignature !== signature) return;
-        // A job reported by the machine can be remote-only while it runs. Its
-        // source is unavailable, but its live job model must remain visible.
-        activeGcodeGeometry.signature = signature;
-        activeGcodeGeometry.requestedSignature = "";
-        return;
-      }
-      const windowData = await response.json();
-      if (requestID !== activeGcodeGeometry.requestID || activeGcodeGeometry.requestedSignature !== signature) return;
-      const page = Array.isArray(windowData.segments) ? windowData.segments : [];
-      activeGcodeGeometry.total = Math.max(0, Number(windowData.total) || 0);
-      activeGcodeGeometry.segments.push(...page);
-      start += page.length;
-      if (!page.length || start >= activeGcodeGeometry.total) break;
-    }
-    if (requestID !== activeGcodeGeometry.requestID) return;
-    activeGcodeGeometry.signature = signature;
-    activeGcodeGeometry.requestedSignature = "";
-    clearNotice("active-gcode-geometry");
-    renderActiveGcode();
-  } catch (error) {
-    if (requestID !== activeGcodeGeometry.requestID) return;
-    activeGcodeGeometry.requestedSignature = "";
-    setNotice("Toolpath loading failed: " + error.message, "error", "active-gcode-geometry");
-  }
-}
+function ensureActiveGcodeGeometry(...args) { return gcodeViewer.ensureActiveGcodeGeometry(...args); }
 
-function splitGcodeSourceLines(text) {
-  if (!text) return [];
-  const lines = String(text).split(/\r\n|\n|\r/);
-  if (lines.at(-1) === "") lines.pop();
-  return lines;
-}
+function splitGcodeSourceLines(...args) { return gcodeViewer.splitGcodeSourceLines(...args); }
 
-async function ensureActiveGcodeSource(active) {
-  const path = String(active?.path || "");
-  if (!path) {
-    resetActiveGcodeSource();
-    return;
-  }
-  const signature = activeGcodeSourceSignature(active);
-  if (activeGcodeSource.signature === signature) return;
-  activeGcodeSource.requestID++;
-  const pathChanged = activeGcodeSource.path !== path;
-  activeGcodeSource.path = path;
-  if (pathChanged || (activeGcodeSource.signature && activeGcodeSource.signature !== signature)) {
-    activeGcodeSource.pages.clear();
-    activeGcodeSource.loadingPages.clear();
-    activeGcodeSource.currentLine = 0;
-    const scroll = document.getElementById("active-gcode-source-scroll");
-    if (scroll) scroll.scrollTop = 0;
-    renderActiveGcodeSource();
-  }
-  activeGcodeSource.signature = signature;
-  activeGcodeSource.unavailableSignature = "";
-  activeGcodeSource.totalLines = Math.max(0, Number(active?.preview?.line_count) || 0);
-  clearNotice("active-gcode-source");
-  renderActiveGcodeSource();
-  fetchActiveGcodeSourcePage(0);
-}
+function ensureActiveGcodeSource(...args) { return gcodeViewer.ensureActiveGcodeSource(...args); }
 
-function resetActiveGcodeSource() {
-  if (!activeGcodeSource.path && !activeGcodeSource.pages.size) {
-    renderActiveGcodeSource();
-    return;
-  }
-  activeGcodeSource.requestID++;
-  activeGcodeSource.path = "";
-  activeGcodeSource.signature = "";
-  activeGcodeSource.totalLines = 0;
-  activeGcodeSource.pages.clear();
-  activeGcodeSource.loadingPages.clear();
-  activeGcodeSource.currentLine = 0;
-  clearNotice("active-gcode-source");
-  const scroll = document.getElementById("active-gcode-source-scroll");
-  if (scroll) {
-    scroll.scrollTop = 0;
-    scroll.removeAttribute("aria-busy");
-  }
-  renderActiveGcodeSource();
-}
+function resetActiveGcodeSource(...args) { return gcodeViewer.resetActiveGcodeSource(...args); }
 
-async function fetchActiveGcodeSourcePage(index) {
-  if (!activeGcodeSource.path || !activeGcodeSource.signature) return;
-  if (activeGcodeSource.unavailableSignature === activeGcodeSource.signature) return;
-  const pageStartIndex = Math.max(0, Math.floor(Math.max(0, index) / GCODE_SOURCE_PAGE_SIZE) * GCODE_SOURCE_PAGE_SIZE);
-  if (activeGcodeSource.pages.has(pageStartIndex)) {
-    const page = activeGcodeSource.pages.get(pageStartIndex);
-    activeGcodeSource.pages.delete(pageStartIndex);
-    activeGcodeSource.pages.set(pageStartIndex, page);
-    return;
-  }
-  if (activeGcodeSource.loadingPages.has(pageStartIndex)) return;
-  const requestID = activeGcodeSource.requestID;
-  const signature = activeGcodeSource.signature;
-  activeGcodeSource.loadingPages.add(pageStartIndex);
-  document.getElementById("active-gcode-source-scroll")?.setAttribute("aria-busy", "true");
-  try {
-    const response = await request(`/api/gcode/active/source?start_line=${pageStartIndex + 1}&limit=${GCODE_SOURCE_PAGE_SIZE}`);
-    if (response.status === 204) {
-      if (requestID !== activeGcodeSource.requestID || signature !== activeGcodeSource.signature) return;
-      clearConnectivityIssue("active-gcode-source");
-      activeGcodeSource.unavailableSignature = signature;
-      activeGcodeSource.pages.set(pageStartIndex, []);
-      renderActiveGcodeSource();
-      return;
-    }
-    const page = await response.json();
-    if (requestID !== activeGcodeSource.requestID || signature !== activeGcodeSource.signature) return;
-    activeGcodeSource.totalLines = Math.max(0, Number(page.total_lines) || 0);
-    activeGcodeSource.pages.set(pageStartIndex, Array.isArray(page.lines) ? page.lines : []);
-    while (activeGcodeSource.pages.size > GCODE_SOURCE_MAX_PAGES) {
-      activeGcodeSource.pages.delete(activeGcodeSource.pages.keys().next().value);
-    }
-    clearConnectivityIssue("active-gcode-source");
-    renderActiveGcodeSource();
-    const active = state.activeGcode || {};
-    const preview = { ...(active.preview || {}), segments: activeGcodeDisplaySegments(active) };
-    const live = active.path ? activeJobPreviewState(state.machine, preview, active.path) : null;
-    renderDashboardGcodeStream(live);
-  } catch (error) {
-    if (requestID === activeGcodeSource.requestID) {
-      setConnectivityIssue("active-gcode-source", "Gcode source unavailable: " + error.message);
-    }
-  } finally {
-    activeGcodeSource.loadingPages.delete(pageStartIndex);
-    if (!activeGcodeSource.loadingPages.size) {
-      document.getElementById("active-gcode-source-scroll")?.removeAttribute("aria-busy");
-    }
-  }
-}
+function fetchActiveGcodeSourcePage(...args) { return gcodeViewer.fetchActiveGcodeSourcePage(...args); }
 
-function activeGcodeSourceLine(index) {
-  const pageStartIndex = Math.floor(index / GCODE_SOURCE_PAGE_SIZE) * GCODE_SOURCE_PAGE_SIZE;
-  const page = activeGcodeSource.pages.get(pageStartIndex);
-  return page?.[index - pageStartIndex];
-}
+function activeGcodeSourceLine(...args) { return gcodeViewer.activeGcodeSourceLine(...args); }
 
-function gcodeSourceWindow(lineCount, scrollTop, viewportHeight, rowHeight = GCODE_SOURCE_ROW_HEIGHT, overscan = GCODE_SOURCE_OVERSCAN) {
-  if (lineCount <= 0 || rowHeight <= 0) return { start: 0, end: 0 };
-  const first = Math.max(0, Math.floor(Math.max(0, scrollTop) / rowHeight));
-  const visible = Math.max(1, Math.ceil(Math.max(0, viewportHeight) / rowHeight));
-  return {
-    start: Math.max(0, first - overscan),
-    end: Math.min(lineCount, first + visible + overscan),
-  };
-}
+function gcodeSourceWindow(...args) { return gcodeViewer.gcodeSourceWindow(...args); }
 
-function scheduleActiveGcodeSourceRender() {
-  if (activeGcodeSource.renderQueued) return;
-  activeGcodeSource.renderQueued = true;
-  requestAnimationFrame(() => {
-    activeGcodeSource.renderQueued = false;
-    renderActiveGcodeSource();
-  });
-}
+function scheduleActiveGcodeSourceRender(...args) { return gcodeViewer.scheduleActiveGcodeSourceRender(...args); }
 
-function renderActiveGcodeSource() {
-  const scroll = document.getElementById("active-gcode-source-scroll");
-  const spacer = document.getElementById("active-gcode-source-spacer");
-  const container = document.getElementById("active-gcode-source-lines");
-  const empty = document.getElementById("active-gcode-source-empty");
-  const position = document.getElementById("active-gcode-source-position");
-  if (!scroll || !spacer || !container || !empty || !position) return;
+function renderActiveGcodeSource(...args) { return gcodeViewer.renderActiveGcodeSource(...args); }
 
-  const totalLines = activeGcodeSource.totalLines;
-  spacer.style.height = `${totalLines * GCODE_SOURCE_ROW_HEIGHT}px`;
-  position.textContent = activeGcodeSource.currentLine > 0
-    ? `Ln ${activeGcodeSource.currentLine} / ${totalLines || "—"}`
-    : (totalLines ? `${totalLines} lines` : "-");
-  empty.textContent = activeGcodeSource.path ? "No gcode source loaded" : "No gcode loaded";
-  empty.hidden = totalLines > 0 || activeGcodeSource.loadingPages.size > 0;
+function gcodeSourceLineForCursor(...args) { return gcodeViewer.gcodeSourceLineForCursor(...args); }
 
-  const windowRange = gcodeSourceWindow(
-    totalLines,
-    scroll.scrollTop,
-    scroll.clientHeight,
-  );
-  for (let index = windowRange.start; index < windowRange.end; index += GCODE_SOURCE_PAGE_SIZE) {
-    fetchActiveGcodeSourcePage(index);
-  }
-  if (windowRange.end > windowRange.start) fetchActiveGcodeSourcePage(windowRange.end - 1);
-  const fragment = document.createDocumentFragment();
-  for (let index = windowRange.start; index < windowRange.end; index++) {
-    const lineNumber = index + 1;
-    const row = document.createElement("div");
-    row.id = `active-gcode-source-line-${lineNumber}`;
-    row.className = "active-gcode-source-line" + (lineNumber === activeGcodeSource.currentLine ? " current" : "");
-    row.style.transform = `translateY(${index * GCODE_SOURCE_ROW_HEIGHT}px)`;
-    if (lineNumber === activeGcodeSource.currentLine) row.setAttribute("aria-current", "step");
+function syncActiveGcodeSourceLine(...args) { return gcodeViewer.syncActiveGcodeSourceLine(...args); }
 
-    const number = document.createElement("span");
-    number.className = "active-gcode-source-number";
-    number.textContent = String(lineNumber);
-    number.setAttribute("aria-hidden", "true");
-    const code = document.createElement("span");
-    code.className = "active-gcode-source-code";
-    code.textContent = activeGcodeSourceLine(index) || " ";
-    row.append(number, code);
-    fragment.appendChild(row);
-  }
-  container.replaceChildren(fragment);
-}
+function scrollActiveGcodeSourceToLine(...args) { return gcodeViewer.scrollActiveGcodeSourceToLine(...args); }
 
-function gcodeSourceLineForCursor(segments, cursor) {
-  if (!Array.isArray(segments) || !segments.length || cursor <= 0) return 0;
-  const index = Math.min(segments.length, Math.max(1, Math.trunc(cursor))) - 1;
-  return Math.max(0, Math.trunc(Number(segments[index]?.line) || 0));
-}
+function activeJobOverlayOriginFrom(...args) { return gcodeViewer.activeJobOverlayOriginFrom(...args); }
 
-function syncActiveGcodeSourceLine(live = null, selectedLine = 0) {
-  const liveLine = gcodeView.followLive ? Math.trunc(Number(live?.playedLines) || 0) : 0;
-  const line = liveLine > 0
-    ? liveLine
-    : (selectedLine > 0 ? selectedLine : gcodeSourceLineForCursor(gcodeView.segments, gcodeView.cursor));
-  const changed = activeGcodeSource.currentLine !== line;
-  activeGcodeSource.currentLine = line;
-  if (changed) renderActiveGcodeSource();
-  const forceFollow = gcodeTimelineLocallyOwned();
-  if (line > 0 && (forceFollow || Date.now() >= activeGcodeSource.userScrollingUntil)) {
-    scrollActiveGcodeSourceToLine(line, forceFollow);
-  }
-}
+function activeJobOverlayOrigin(...args) { return gcodeViewer.activeJobOverlayOrigin(...args); }
 
-function scrollActiveGcodeSourceToLine(line, force = false) {
-  const scroll = document.getElementById("active-gcode-source-scroll");
-  const lineCount = activeGcodeSource.totalLines;
-  if (!scroll || line <= 0 || lineCount <= 0) return;
-  const targetLine = Math.min(lineCount, Math.max(1, Math.trunc(line)));
-  const top = (targetLine - 1) * GCODE_SOURCE_ROW_HEIGHT;
-  const margin = Math.min(80, Math.max(GCODE_SOURCE_ROW_HEIGHT, scroll.clientHeight * 0.2));
-  const visibleTop = scroll.scrollTop + margin;
-  const visibleBottom = scroll.scrollTop + scroll.clientHeight - margin;
-  if (!force && top >= visibleTop && top + GCODE_SOURCE_ROW_HEIGHT <= visibleBottom) return;
-  scroll.scrollTop = Math.max(0, top - Math.max(0, (scroll.clientHeight - GCODE_SOURCE_ROW_HEIGHT) / 2));
-  fetchActiveGcodeSourcePage(targetLine - 1);
-  renderActiveGcodeSource();
-}
+function activeJobOverlayPoint(...args) { return gcodeViewer.activeJobOverlayPoint(...args); }
 
-function activeJobOverlayOriginFrom(liveOrigin, outline) {
-  const capturedOrigin = cloneOutlineOrigin(outline?.origin) || {};
-  const origin = {};
-  for (const axis of ["x", "y"]) {
-    const live = axisValue(liveOrigin, axis);
-    const captured = axisValue(capturedOrigin, axis);
-    const value = live === null ? captured : live;
-    if (value !== null) origin[axis] = value;
-  }
-  const liveZ = axisValue(liveOrigin, "z");
-  const fieldReferenceZ = outline?.fieldReferenceMachineZ === null || outline?.fieldReferenceMachineZ === ""
-    ? NaN
-    : Number(outline?.fieldReferenceMachineZ);
-  const floorZ = outline?.floorMachineZ === null || outline?.floorMachineZ === ""
-    ? NaN
-    : Number(outline?.floorMachineZ);
-  const capturedZ = axisValue(capturedOrigin, "z");
-  const fallbackZ = Number.isFinite(fieldReferenceZ)
-    ? fieldReferenceZ
-    : (Number.isFinite(floorZ) ? floorZ : capturedZ);
-  const z = liveZ === null ? fallbackZ : liveZ;
-  if (z !== null && Number.isFinite(z)) origin.z = z;
-  return Object.keys(origin).length ? origin : null;
-}
+function probePlanMatchesResults(...args) { return gcodeViewer.probePlanMatchesResults(...args); }
 
-function activeJobOverlayOrigin() {
-  return activeJobOverlayOriginFrom(currentWorkOrigin(), state.outline);
-}
+function activeJobFieldProbeComplete(...args) { return gcodeViewer.activeJobFieldProbeComplete(...args); }
 
-function activeJobOverlayPoint(point, origin) {
-  const ox = axisValue(origin, "x");
-  const oy = axisValue(origin, "y");
-  const oz = axisValue(origin, "z");
-  const machineX = Number(point?.machine_x);
-  const machineY = Number(point?.machine_y);
-  const machineZ = Number(point?.machine_z);
-  const storedX = Number(point?.x);
-  const storedY = Number(point?.y);
-  const storedZ = Number(point?.z);
-  const x = Number.isFinite(machineX) && ox !== null ? machineX - ox : storedX;
-  const y = Number.isFinite(machineY) && oy !== null ? machineY - oy : storedY;
-  const z = Number.isFinite(machineZ) && oz !== null ? machineZ - oz : storedZ;
-  return [x, y, z].every(Number.isFinite) ? { ...point, x, y, z } : null;
-}
+function interpolateOutlinePathZ(...args) { return gcodeViewer.interpolateOutlinePathZ(...args); }
 
-function probePlanMatchesResults(plan, results, tolerance = 0.05) {
-  if (!Array.isArray(plan) || !Array.isArray(results) || plan.length !== results.length || !plan.length) return false;
-  const cellSize = Math.max(0.000001, Number(tolerance) || 0.05);
-  const buckets = new Map();
-  const cellKey = (x, y) => `${Math.floor(x / cellSize)},${Math.floor(y / cellSize)}`;
-  for (let index = 0; index < results.length; index++) {
-    const x = Number(results[index]?.x);
-    const y = Number(results[index]?.y);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
-    const key = cellKey(x, y);
-    const bucket = buckets.get(key) || [];
-    bucket.push(index);
-    buckets.set(key, bucket);
-  }
-  const used = new Set();
-  for (const point of plan) {
-    const x = Number(point?.x);
-    const y = Number(point?.y);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
-    const cx = Math.floor(x / cellSize);
-    const cy = Math.floor(y / cellSize);
-    let best = -1;
-    let bestDistance = Infinity;
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        for (const candidate of buckets.get(`${cx + dx},${cy + dy}`) || []) {
-          if (used.has(candidate)) continue;
-          const result = results[candidate];
-          const distance = Math.hypot(x - Number(result.x), y - Number(result.y));
-          if (distance <= cellSize && distance < bestDistance) {
-            best = candidate;
-            bestDistance = distance;
-          }
-        }
-      }
-    }
-    if (best < 0) return false;
-    used.add(best);
-  }
-  return used.size === results.length;
-}
+function activeJobContextOverlayData(...args) { return gcodeViewer.activeJobContextOverlayData(...args); }
 
-function activeJobFieldProbeComplete(outline) {
-  const plan = outline?.fieldProbePreview || [];
-  const results = outline?.fieldProbeResults || [];
-  return !!outline?.active &&
-    !!outline?.closed &&
-    !outline?.fieldProbePending &&
-    results.length >= 3 &&
-    (outline?.fieldProbeComplete === true || (plan.length >= 3 && probePlanMatchesResults(plan, results)));
-}
+function activeJobOverlayBounds(...args) { return gcodeViewer.activeJobOverlayBounds(...args); }
 
-function interpolateOutlinePathZ(point, source, closed) {
-  if (!Array.isArray(source) || !source.length) return 0;
-  if (source.length === 1) return Number(source[0]?.z) || 0;
-  const x = Number(point?.x);
-  const y = Number(point?.y);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return Number(source[0]?.z) || 0;
-  const segmentCount = closed ? source.length : source.length - 1;
-  let bestDistanceSq = Infinity;
-  let bestZ = Number(source[0]?.z) || 0;
-  for (let index = 0; index < segmentCount; index++) {
-    const a = source[index];
-    const b = source[(index + 1) % source.length];
-    const ax = Number(a?.x);
-    const ay = Number(a?.y);
-    const bx = Number(b?.x);
-    const by = Number(b?.y);
-    if (![ax, ay, bx, by].every(Number.isFinite)) continue;
-    const dx = bx - ax;
-    const dy = by - ay;
-    const lengthSq = dx * dx + dy * dy;
-    const t = lengthSq > 0
-      ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / lengthSq))
-      : 0;
-    const projectedX = ax + dx * t;
-    const projectedY = ay + dy * t;
-    const distanceSq = (x - projectedX) ** 2 + (y - projectedY) ** 2;
-    if (distanceSq >= bestDistanceSq) continue;
-    const az = Number(a?.z);
-    const bz = Number(b?.z);
-    if (Number.isFinite(az) && Number.isFinite(bz)) bestZ = az + (bz - az) * t;
-    else if (Number.isFinite(az)) bestZ = az;
-    else if (Number.isFinite(bz)) bestZ = bz;
-    bestDistanceSq = distanceSq;
-  }
-  return bestZ;
-}
+function combineGcodeBounds(...args) { return gcodeViewer.combineGcodeBounds(...args); }
 
-function activeJobContextOverlayData(outline, origin) {
-  if (!outline?.active || !Array.isArray(outline.points) || !outline.points.length) {
-    return { outline: [], markers: [], surface: null, bounds: null, closed: false };
-  }
-  const source = outline.points.map((point) => activeJobOverlayPoint(point, origin)).filter(Boolean);
-  const effective = effectiveOutlineGeometry(source, !!outline.closed, !!outline.curveFit);
-  let outlinePoints = effective.points.map((point) => ({
-    x: point.x,
-    y: point.y,
-    z: interpolateOutlinePathZ(point, source, !!outline.closed),
-  }));
-  let markers = source.map((point) => ({ x: point.x, y: point.y, z: point.z }));
-  let surface = null;
+function activeJobContextOverlayKey(...args) { return gcodeViewer.activeJobContextOverlayKey(...args); }
 
-  if (!effective.limited && activeJobFieldProbeComplete(outline)) {
-    const samples = outline.fieldProbeResults
-      .map((point) => activeJobOverlayPoint(point, origin))
-      .filter((point) => point && [point.x, point.y, point.z].every(Number.isFinite));
-    let polygon = effective.points.map((point) => ({ x: point.x, y: point.y }));
-    if (
-      polygon.length > 2 &&
-      Math.hypot(polygon[0].x - polygon.at(-1).x, polygon[0].y - polygon.at(-1).y) <= 0.00005
-    ) {
-      polygon = polygon.slice(0, -1);
-    }
-    try {
-      const meshVertices = buildHeightMeshVertices(samples, polygon);
-      const points = [];
-      for (const point of meshVertices) {
-        if (points.some((seen) => Math.hypot(seen.x - point.x, seen.y - point.y) <= 0.000001)) continue;
-        points.push(point);
-      }
-      const faces = points.length >= 3 ? constrainedOutlineTriangles(points, polygon) : [];
-      if (faces.length) {
-        surface = { points, faces };
-        outlinePoints = outlinePoints.map((point) => ({
-          ...point,
-          z: interpolateZ(point.x, point.y, samples),
-        }));
-        markers = markers.map((point) => ({
-          ...point,
-          z: interpolateZ(point.x, point.y, samples),
-        }));
-      }
-    } catch {
-      surface = null;
-    }
-  }
+function syncGcodeContextOverlay(...args) { return gcodeViewer.syncGcodeContextOverlay(...args); }
 
-  const bounds = activeJobOverlayBounds([
-    ...outlinePoints,
-    ...markers,
-    ...(surface?.points || []),
-  ]);
-  return { outline: outlinePoints, markers, surface, bounds, closed: !!outline.closed };
-}
+function rebuildGcodeContextOverlay(...args) { return gcodeViewer.rebuildGcodeContextOverlay(...args); }
 
-function activeJobOverlayBounds(points) {
-  const valid = (points || []).filter((point) => [point?.x, point?.y, point?.z].every(Number.isFinite));
-  if (!valid.length) return null;
-  const min = [Infinity, Infinity, Infinity];
-  const max = [-Infinity, -Infinity, -Infinity];
-  for (const point of valid) {
-    for (const [index, value] of [point.x, point.y, point.z].entries()) {
-      min[index] = Math.min(min[index], value);
-      max[index] = Math.max(max[index], value);
-    }
-  }
-  return { min, max };
-}
-
-function combineGcodeBounds(a, b) {
-  const valid = (bounds) =>
-    bounds && [0, 1, 2].every((index) => Number.isFinite(Number(bounds.min?.[index])) && Number.isFinite(Number(bounds.max?.[index])));
-  if (!valid(a)) return valid(b) ? { min: b.min.slice(0, 3), max: b.max.slice(0, 3) } : null;
-  if (!valid(b)) return { min: a.min.slice(0, 3), max: a.max.slice(0, 3) };
-  return {
-    min: [0, 1, 2].map((index) => Math.min(Number(a.min[index]), Number(b.min[index]))),
-    max: [0, 1, 2].map((index) => Math.max(Number(a.max[index]), Number(b.max[index]))),
-  };
-}
-
-function activeJobContextOverlayKey(origin) {
-  const coord = (axis) => {
-    const value = axisValue(origin, axis);
-    return value === null ? "-" : Number(value).toFixed(4);
-  };
-  return `${outlineContextRevision}:${coord("x")}:${coord("y")}:${coord("z")}`;
-}
-
-function syncGcodeContextOverlay() {
-  if (!gcodeView.contextGroup) return false;
-  const origin = activeJobOverlayOrigin();
-  const key = activeJobContextOverlayKey(origin);
-  if (gcodeView.contextKey === key) return false;
-  const data = activeJobContextOverlayData(state.outline, origin);
-  clearThreeGroup(gcodeView.contextGroup);
-  rebuildGcodeContextOverlay(data);
-  gcodeView.contextKey = key;
-  gcodeView.contextBounds = data.bounds;
-  gcodeView.contextVisible = !!data.bounds;
-  scheduleGcodeRender();
-  return true;
-}
-
-function rebuildGcodeContextOverlay(data) {
-  rebuildGcodeContextOverlayForGroup(gcodeView.contextGroup, data);
-}
-
-function rebuildGcodeContextOverlayForGroup(group, data) {
-  if (!group) return;
-  const outlineColor = data.closed ? 0x44c27b : 0x57a6d6;
-  if (data.surface?.points?.length && data.surface.faces?.length) {
-    const geometry = new THREE.BufferGeometry();
-    const positions = [];
-    for (const point of data.surface.points) {
-      const world = gcodeWorldPoint([point.x, point.y, point.z, 0], false);
-      positions.push(world.x, world.y, world.z);
-    }
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setIndex(data.surface.faces.flat());
-    const mesh = new THREE.Mesh(
-      geometry,
-      new THREE.MeshBasicMaterial({
-        color: 0x44c27b,
-        transparent: true,
-        opacity: 0.16,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-      }),
-    );
-    mesh.renderOrder = -10;
-    group.add(mesh);
-    const wire = new THREE.LineSegments(
-      new THREE.WireframeGeometry(geometry),
-      new THREE.LineBasicMaterial({
-        color: 0x72d69e,
-        transparent: true,
-        opacity: 0.2,
-        depthWrite: false,
-      }),
-    );
-    wire.renderOrder = -9;
-    group.add(wire);
-  }
-  if (data.outline.length >= 2) {
-    const points = data.outline.map((point) => gcodeWorldPoint([point.x, point.y, point.z, 0], false));
-    const line = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(points),
-      new THREE.LineBasicMaterial({
-        color: outlineColor,
-        transparent: true,
-        opacity: 0.92,
-        depthTest: false,
-      }),
-    );
-    line.renderOrder = -8;
-    group.add(line);
-  }
-  if (data.markers.length) {
-    const points = data.markers.map((point) => gcodeWorldPoint([point.x, point.y, point.z, 0], false));
-    const markers = new THREE.Points(
-      new THREE.BufferGeometry().setFromPoints(points),
-      new THREE.PointsMaterial({
-        color: outlineColor,
-        size: 4,
-        sizeAttenuation: false,
-        transparent: true,
-        opacity: 0.95,
-        depthTest: false,
-      }),
-    );
-    markers.renderOrder = -7;
-    group.add(markers);
-  }
-}
+function rebuildGcodeContextOverlayForGroup(...args) { return gcodeViewer.rebuildGcodeContextOverlayForGroup(...args); }
 
 function renderActiveJobProgress(live, preview = {}, external = null) {
   const progress = document.getElementById("active-gcode-progress");
@@ -6717,6 +4505,7 @@ function previewBoundsText(bounds) {
 }
 
 function drawGcodePreview(preview, live = null) {
+  const gcodeView = gcodeViewer.getGcodeView();
   const segments = Array.isArray(preview?.segments) ? preview.segments : [];
   renderGcodeTimelineEvents(preview?.events, preview?.tool_metadata, preview?.line_count);
   const hasToolpath = segments.length > 0 && !!preview?.bounds;
@@ -6762,7 +4551,7 @@ function drawGcodePreview(preview, live = null) {
   ].join(":") : "context-only";
   const key = `${pathKey}|${gcodeView.contextKey}`;
   const sceneBounds = combineGcodeBounds(hasToolpath ? preview.bounds : null, gcodeView.contextBounds);
-  const entry = state.activeGcode?.entry || state.files.get(state.activeGcode?.path || "") || {};
+  const entry = state.activeGcode?.entry || filesFeature.getFile(state.activeGcode?.path || "") || {};
   const fitKey = gcodeCameraFitKey(state.activeGcode?.path, entry, preview, hasToolpath);
   if (gcodeView.key !== key) {
     const renderedSegments = hasToolpath ? segments : [];
@@ -6789,471 +4578,51 @@ function drawGcodePreview(preview, live = null) {
   scheduleGcodeRender();
 }
 
-function gcodeRenderPixelRatio(width = 0, height = 0, pixelBudget = GCODE_RENDER_PIXEL_BUDGET) {
-  const deviceRatio = Math.max(1, Number(globalThis.devicePixelRatio) || 1);
-  if (!(width > 0 && height > 0 && pixelBudget > 0)) return deviceRatio;
-  const budgetRatio = Math.sqrt(pixelBudget / (width * height));
-  return Math.max(1, Math.min(deviceRatio, budgetRatio));
-}
+function gcodeRenderPixelRatio(...args) { return gcodeViewer.gcodeRenderPixelRatio(...args); }
 
-function ensureGcodeViewer() {
-  if (gcodeView.renderer) return true;
-  const canvas = document.getElementById("gcode-preview");
-  if (!canvas) return false;
-  gcodeView.canvas = canvas;
-  gcodeView.empty = document.getElementById("gcode-preview-empty");
-  try {
-    gcodeView.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-  } catch (e) {
-    setGcodePreviewEmpty("3D preview unavailable");
-    return false;
-  }
-  gcodeView.pixelRatio = gcodeRenderPixelRatio();
-  gcodeView.renderer.setPixelRatio(gcodeView.pixelRatio);
-  gcodeView.renderer.setClearColor(0x202832, 1);
-  gcodeView.scene = new THREE.Scene();
-  gcodeView.perspCamera = new THREE.PerspectiveCamera(GCODE_FOV, 1, 0.1, 100000);
-  gcodeView.orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100000);
-  gcodeView.camera = gcodeView.projection === "orthographic" ? gcodeView.orthoCamera : gcodeView.perspCamera;
-  gcodeView.pathGroup = new THREE.Group();
-  gcodeView.scene.add(gcodeView.pathGroup);
-  gcodeView.contextGroup = new THREE.Group();
-  gcodeView.scene.add(gcodeView.contextGroup);
-  const markerGeometry = new THREE.SphereGeometry(1, 16, 12);
-  const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xd99a3a });
-  gcodeView.marker = new THREE.Mesh(markerGeometry, markerMaterial);
-  gcodeView.marker.visible = false;
-  gcodeView.scene.add(gcodeView.marker);
-  bindGcodeOrbitControls(canvas);
-  initGcodeViewCube();
-  bindGcodeProjectionToggle();
-  if (globalThis.ResizeObserver) {
-    gcodeView.resizeObserver = new ResizeObserver(() => scheduleGcodeRender());
-    gcodeView.resizeObserver.observe(canvas);
-  }
-  window.addEventListener("resize", scheduleGcodeRender);
-  return true;
-}
+function ensureGcodeViewer(...args) { return gcodeViewer.ensureGcodeViewer(...args); }
 
-function ensureDashboardGcodeViewer() {
-  if (dashboardGcodeView.renderer) return true;
-  const canvas = document.getElementById("dashboard-preview");
-  if (!canvas) return false;
-  dashboardGcodeView.canvas = canvas;
-  dashboardGcodeView.empty = document.getElementById("dashboard-preview-empty");
-  try {
-    dashboardGcodeView.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-  } catch {
-    setDashboardGcodePreviewEmpty("3D preview unavailable");
-    return false;
-  }
-  dashboardGcodeView.pixelRatio = gcodeRenderPixelRatio();
-  dashboardGcodeView.renderer.setPixelRatio(dashboardGcodeView.pixelRatio);
-  dashboardGcodeView.renderer.setClearColor(0x202832, 1);
-  dashboardGcodeView.scene = new THREE.Scene();
-  dashboardGcodeView.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100000);
-  dashboardGcodeView.pathGroup = new THREE.Group();
-  dashboardGcodeView.contextGroup = new THREE.Group();
-  dashboardGcodeView.scene.add(dashboardGcodeView.pathGroup);
-  dashboardGcodeView.scene.add(dashboardGcodeView.contextGroup);
-  dashboardGcodeView.marker = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 16, 12),
-    new THREE.MeshBasicMaterial({ color: 0xd99a3a }),
-  );
-  dashboardGcodeView.marker.visible = false;
-  dashboardGcodeView.scene.add(dashboardGcodeView.marker);
-  if (globalThis.ResizeObserver) {
-    dashboardGcodeView.resizeObserver = new ResizeObserver(scheduleDashboardGcodeRender);
-    dashboardGcodeView.resizeObserver.observe(canvas);
-  }
-  window.addEventListener("resize", scheduleDashboardGcodeRender);
-  return true;
-}
+function ensureDashboardGcodeViewer(...args) { return gcodeViewer.ensureDashboardGcodeViewer(...args); }
 
-function clearDashboardGcodeScene() {
-  dashboardGcodeView.key = "";
-  dashboardGcodeView.renderStateKey = "";
-  dashboardGcodeView.segments = [];
-  if (!dashboardGcodeView.renderer) return;
-  clearThreeGroup(dashboardGcodeView.pathGroup);
-  clearThreeGroup(dashboardGcodeView.contextGroup);
-  disposeObject(dashboardGcodeView.progressLine);
-  dashboardGcodeView.progressLine = null;
-  dashboardGcodeView.marker.visible = false;
-  scheduleDashboardGcodeRender();
-}
+function clearDashboardGcodeScene(...args) { return gcodeViewer.clearDashboardGcodeScene(...args); }
 
-function setDashboardGcodePreviewEmpty(text) {
-  const empty = dashboardGcodeView.empty || document.getElementById("dashboard-preview-empty");
-  if (!empty) return;
-  empty.textContent = text || "";
-  empty.hidden = !text;
-}
+function setDashboardGcodePreviewEmpty(...args) { return gcodeViewer.setDashboardGcodePreviewEmpty(...args); }
 
-function fitDashboardGcodeCamera(bounds) {
-  if (!bounds?.min || !bounds?.max || !dashboardGcodeView.camera) return;
-  const min = bounds.min;
-  const max = bounds.max;
-  const center = [0, 1, 2].map((index) => (Number(min[index]) + Number(max[index])) / 2);
-  dashboardGcodeView.target.set(...gcodeWorldCoordinates([...center, 0], false));
-  const radius = Math.max(
-    Math.abs(Number(max[0]) - Number(min[0])),
-    Math.abs(Number(max[1]) - Number(min[1])),
-    Math.abs(Number(max[2]) - Number(min[2])),
-    1,
-  );
-  const direction = gcodeOrbitAnglesForDirection({ x: 1, y: 1, z: 1 });
-  dashboardGcodeView.orbit.theta = direction.theta;
-  dashboardGcodeView.orbit.phi = direction.phi;
-  dashboardGcodeView.orbit.radius = radius * 2.4 + 20;
-  updateDashboardGcodeCamera();
-}
+function fitDashboardGcodeCamera(...args) { return gcodeViewer.fitDashboardGcodeCamera(...args); }
 
-function updateDashboardGcodeCamera() {
-  const view = dashboardGcodeView;
-  if (!view.camera) return;
-  const sinPhi = Math.sin(view.orbit.phi);
-  view.camera.up.set(0, 1, 0);
-  view.camera.position.set(
-    view.target.x + view.orbit.radius * sinPhi * Math.sin(view.orbit.theta),
-    view.target.y + view.orbit.radius * Math.cos(view.orbit.phi),
-    view.target.z + view.orbit.radius * sinPhi * Math.cos(view.orbit.theta),
-  );
-  view.camera.lookAt(view.target);
-  syncDashboardGcodeProjection();
-  scheduleDashboardGcodeRender();
-}
+function updateDashboardGcodeCamera(...args) { return gcodeViewer.updateDashboardGcodeCamera(...args); }
 
-function syncDashboardGcodeProjection() {
-  const view = dashboardGcodeView;
-  if (!view.camera) return;
-  const aspect = view.height > 0 ? view.width / view.height : 1;
-  const radius = view.orbit.radius;
-  const halfH = Math.tan(THREE.MathUtils.degToRad(GCODE_FOV) / 2) * radius;
-  view.camera.near = Math.max(0.01, radius / 1000);
-  view.camera.far = Math.max(1000, radius * 100);
-  view.camera.top = halfH;
-  view.camera.bottom = -halfH;
-  view.camera.left = -halfH * aspect;
-  view.camera.right = halfH * aspect;
-  view.camera.updateProjectionMatrix();
-}
+function syncDashboardGcodeProjection(...args) { return gcodeViewer.syncDashboardGcodeProjection(...args); }
 
-function scheduleDashboardGcodeRender() {
-  if (!dashboardGcodeView.renderer || dashboardGcodeView.renderQueued) return;
-  dashboardGcodeView.renderQueued = true;
-  requestAnimationFrame(() => {
-    dashboardGcodeView.renderQueued = false;
-    renderDashboardGcodeScene();
-  });
-}
+function scheduleDashboardGcodeRender(...args) { return gcodeViewer.scheduleDashboardGcodeRender(...args); }
 
-function renderDashboardGcodeScene() {
-  const view = dashboardGcodeView;
-  if (!view.renderer || !view.camera || !view.canvas) return;
-  const rect = view.canvas.getBoundingClientRect();
-  const width = Math.max(1, Math.round(rect.width));
-  const height = Math.max(1, Math.round(rect.height));
-  const pixelRatio = gcodeRenderPixelRatio(width, height);
-  const sizeChanged = view.width !== width || view.height !== height;
-  const ratioChanged = Math.abs(view.pixelRatio - pixelRatio) > 0.001;
-  if (ratioChanged) {
-    view.pixelRatio = pixelRatio;
-    view.renderer.setPixelRatio(pixelRatio);
-  }
-  if (sizeChanged || ratioChanged) {
-    view.width = width;
-    view.height = height;
-    view.renderer.setSize(width, height, false);
-    syncDashboardGcodeProjection();
-  }
-  view.renderer.render(view.scene, view.camera);
-}
+function renderDashboardGcodeScene(...args) { return gcodeViewer.renderDashboardGcodeScene(...args); }
 
-function bindGcodeOrbitControls(canvas) {
-  const setPanKey = () => {
-    const on = gcodeView.panKeys.size > 0;
-    gcodeView.panKeyDown = on;
-    canvas.classList.toggle("pan-mode", on || gcodeView.dragMode === "pan");
-  };
-  canvas.addEventListener("pointerdown", (e) => {
-    let pinching = false;
-    if (e.pointerType === "touch") {
-      gcodeView.touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (gcodeView.touchPointers.size === 2) {
-        const [first, second] = gcodeView.touchPointers.values();
-        gcodeView.pinchDistance = gcodePinchDistance(first, second);
-        pinching = true;
-        e.preventDefault();
-      }
-    }
-    gcodeView.dragging = !pinching;
-    gcodeView.dragX = e.clientX;
-    gcodeView.dragY = e.clientY;
-    gcodeView.dragMode = (e.shiftKey || gcodeView.panKeyDown || e.button === 1) ? "pan" : "orbit";
-    canvas.classList.toggle("pan-mode", gcodeView.dragMode === "pan" || gcodeView.panKeyDown);
-    if (gcodeView.dragMode === "pan") e.preventDefault();
-    canvas.focus({ preventScroll: true });
-    canvas.setPointerCapture?.(e.pointerId);
-  });
-  canvas.addEventListener("pointermove", (e) => {
-    if (e.pointerType === "touch" && gcodeView.touchPointers.has(e.pointerId)) {
-      gcodeView.touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (gcodeView.touchPointers.size === 2) {
-        const [first, second] = gcodeView.touchPointers.values();
-        const distance = gcodePinchDistance(first, second);
-        if (gcodeView.pinchDistance > 0 && distance > 0) {
-          gcodeView.orbit.radius = gcodeOrbitRadiusAfterPinch(gcodeView.orbit.radius, gcodeView.pinchDistance, distance);
-          updateGcodeCamera();
-        }
-        gcodeView.pinchDistance = distance;
-        e.preventDefault();
-        return;
-      }
-    }
-    if (!gcodeView.dragging) return;
-    const dx = e.clientX - gcodeView.dragX;
-    const dy = e.clientY - gcodeView.dragY;
-    gcodeView.dragX = e.clientX;
-    gcodeView.dragY = e.clientY;
-    if (e.shiftKey || gcodeView.panKeyDown || gcodeView.dragMode === "pan") {
-      gcodeView.dragMode = "pan";
-      canvas.classList.add("pan-mode");
-      panGcodeCamera(dx, dy);
-    } else {
-      rotateGcodeOrbitByDrag(gcodeView.orbit, dx, dy);
-      updateGcodeCamera();
-    }
-  });
-  const stopDrag = (e) => {
-    let keepDragging = false;
-    if (e.pointerType === "touch") {
-      gcodeView.touchPointers.delete(e.pointerId);
-      gcodeView.pinchDistance = 0;
-      if (gcodeView.touchPointers.size === 1) {
-        const [{ x, y }] = gcodeView.touchPointers.values();
-        keepDragging = true;
-        gcodeView.dragX = x;
-        gcodeView.dragY = y;
-      }
-    }
-    gcodeView.dragging = keepDragging;
-    gcodeView.dragMode = "orbit";
-    canvas.classList.toggle("pan-mode", gcodeView.panKeyDown);
-    canvas.releasePointerCapture?.(e.pointerId);
-  };
-  canvas.addEventListener("pointerup", stopDrag);
-  canvas.addEventListener("pointercancel", stopDrag);
-  canvas.addEventListener("pointerenter", () => { gcodeView.hovering = true; });
-  canvas.addEventListener("pointerleave", () => {
-    gcodeView.hovering = false;
-    if (!gcodeView.dragging) canvas.classList.toggle("pan-mode", gcodeView.panKeyDown);
-  });
-  canvas.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    gcodeView.orbit.radius = gcodeOrbitRadiusAfterWheel(gcodeView.orbit.radius, e.deltaY);
-    updateGcodeCamera();
-  }, { passive: false });
-  window.addEventListener("keydown", (e) => {
-    if (isTypingTarget(e.target)) return;
-    if (e.key !== "Shift" && e.code !== "Space") return;
-    if (!gcodeView.hovering && document.activeElement !== canvas && !gcodeView.dragging) return;
-    if (e.code === "Space") e.preventDefault();
-    gcodeView.panKeys.add(e.code === "Space" ? "space" : "shift");
-    setPanKey();
-  });
-  window.addEventListener("keyup", (e) => {
-    if (e.key !== "Shift" && e.code !== "Space") return;
-    if (e.code === "Space" && (gcodeView.hovering || document.activeElement === canvas)) e.preventDefault();
-    gcodeView.panKeys.delete(e.code === "Space" ? "space" : "shift");
-    setPanKey();
-  });
-  window.addEventListener("blur", () => {
-    gcodeView.panKeys.clear();
-    gcodeView.touchPointers.clear();
-    gcodeView.pinchDistance = 0;
-    gcodeView.dragging = false;
-    setPanKey();
-  });
-}
+function bindGcodeOrbitControls(...args) { return gcodeViewer.bindGcodeOrbitControls(...args); }
 
-function gcodePinchDistance(first, second) {
-  return Math.hypot(Number(second?.x) - Number(first?.x), Number(second?.y) - Number(first?.y));
-}
+function gcodePinchDistance(...args) { return gcodeViewer.gcodePinchDistance(...args); }
 
-function gcodeOrbitRadiusAfterPinch(radius, previousDistance, distance) {
-  if (!(previousDistance > 0) || !(distance > 0)) return radius;
-  return Math.max(GCODE_ORBIT_MIN_RADIUS, Math.min(GCODE_ORBIT_MAX_RADIUS, radius * previousDistance / distance));
-}
+function gcodeOrbitRadiusAfterPinch(...args) { return gcodeViewer.gcodeOrbitRadiusAfterPinch(...args); }
 
-function gcodeOrbitRadiusAfterWheel(radius, deltaY) {
-  return Math.max(GCODE_ORBIT_MIN_RADIUS, Math.min(GCODE_ORBIT_MAX_RADIUS, radius * Math.exp(deltaY * 0.001)));
-}
+function gcodeOrbitRadiusAfterWheel(...args) { return gcodeViewer.gcodeOrbitRadiusAfterWheel(...args); }
 
-function rotateGcodeOrbitByDrag(orbit, dx, dy) {
-  orbit.theta -= dx * GCODE_ORBIT_DRAG_RAD_PER_PX;
-  orbit.phi = Math.max(
-    0.08,
-    Math.min(Math.PI - 0.08, orbit.phi - dy * GCODE_ORBIT_DRAG_RAD_PER_PX),
-  );
-  return orbit;
-}
+function rotateGcodeOrbitByDrag(...args) { return gcodeViewer.rotateGcodeOrbitByDrag(...args); }
 
-function isTypingTarget(el) {
-  if (!el) return false;
-  const tag = String(el.tagName || "").toLowerCase();
-  return tag === "input" || tag === "textarea" || tag === "select" || el.isContentEditable;
-}
+function isTypingTarget(...args) { return gcodeViewer.isTypingTarget(...args); }
 
-function rebuildGcodeScene(preview, segments) {
-  populateGcodePathScene(gcodeView, preview, segments);
-}
+function rebuildGcodeScene(...args) { return gcodeViewer.rebuildGcodeScene(...args); }
 
-function populateGcodePathScene(view, preview, segments) {
-  // Toolpath and outline/probe context have separate cache keys and lifecycles.
-  // Context is rebuilt by syncGcodeContextOverlay and must survive path rebuilds.
-  clearThreeGroup(view.pathGroup);
-  disposeObject(view.progressLine);
-  view.progressLine = null;
-  const bounds = preview.bounds || {};
-  addGcodeGridToView(view, bounds);
-  const byKind = { rapid: [], cut: [], arc: [], probe: [] };
-  const progress = new Float32Array(segments.length * 6);
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i] || {};
-    const a = gcodeWorldPoint(seg.from || [0, 0, 0, 0], preview.has_4axis);
-    const b = gcodeWorldPoint(seg.to || [0, 0, 0, 0], preview.has_4axis);
-    const kind = byKind[seg.kind] ? seg.kind : "cut";
-    byKind[kind].push(a.x, a.y, a.z, b.x, b.y, b.z);
-    const j = i * 6;
-    progress[j] = a.x;
-    progress[j + 1] = a.y;
-    progress[j + 2] = a.z;
-    progress[j + 3] = b.x;
-    progress[j + 4] = b.y;
-    progress[j + 5] = b.z;
-  }
-  for (const kind of ["rapid", "cut", "arc", "probe"]) {
-    if (!byKind[kind].length) continue;
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute(byKind[kind], 3));
-    const material = new THREE.LineBasicMaterial({
-      color: GCODE_KIND_COLORS[kind],
-      transparent: true,
-      opacity: kind === "rapid" ? 0.42 : 0.82,
-    });
-    view.pathGroup.add(new THREE.LineSegments(geometry, material));
-  }
-  const progressGeometry = new THREE.BufferGeometry();
-  progressGeometry.setAttribute("position", new THREE.BufferAttribute(progress, 3));
-  progressGeometry.setDrawRange(0, progress.length / 3);
-  const progressMaterial = new THREE.LineBasicMaterial({ color: 0xf2f6fa, transparent: true, opacity: 0.95 });
-  view.progressLine = new THREE.LineSegments(progressGeometry, progressMaterial);
-  view.scene.add(view.progressLine);
-}
+function populateGcodePathScene(...args) { return gcodeViewer.populateGcodePathScene(...args); }
 
-function addGcodeGrid(bounds) {
-  addGcodeGridToView(gcodeView, bounds);
-}
+function addGcodeGrid(...args) { return gcodeViewer.addGcodeGrid(...args); }
 
-function addGcodeGridToView(view, bounds) {
-  const min = bounds.min || [0, 0, 0];
-  const max = bounds.max || [1, 1, 1];
-  const spanX = Math.max(Math.abs(Number(max[0]) - Number(min[0])), 1);
-  const spanY = Math.max(Math.abs(Number(max[1]) - Number(min[1])), 1);
-  const size = Math.max(spanX, spanY, 20) * 1.15;
-  const divisions = Math.max(4, Math.min(80, Math.round(size / 10)));
-  const grid = new THREE.GridHelper(size, divisions, 0x5f6c78, 0x303946);
-  const center = gcodeWorldCoordinates([
-    (Number(min[0]) + Number(max[0])) / 2,
-    (Number(min[1]) + Number(max[1])) / 2,
-    Number(min[2]) || 0,
-    0,
-  ], false);
-  grid.position.set(...center);
-  view.pathGroup.add(grid);
-  // Origin marker with axis legends sits at the work origin (machine 0,0,0).
-  view.pathGroup.add(buildGcodeOriginAxes(Math.max(5, size * 0.12), view.renderer));
-}
+function addGcodeGridToView(...args) { return gcodeViewer.addGcodeGridToView(...args); }
 
-function buildGcodeOriginAxes(len, renderer = gcodeView.renderer) {
-  const group = new THREE.Group();
-  const axes = [
-    // Machine X+ is world +x, machine Y+ is world -z, machine Z+ is world +y.
-    { color: GCODE_AXIS_COLORS.x, dir: new THREE.Vector3(1, 0, 0), plus: "X+", minus: "X-" },
-    { color: GCODE_AXIS_COLORS.y, dir: new THREE.Vector3(0, 0, -1), plus: "Y+", minus: "Y-" },
-    { color: GCODE_AXIS_COLORS.z, dir: new THREE.Vector3(0, 1, 0), plus: "Z+", minus: "" },
-  ];
-  const headLen = len * 0.16;
-  const headRadius = len * 0.05;
-  for (const axis of axes) {
-    const color = new THREE.Color(axis.color);
-    const from = axis.minus ? axis.dir.clone().multiplyScalar(-len) : new THREE.Vector3();
-    const to = axis.dir.clone().multiplyScalar(len);
-    const lineGeometry = new THREE.BufferGeometry().setFromPoints([from, to]);
-    group.add(new THREE.Line(lineGeometry, new THREE.LineBasicMaterial({ color })));
-    for (const sign of axis.minus ? [1, -1] : [1]) {
-      const head = new THREE.Mesh(
-        new THREE.ConeGeometry(headRadius, headLen, 12),
-        new THREE.MeshBasicMaterial({ color }),
-      );
-      const tipDir = axis.dir.clone().multiplyScalar(sign);
-      head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tipDir);
-      head.position.copy(tipDir.multiplyScalar(len - headLen / 2));
-      group.add(head);
-      const label = makeGcodeAxisLabel(sign > 0 ? axis.plus : axis.minus, axis.color, renderer);
-      label.position.copy(axis.dir.clone().multiplyScalar(sign * (len + len * 0.22)));
-      label.scale.setScalar(len * 0.34);
-      group.add(label);
-    }
-  }
-  return group;
-}
+function buildGcodeOriginAxes(...args) { return gcodeViewer.buildGcodeOriginAxes(...args); }
 
-function makeGcodeAxisLabel(text, color, renderer = gcodeView.renderer) {
-  const size = 256;
-  const c = document.createElement("canvas");
-  c.width = size;
-  c.height = size;
-  const ctx = c.getContext("2d");
-  ctx.font = "700 116px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.lineJoin = "round";
-  ctx.lineWidth = 24;
-  ctx.strokeStyle = "#12171c";
-  ctx.strokeText(text, size / 2, size / 2);
-  ctx.fillStyle = color;
-  ctx.fillText(text, size / 2, size / 2);
-  const texture = new THREE.CanvasTexture(c);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  if (renderer) texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
-  sprite.renderOrder = 10;
-  return sprite;
-}
+function makeGcodeAxisLabel(...args) { return gcodeViewer.makeGcodeAxisLabel(...args); }
 
-function clearGcodeScene() {
-  gcodeView.live = null;
-  gcodeView.followLive = false;
-  if (gcodeView.canvas) gcodeView.canvas.setAttribute("aria-label", "Active gcode preview");
-  if (!gcodeView.renderer) return;
-  clearThreeGroup(gcodeView.pathGroup);
-  clearThreeGroup(gcodeView.contextGroup);
-  disposeObject(gcodeView.progressLine);
-  gcodeView.progressLine = null;
-  gcodeView.marker.visible = false;
-  gcodeView.key = "";
-  gcodeView.fitKey = "";
-  gcodeView.contextKey = "";
-  gcodeView.contextBounds = null;
-  gcodeView.contextVisible = false;
-  gcodeView.segments = [];
-  gcodeView.cursor = 0;
-  gcodeView.timelineEventLine = 0;
-  gcodeView.timelineEventsKey = "";
-  scheduleGcodeRender();
-}
+function clearGcodeScene(...args) { return gcodeViewer.clearGcodeScene(...args); }
 
 function clearThreeGroup(group) {
   if (!group) return;
@@ -7276,22 +4645,10 @@ function disposeObject(obj) {
   });
 }
 
-function fitGcodeCamera(bounds) {
-  const min = bounds.min || [0, 0, 0];
-  const max = bounds.max || [1, 1, 1];
-  const cx = (Number(min[0]) + Number(max[0])) / 2;
-  const cy = (Number(min[1]) + Number(max[1])) / 2;
-  const cz = (Number(min[2]) + Number(max[2])) / 2;
-  gcodeView.target.set(...gcodeWorldCoordinates([cx, cy, cz, 0], false));
-  const spanX = Math.abs(Number(max[0]) - Number(min[0]));
-  const spanY = Math.abs(Number(max[1]) - Number(min[1]));
-  const spanZ = Math.abs(Number(max[2]) - Number(min[2]));
-  const radius = Math.max(spanX, spanY, spanZ, 1);
-  gcodeView.orbit.radius = radius * 2.4 + 20;
-  updateGcodeCamera();
-}
+function fitGcodeCamera(...args) { return gcodeViewer.fitGcodeCamera(...args); }
 
 function panGcodeCamera(dx, dy) {
+  const gcodeView = gcodeViewer.getGcodeView();
   const camera = gcodeView.camera;
   const canvas = gcodeView.canvas;
   if (!camera || !canvas) return;
@@ -7311,70 +4668,13 @@ function panGcodeCamera(dx, dy) {
   updateGcodeCamera();
 }
 
-function updateGcodeCamera() {
-  if (!gcodeView.camera) return;
-  const o = gcodeView.orbit;
-  const sinPhi = Math.sin(o.phi);
-  const x = gcodeView.target.x + o.radius * sinPhi * Math.sin(o.theta);
-  const y = gcodeView.target.y + o.radius * Math.cos(o.phi);
-  const z = gcodeView.target.z + o.radius * sinPhi * Math.cos(o.theta);
-  if (Math.abs(sinPhi) < 0.02) {
-    // Looking straight down/up the world-up axis: pick an up vector that keeps
-    // machine Y+ toward the top of the screen so top/bottom views stay stable.
-    gcodeView.camera.up.set(-Math.sin(o.theta), 0, -Math.cos(o.theta));
-  } else {
-    gcodeView.camera.up.set(0, 1, 0);
-  }
-  gcodeView.camera.position.set(x, y, z);
-  gcodeView.camera.lookAt(gcodeView.target);
-  syncGcodeProjection();
-  scheduleGcodeRender();
-}
+function updateGcodeCamera(...args) { return gcodeViewer.updateGcodeCamera(...args); }
 
-function syncGcodeProjection() {
-  const camera = gcodeView.camera;
-  if (!camera) return;
-  const aspect = gcodeView.height > 0 ? gcodeView.width / gcodeView.height : 1;
-  const radius = gcodeView.orbit.radius;
-  camera.near = Math.max(0.01, radius / 1000);
-  camera.far = Math.max(1000, radius * 100);
-  if (camera.isOrthographicCamera) {
-    const halfH = Math.tan(THREE.MathUtils.degToRad(GCODE_FOV) / 2) * radius;
-    camera.top = halfH;
-    camera.bottom = -halfH;
-    camera.left = -halfH * aspect;
-    camera.right = halfH * aspect;
-  } else {
-    camera.aspect = aspect;
-  }
-  camera.updateProjectionMatrix();
-}
+function syncGcodeProjection(...args) { return gcodeViewer.syncGcodeProjection(...args); }
 
-function setGcodeProjection(mode) {
-  const projection = mode === "orthographic" ? "orthographic" : "perspective";
-  gcodeView.projection = projection;
-  if (gcodeView.perspCamera) {
-    gcodeView.camera = projection === "orthographic" ? gcodeView.orthoCamera : gcodeView.perspCamera;
-    updateGcodeCamera();
-  }
-  for (const [id, value] of [["gcode-projection-persp", "perspective"], ["gcode-projection-ortho", "orthographic"]]) {
-    const btn = document.getElementById(id);
-    if (btn) btn.setAttribute("aria-pressed", projection === value ? "true" : "false");
-  }
-}
+function setGcodeProjection(...args) { return gcodeViewer.setGcodeProjection(...args); }
 
-function bindGcodeProjectionToggle() {
-  const persp = document.getElementById("gcode-projection-persp");
-  const ortho = document.getElementById("gcode-projection-ortho");
-  if (persp && !persp.dataset.bound) {
-    persp.dataset.bound = "1";
-    persp.onclick = () => setGcodeProjection("perspective");
-  }
-  if (ortho && !ortho.dataset.bound) {
-    ortho.dataset.bound = "1";
-    ortho.onclick = () => setGcodeProjection("orthographic");
-  }
-}
+function bindGcodeProjectionToggle(...args) { return gcodeViewer.bindGcodeProjectionToggle(...args); }
 
 // View cube axes are main-scene world axes: +x right, +y top, +z front
 // (machine X+ right, Z+ up, Y+ toward the back).
@@ -7387,465 +4687,62 @@ const VIEWCUBE_FACES = [
   { label: "BACK", rotation: 0 },
 ];
 
-function initGcodeViewCube() {
-  if (gcodeView.cube) return;
-  const canvas = document.getElementById("gcode-viewcube");
-  if (!canvas) return;
-  let renderer;
-  try {
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  } catch (e) {
-    return;
-  }
-  const pixelRatio = gcodeRenderPixelRatio();
-  renderer.setPixelRatio(pixelRatio);
-  renderer.setSize(104, 104, false); // matches the fixed CSS size; the widget may be hidden (0x0) at init
-  renderer.setClearColor(0x000000, 0);
-  const scene = new THREE.Scene();
-  const camera = new THREE.OrthographicCamera(-1.75, 1.75, 1.75, -1.75, 0.1, 10);
-  camera.position.set(0, 0, 5);
-  camera.lookAt(0, 0, 0);
-  const materials = VIEWCUBE_FACES.map((face) => new THREE.MeshBasicMaterial({
-    map: makeViewCubeFaceTexture(face.label, face.rotation, renderer),
-  }));
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), materials);
-  const edges = new THREE.LineSegments(
-    new THREE.EdgesGeometry(mesh.geometry),
-    new THREE.LineBasicMaterial({ color: 0x5f6c78 }),
-  );
-  edges.scale.setScalar(1.001);
-  mesh.add(edges);
-  const hover = new THREE.Mesh(
-    new THREE.BoxGeometry(1, 1, 1),
-    new THREE.MeshBasicMaterial({
-      color: 0x57a6d6,
-      transparent: true,
-      opacity: 0.34,
-      depthWrite: false,
-    }),
-  );
-  hover.add(new THREE.LineSegments(
-    new THREE.EdgesGeometry(hover.geometry),
-    new THREE.LineBasicMaterial({ color: 0xa9ddff, transparent: true, opacity: 0.95 }),
-  ));
-  hover.visible = false;
-  hover.renderOrder = 3;
-  mesh.add(hover);
-  scene.add(mesh);
-  gcodeView.cube = {
-    renderer,
-    scene,
-    camera,
-    mesh,
-    hover,
-    hoverKey: "",
-    canvas,
-    raycaster: new THREE.Raycaster(),
-    width: 104,
-    height: 104,
-    pixelRatio,
-    dragPointerId: null,
-    dragStartX: 0,
-    dragStartY: 0,
-    dragX: 0,
-    dragY: 0,
-    dragging: false,
-    suppressClick: false,
-  };
-  canvas.addEventListener("pointerdown", onGcodeViewCubePointerDown);
-  canvas.addEventListener("pointermove", onGcodeViewCubePointerMove);
-  canvas.addEventListener("pointerup", onGcodeViewCubePointerUp);
-  canvas.addEventListener("pointercancel", onGcodeViewCubePointerCancel);
-  canvas.addEventListener("pointerleave", clearGcodeViewCubeHover);
-  canvas.addEventListener("click", onGcodeViewCubeClick);
-}
+function initGcodeViewCube(...args) { return gcodeViewer.initGcodeViewCube(...args); }
 
-function makeViewCubeFaceTexture(label, rotation, renderer) {
-  const size = 512;
-  const c = document.createElement("canvas");
-  c.width = size;
-  c.height = size;
-  const ctx = c.getContext("2d");
-  ctx.fillStyle = "#232b31";
-  ctx.fillRect(0, 0, size, size);
-  ctx.strokeStyle = "#3a444d";
-  ctx.lineWidth = 16;
-  ctx.strokeRect(8, 8, size - 16, size - 16);
-  ctx.translate(size / 2, size / 2);
-  ctx.rotate(rotation || 0);
-  ctx.font = "700 96px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.lineJoin = "round";
-  ctx.lineWidth = 16;
-  ctx.strokeStyle = "#12171c";
-  ctx.strokeText(label, 0, 0);
-  ctx.fillStyle = "#b7c0ca";
-  ctx.fillText(label, 0, 0);
-  const texture = new THREE.CanvasTexture(c);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  return texture;
-}
+function makeViewCubeFaceTexture(...args) { return gcodeViewer.makeViewCubeFaceTexture(...args); }
 
-function renderGcodeViewCube() {
-  const cube = gcodeView.cube;
-  if (!cube || !gcodeView.camera) return;
-  syncGcodeViewCubeResolution(cube);
-  cube.mesh.quaternion.copy(gcodeView.camera.quaternion).invert();
-  cube.renderer.render(cube.scene, cube.camera);
-}
+function renderGcodeViewCube(...args) { return gcodeViewer.renderGcodeViewCube(...args); }
 
-function syncGcodeViewCubeResolution(cube) {
-  const rect = cube.canvas.getBoundingClientRect();
-  const width = Math.max(1, Math.round(rect.width || 104));
-  const height = Math.max(1, Math.round(rect.height || 104));
-  const pixelRatio = gcodeRenderPixelRatio(width, height);
-  const ratioChanged = Math.abs(cube.pixelRatio - pixelRatio) > 0.001;
-  if (ratioChanged) {
-    cube.pixelRatio = pixelRatio;
-    cube.renderer.setPixelRatio(pixelRatio);
-  }
-  if (cube.width !== width || cube.height !== height || ratioChanged) {
-    cube.width = width;
-    cube.height = height;
-    cube.renderer.setSize(width, height, false);
-  }
-}
+function syncGcodeViewCubeResolution(...args) { return gcodeViewer.syncGcodeViewCubeResolution(...args); }
 
-function viewCubeTargetComponents(point, faceNormal = null) {
-  const band = 0.55;
-  const target = {
-    x: Math.abs(Number(point?.x) || 0) > band ? Math.sign(Number(point.x)) : 0,
-    y: Math.abs(Number(point?.y) || 0) > band ? Math.sign(Number(point.y)) : 0,
-    z: Math.abs(Number(point?.z) || 0) > band ? Math.sign(Number(point.z)) : 0,
-  };
-  if (target.x === 0 && target.y === 0 && target.z === 0 && faceNormal) {
-    target.x = Math.sign(Number(faceNormal.x) || 0);
-    target.y = Math.sign(Number(faceNormal.y) || 0);
-    target.z = Math.sign(Number(faceNormal.z) || 0);
-  }
-  return target.x === 0 && target.y === 0 && target.z === 0 ? null : target;
-}
+function viewCubeTargetComponents(...args) { return gcodeViewer.viewCubeTargetComponents(...args); }
 
-function gcodeViewCubeTarget(e) {
-  const cube = gcodeView.cube;
-  if (!cube || !gcodeView.camera) return null;
-  const rect = cube.canvas.getBoundingClientRect();
-  const ndc = {
-    x: ((e.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1,
-    y: -((e.clientY - rect.top) / Math.max(1, rect.height)) * 2 + 1,
-  };
-  cube.mesh.updateMatrixWorld(true);
-  cube.raycaster.setFromCamera(ndc, cube.camera);
-  const hits = cube.raycaster.intersectObject(cube.mesh, false);
-  if (!hits.length) return null;
-  const p = cube.mesh.worldToLocal(hits[0].point.clone());
-  const target = viewCubeTargetComponents(p, hits[0].face?.normal);
-  return target ? new THREE.Vector3(target.x, target.y, target.z) : null;
-}
+function gcodeViewCubeTarget(...args) { return gcodeViewer.gcodeViewCubeTarget(...args); }
 
-function setGcodeViewCubeHover(dir) {
-  const cube = gcodeView.cube;
-  if (!cube) return;
-  if (!dir) {
-    clearGcodeViewCubeHover();
-    return;
-  }
-  const key = `${dir.x},${dir.y},${dir.z}`;
-  if (cube.hoverKey === key) return;
-  cube.hoverKey = key;
-  const { dimensions, position } = viewCubeHoverGeometry(dir);
-  cube.hover.scale.set(dimensions[0], dimensions[1], dimensions[2]);
-  cube.hover.position.set(position[0], position[1], position[2]);
-  cube.hover.visible = true;
-  scheduleGcodeRender();
-}
+function setGcodeViewCubeHover(...args) { return gcodeViewer.setGcodeViewCubeHover(...args); }
 
-function viewCubeHoverGeometry(dir) {
-  const axes = [Number(dir?.x) || 0, Number(dir?.y) || 0, Number(dir?.z) || 0];
-  const targetAxes = axes.filter((value) => value !== 0).length;
-  const thickness = targetAxes === 1 ? 0.05 : targetAxes === 2 ? 0.12 : 0.18;
-  const dimensions = axes.map((value) => value === 0 ? 1.05 : thickness);
-  const position = axes.map((value, index) =>
-    value === 0 ? 0 : Math.sign(value) * (1 + dimensions[index] / 2 + 0.008)
-  );
-  return { dimensions, position };
-}
+function viewCubeHoverGeometry(...args) { return gcodeViewer.viewCubeHoverGeometry(...args); }
 
-function clearGcodeViewCubeHover() {
-  const cube = gcodeView.cube;
-  if (!cube || (!cube.hover.visible && !cube.hoverKey)) return;
-  cube.hover.visible = false;
-  cube.hoverKey = "";
-  cube.canvas.style.cursor = cube.dragPointerId !== null ? "grabbing" : "default";
-  scheduleGcodeRender();
-}
+function clearGcodeViewCubeHover(...args) { return gcodeViewer.clearGcodeViewCubeHover(...args); }
 
-function onGcodeViewCubePointerDown(e) {
-  const cube = gcodeView.cube;
-  if (!cube || (typeof e.button === "number" && e.button !== 0)) return;
-  if (!gcodeViewCubeTarget(e)) return;
-  cube.dragPointerId = e.pointerId;
-  cube.dragStartX = e.clientX;
-  cube.dragStartY = e.clientY;
-  cube.dragX = e.clientX;
-  cube.dragY = e.clientY;
-  cube.dragging = false;
-  clearGcodeViewCubeHover();
-  cube.canvas.style.cursor = "grabbing";
-  try {
-    cube.canvas.setPointerCapture?.(e.pointerId);
-  } catch {
-    // Pointer capture is best-effort; in-canvas dragging still works without it.
-  }
-}
+function onGcodeViewCubePointerDown(...args) { return gcodeViewer.onGcodeViewCubePointerDown(...args); }
 
-function onGcodeViewCubePointerMove(e) {
-  const cube = gcodeView.cube;
-  if (!cube) return;
-  if (cube.dragPointerId === e.pointerId) {
-    const step = gcodeCubeDragStep(cube, e.clientX, e.clientY);
-    if (!step) return;
-    rotateGcodeOrbitByDrag(gcodeView.orbit, step.dx, step.dy);
-    clearGcodeViewCubeHover();
-    cube.canvas.style.cursor = "grabbing";
-    updateGcodeCamera();
-    e.preventDefault();
-    return;
-  }
-  const target = gcodeViewCubeTarget(e);
-  cube.canvas.style.cursor = target ? "pointer" : "default";
-  setGcodeViewCubeHover(target);
-}
+function onGcodeViewCubePointerMove(...args) { return gcodeViewer.onGcodeViewCubePointerMove(...args); }
 
-function gcodeCubeDragStep(drag, clientX, clientY) {
-  const totalX = clientX - drag.dragStartX;
-  const totalY = clientY - drag.dragStartY;
-  if (!drag.dragging && Math.hypot(totalX, totalY) < GCODE_CUBE_DRAG_THRESHOLD_PX) return null;
-  let dx = clientX - drag.dragX;
-  let dy = clientY - drag.dragY;
-  if (!drag.dragging) {
-    drag.dragging = true;
-    dx = totalX;
-    dy = totalY;
-  }
-  drag.dragX = clientX;
-  drag.dragY = clientY;
-  return { dx, dy };
-}
+function gcodeCubeDragStep(...args) { return gcodeViewer.gcodeCubeDragStep(...args); }
 
-function finishGcodeViewCubeDrag(e, cancelled = false) {
-  const cube = gcodeView.cube;
-  if (!cube || cube.dragPointerId !== e.pointerId) return;
-  const wasDragging = cube.dragging;
-  cube.dragPointerId = null;
-  cube.dragging = false;
-  try {
-    cube.canvas.releasePointerCapture?.(e.pointerId);
-  } catch {
-    // Capture may already be gone after cancellation or window focus changes.
-  }
-  cube.canvas.style.cursor = "default";
-  if (wasDragging) {
-    cube.suppressClick = true;
-    setTimeout(() => {
-      if (gcodeView.cube === cube) cube.suppressClick = false;
-    }, 0);
-  } else if (!cancelled) {
-    const target = gcodeViewCubeTarget(e);
-    cube.canvas.style.cursor = target ? "pointer" : "default";
-    setGcodeViewCubeHover(target);
-  }
-}
+function finishGcodeViewCubeDrag(...args) { return gcodeViewer.finishGcodeViewCubeDrag(...args); }
 
-function onGcodeViewCubePointerUp(e) {
-  finishGcodeViewCubeDrag(e);
-}
+function onGcodeViewCubePointerUp(...args) { return gcodeViewer.onGcodeViewCubePointerUp(...args); }
 
-function onGcodeViewCubePointerCancel(e) {
-  finishGcodeViewCubeDrag(e, true);
-}
+function onGcodeViewCubePointerCancel(...args) { return gcodeViewer.onGcodeViewCubePointerCancel(...args); }
 
-function onGcodeViewCubeClick(e) {
-  const cube = gcodeView.cube;
-  if (cube?.suppressClick) return;
-  const dir = gcodeViewCubeTarget(e);
-  if (!dir) return;
-  snapGcodeViewTo(dir.normalize());
-}
+function onGcodeViewCubeClick(...args) { return gcodeViewer.onGcodeViewCubeClick(...args); }
 
-function snapGcodeViewTo(dir) {
-  const angles = gcodeOrbitAnglesForDirection(dir);
-  gcodeView.orbit.phi = angles.phi;
-  gcodeView.orbit.theta = angles.theta;
-  updateGcodeCamera();
-}
+function snapGcodeViewTo(...args) { return gcodeViewer.snapGcodeViewTo(...args); }
 
-function gcodeOrbitAnglesForDirection(direction) {
-  const x = Number(direction?.x) || 0;
-  const y = Number(direction?.y) || 0;
-  const z = Number(direction?.z) || 0;
-  const length = Math.hypot(x, y, z) || 1;
-  return {
-    theta: Math.atan2(x, z),
-    phi: Math.acos(Math.max(-1, Math.min(1, y / length))),
-  };
-}
+function gcodeOrbitAnglesForDirection(...args) { return gcodeViewer.gcodeOrbitAnglesForDirection(...args); }
 
-function gcodeTimelineLocallyOwned() {
-  const slider = document.getElementById("gcode-timeline");
-  return gcodeView.timelineEventLine > 0 || (!!slider && (
-    gcodeView.timelineDragging ||
-    slider === document.activeElement ||
-    slider.dataset.dragging === "1"
-  ));
-}
+function gcodeTimelineLocallyOwned(...args) { return gcodeViewer.gcodeTimelineLocallyOwned(...args); }
 
-function gcodeTimelineEventLabel(event, toolMetadata = []) {
-  const kind = String(event?.kind || "");
-  const tool = gcodeToolMetadata(toolMetadata, event?.tool);
-  const code = String(event?.code || "");
-  const value = Number(event?.value);
-  switch (kind) {
-  case "tool_change":
-    return tool ? [gcodeToolLabel(tool), tool.name].filter(Boolean).join(" · ") : toolDisplayName(event?.tool);
-  case "spindle":
-    if (code === "M5") return "Spindle stop";
-    return [code === "M4" ? "Spindle CCW" : "Spindle CW", Number.isFinite(value) && value > 0 ? `${Math.round(value)} rpm` : ""].filter(Boolean).join(" · ");
-  case "a_index":
-    return `A index · ${Number.isFinite(value) ? `${-value}°` : "—"}`;
-  case "dwell":
-    return `Dwell${Number.isFinite(value) && value > 0 ? ` · P${value}` : ""}`;
-  case "attention":
-    return `Program pause · ${code || "M0"}`;
-  case "coolant":
-    return `Coolant · ${code}`;
-  default:
-    return "Program event";
-  }
-}
+function gcodeTimelineEventLabel(...args) { return gcodeViewer.gcodeTimelineEventLabel(...args); }
 
-function gcodeTimelineEventMarkers(events, totalLines, bucketCount = 48) {
-  const lines = Math.max(1, Number(totalLines) || 1);
-  const buckets = Math.max(1, Math.trunc(Number(bucketCount) || 48));
-  const groups = new Map();
-  for (const event of Array.isArray(events) ? events : []) {
-    const line = Math.trunc(Number(event?.line) || 0);
-    if (line <= 0) continue;
-    const fraction = Math.max(0, Math.min(1, (line - 1) / Math.max(1, lines - 1)));
-    const bucket = Math.min(buckets - 1, Math.floor(fraction * buckets));
-    const marker = groups.get(bucket) || { bucket, fraction: (bucket + 0.5) / buckets, events: [] };
-    marker.events.push(event);
-    groups.set(bucket, marker);
-  }
-  return [...groups.values()].sort((a, b) => a.bucket - b.bucket);
-}
+function gcodeTimelineEventMarkers(...args) { return gcodeViewer.gcodeTimelineEventMarkers(...args); }
 
-function gcodeTimelineMarkerLabel(marker, toolMetadata = []) {
-  const events = Array.isArray(marker?.events) ? marker.events : [];
-  const primary = events.find((event) => event.kind === "tool_change") || events[0];
-  const base = primary?.kind === "tool_change" ? `T${primary.tool || "?"}` :
-    ({ spindle: "S", a_index: "A", attention: "!", coolant: "C", dwell: "D" }[primary?.kind] || "•");
-  return events.length > 1 ? `${base}+` : base;
-}
+function gcodeTimelineMarkerLabel(...args) { return gcodeViewer.gcodeTimelineMarkerLabel(...args); }
 
-function setGcodeTimelineEventDetail(label, line = 0) {
-  const detail = document.getElementById("gcode-timeline-event-detail");
-  if (!detail) return;
-  const text = line > 0 ? `${label} · line ${line}` : "Program events";
-  setTextIfChanged(detail, text);
-  detail.title = text;
-}
+function setGcodeTimelineEventDetail(...args) { return gcodeViewer.setGcodeTimelineEventDetail(...args); }
 
-function selectGcodeTimelineEvent(event, label = "") {
-  const line = Math.trunc(Number(event?.line) || 0);
-  if (line <= 0) return;
-  gcodeView.followLive = false;
-  gcodeView.timelineEventLine = line;
-  gcodeView.cursor = gcodeCursorForPlayedLine(gcodeView.segments, line);
-  setGcodeTimelineEventDetail(label, line);
-  updateGcodeProgress();
-}
+function selectGcodeTimelineEvent(...args) { return gcodeViewer.selectGcodeTimelineEvent(...args); }
 
-function renderGcodeTimelineEventList(events, toolMetadata) {
-  const root = document.getElementById("gcode-timeline-event-list");
-  if (!root) return;
-  const fragment = document.createDocumentFragment();
-  for (const event of Array.isArray(events) ? events : []) {
-    const line = Math.trunc(Number(event?.line) || 0);
-    if (line <= 0) continue;
-    const label = gcodeTimelineEventLabel(event, toolMetadata);
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "gcode-timeline-event-row";
-    row.title = `${label} · line ${line}`;
-    row.setAttribute("aria-label", `${label}, line ${line}`);
-    const lineCell = document.createElement("span");
-    lineCell.className = "gcode-timeline-event-line";
-    lineCell.textContent = `Ln ${line}`;
-    const text = document.createElement("span");
-    text.className = "gcode-timeline-event-text";
-    text.textContent = label;
-    row.append(lineCell, text);
-    row.onclick = () => selectGcodeTimelineEvent(event, label);
-    fragment.appendChild(row);
-  }
-  root.replaceChildren(fragment);
-}
+function renderGcodeTimelineEventList(...args) { return gcodeViewer.renderGcodeTimelineEventList(...args); }
 
-function renderGcodeTimelineEvents(events, toolMetadata, totalLines) {
-  const root = document.getElementById("gcode-timeline-events");
-  const listRoot = document.getElementById("gcode-timeline-event-list");
-  if (!root || !listRoot) return;
-  const markers = gcodeTimelineEventMarkers(events, totalLines);
-  const key = JSON.stringify([totalLines, markers]);
-  if (gcodeView.timelineEventsKey === key) return;
-  gcodeView.timelineEventsKey = key;
-  const fragment = document.createDocumentFragment();
-  for (const marker of markers) {
-    const eventsAtMarker = marker.events;
-    const event = eventsAtMarker.find((candidate) => candidate.kind === "tool_change") || eventsAtMarker[0];
-    const details = eventsAtMarker.map((candidate) => gcodeTimelineEventLabel(candidate, toolMetadata));
-    const label = details.join(" · ");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "gcode-timeline-event";
-    button.dataset.eventKind = String(event?.kind || "");
-    button.style.left = `${marker.fraction * 100}%`;
-    button.textContent = gcodeTimelineMarkerLabel(marker, toolMetadata);
-    const firstLine = Math.trunc(Number(eventsAtMarker[0]?.line) || 0);
-    const lastLine = Math.trunc(Number(eventsAtMarker.at(-1)?.line) || firstLine);
-    const lineText = firstLine === lastLine ? `line ${firstLine}` : `lines ${firstLine}–${lastLine}`;
-    button.title = `${label} · ${lineText}`;
-    button.setAttribute("aria-label", `${label}, ${lineText}`);
-    button.onclick = () => selectGcodeTimelineEvent(event, label);
-    fragment.appendChild(button);
-  }
-  root.replaceChildren(fragment);
-  renderGcodeTimelineEventList(events, toolMetadata);
-  setGcodeTimelineEventDetail(markers.length ? `${markers.length} event markers` : "", 0);
-}
+function renderGcodeTimelineEvents(...args) { return gcodeViewer.renderGcodeTimelineEvents(...args); }
 
-function updateGcodeTimeline(total) {
-  const slider = document.getElementById("gcode-timeline");
-  const label = document.getElementById("gcode-timeline-label");
-  if (!slider || !label) return;
-  slider.max = String(total);
-  slider.disabled = total <= 0;
-  gcodeView.cursor = Math.max(0, Math.min(total, gcodeView.cursor));
-  const owned = gcodeTimelineLocallyOwned();
-  if (owned) {
-    const draft = Math.max(0, Math.min(total, Number(slider.value) || 0));
-    label.textContent = `${draft} / ${total}`;
-    return;
-  }
-  slider.value = String(gcodeView.cursor);
-  label.textContent = `${gcodeView.cursor} / ${total}`;
-  slider.setAttribute("aria-valuetext", `${gcodeView.cursor} of ${total} plotted segments`);
-}
+function updateGcodeTimeline(...args) { return gcodeViewer.updateGcodeTimeline(...args); }
 
 function updateGcodeProgress() {
+  const gcodeView = gcodeViewer.getGcodeView();
   const total = gcodeView.segments.length;
   gcodeView.cursor = Math.max(0, Math.min(total, gcodeView.cursor));
   if (gcodeView.progressLine) {
@@ -7873,66 +4770,15 @@ function updateGcodeProgress() {
   scheduleGcodeRender();
 }
 
-function gcodeWorldCoordinates(pos, has4Axis) {
-  let x = Number(pos[0]) || 0;
-  let y = Number(pos[1]) || 0;
-  let z = Number(pos[2]) || 0;
-  const a = Number(pos[3]) || 0;
-  if (has4Axis) {
-    const rad = a * Math.PI / 180;
-    const c = Math.cos(rad);
-    const s = Math.sin(rad);
-    const ry = y * c - z * s;
-    const rz = y * s + z * c;
-    y = ry;
-    z = rz;
-  }
-  return [x, z, -y];
-}
+function gcodeWorldCoordinates(...args) { return gcodeViewer.gcodeWorldCoordinates(...args); }
 
-function gcodeWorldPoint(pos, has4Axis) {
-  return new THREE.Vector3(...gcodeWorldCoordinates(pos, has4Axis));
-}
+function gcodeWorldPoint(...args) { return gcodeViewer.gcodeWorldPoint(...args); }
 
-function setGcodePreviewEmpty(text) {
-  const empty = gcodeView.empty || document.getElementById("gcode-preview-empty");
-  if (!empty) return;
-  empty.textContent = text || "";
-  empty.hidden = !text;
-  const tools = document.getElementById("gcode-view-tools");
-  if (tools) tools.hidden = !!text;
-}
+function setGcodePreviewEmpty(...args) { return gcodeViewer.setGcodePreviewEmpty(...args); }
 
-function scheduleGcodeRender() {
-  if (!gcodeView.renderer || gcodeView.renderQueued) return;
-  gcodeView.renderQueued = true;
-  requestAnimationFrame(() => {
-    gcodeView.renderQueued = false;
-    renderGcodeScene();
-  });
-}
+function scheduleGcodeRender(...args) { return gcodeViewer.scheduleGcodeRender(...args); }
 
-function renderGcodeScene() {
-  if (!gcodeView.renderer || !gcodeView.camera || !gcodeView.canvas) return;
-  const rect = gcodeView.canvas.getBoundingClientRect();
-  const width = Math.max(1, Math.round(rect.width));
-  const height = Math.max(1, Math.round(rect.height));
-  const pixelRatio = gcodeRenderPixelRatio(width, height);
-  const sizeChanged = gcodeView.width !== width || gcodeView.height !== height;
-  const ratioChanged = Math.abs(gcodeView.pixelRatio - pixelRatio) > 0.001;
-  if (ratioChanged) {
-    gcodeView.pixelRatio = pixelRatio;
-    gcodeView.renderer.setPixelRatio(pixelRatio);
-  }
-  if (sizeChanged || ratioChanged) {
-    gcodeView.width = width;
-    gcodeView.height = height;
-    gcodeView.renderer.setSize(width, height, false);
-    syncGcodeProjection();
-  }
-  gcodeView.renderer.render(gcodeView.scene, gcodeView.camera);
-  renderGcodeViewCube();
-}
+function renderGcodeScene(...args) { return gcodeViewer.renderGcodeScene(...args); }
 
 async function loadActiveGcode() {
   return activeJobLoader.loadActiveGcode();
@@ -8159,20 +5005,7 @@ async function importBackupFile(file) {
   }
 }
 
-function uploadFiles(fileList) { return filesCommands.uploadFiles(fileList); }
-function doMkdir() { return filesCommands.doMkdir(); }
-function doDelete(path) { return filesCommands.doDelete(path); }
-function retryJob(job) { return filesCommands.retryJob(job); }
-function discardFile(path) { return filesCommands.discardFile(path); }
-function doRename(path) { return filesCommands.doRename(path); }
 
-function beginFileAction(path, buttonLabel, notice) {
-	beginFileActionState(state.fileActions, path, buttonLabel, notice, setNotice, renderFiles);
-}
-
-function endFileAction(path) {
-	endFileActionState(state.fileActions, path, renderFiles);
-}
 
 function completeCommandDisarm(seq, message = "") {
   const pending = state.jog.commandDisarm;
@@ -8499,162 +5332,11 @@ function jogURL() {
   return proto + "//" + location.host + "/api/jog/ws";
 }
 
-function connectJog() {
-  // Capabilities are authoritative. Do not create a WebSocket until they are
-  // known, and never enter the reconnect loop when the server has disabled
-  // jogging. A disabled feature is a stable UI state, not an operator error.
-  if (!state.jog.caps) {
-    state.jog.link = "checking";
-    renderJog();
-    return;
-  }
-  if (!state.jog.caps.enabled) {
-    disableJogConnection();
-    renderJog();
-    return;
-  }
-  if (!("WebSocket" in window)) {
-    state.jog.link = "unsupported";
-    state.jog.error = "WebSocket unavailable";
-    renderJog();
-    return;
-  }
-  const existing = state.jog.ws;
-  if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) return;
-  clearJogReconnect();
-  const ws = new WebSocket(jogURL());
-  state.jog.ws = ws;
-  state.jog.link = "connecting";
-  renderJog();
-  ws.onopen = () => {
-    if (state.jog.ws !== ws) return;
-    state.jog.link = "online";
-    state.jog.reconnectAttempt = 0;
-    state.jog.error = "";
-    state.jog.errorCode = "";
-    resetJogInputSender();
-    renderJog();
-  };
-  ws.onclose = () => {
-    if (state.jog.ws !== ws) return;
-    state.jog.ws = null;
-    state.jog.link = "offline";
-    state.jog.armed = false;
-    clearDisconnectedJogInput();
-    state.jog.disarmAfterPendingArm = false;
-    state.jog.sent.clear();
-    failOutlineCaptureIntents("movement connection closed before the position was captured");
-    resetJogInputSender();
-    completeCommandDisarm(state.jog.commandDisarm?.seq, "Movement disconnected before the command.");
-    if (state.jog.armQueuedAction) {
-      const action = state.jog.armQueuedAction;
-      state.jog.armQueuedAction = "";
-      state.jog.tapFeedback = tapMoveArmFailureText(action, "jog service disconnected");
-      state.jog.tapFeedbackKind = "error";
-    }
-    if (state.jog.armPending) {
-      const action = state.jog.armPendingAction;
-      state.jog.armPending = 0;
-      state.jog.armPendingAction = "";
-      state.jog.tapFeedback = tapMoveArmFailureText(action, "jog service disconnected");
-      state.jog.tapFeedbackKind = "error";
-    }
-    if (state.jog.targetPending || state.jog.targetMotionPending) {
-      state.jog.targetPending = 0;
-      state.jog.targetMotionPending = 0;
-      cancelWorkCoordinateMove();
-      clearFieldProbeMove();
-      state.jog.tapFeedback = "Move failed: jog service disconnected.";
-      state.jog.tapFeedbackKind = "error";
-    }
-    if (state.jog.zStepPending) {
-      state.jog.zStepPending = 0;
-      state.jog.tapFeedback = "Z move failed: jog service disconnected.";
-      state.jog.tapFeedbackKind = "error";
-    }
-    if (state.jog.surfaceStepPending) {
-      state.jog.surfaceStepPending = 0;
-      setStatusMessage("surface-jog", "Jog failed: jog service disconnected.", "error", { force: true });
-    }
-    if (state.jog.originPendingMode === "jog" && hasPendingOriginOperation()) {
-      const label = originTargetLabel(state.jog.originPendingLabel, state.jog.originPendingTargets);
-      clearOriginVerification();
-      setOriginFeedback("Set " + label + " failed: jog service disconnected.", "error");
-    }
-    renderJog();
-    scheduleJogReconnect();
-  };
-  ws.onerror = () => {
-    if (state.jog.ws !== ws) return;
-    state.jog.error = "jog socket error";
-    state.jog.errorCode = "";
-    renderJog();
-    try {
-      ws.close();
-    } catch {
-      // Browser will report the close asynchronously.
-    }
-  };
-  ws.onmessage = (e) => {
-    if (state.jog.ws !== ws) return;
-    try {
-      applyJogEvent(JSON.parse(e.data));
-    } catch (err) {
-      state.jog.error = "bad jog event: " + err.message;
-      state.jog.errorCode = "";
-      renderJog();
-    }
-  };
-}
-
-function disableJogConnection() {
-  clearJogReconnect();
-  const ws = state.jog.ws;
-  state.jog.ws = null;
-  state.jog.link = "disabled";
-  state.jog.armed = false;
-  state.jog.armQueuedAction = "";
-  state.jog.error = "";
-  state.jog.errorCode = "";
-  clearDisconnectedJogInput();
-  if (ws) {
-    try {
-      ws.close(1000, "jogging disabled");
-    } catch {
-      // The socket may already be closing; clearing our reference is enough.
-    }
-  }
-}
-
 function clearJogReconnect() {
   if (state.jog.reconnectTimer) {
     clearTimeout(state.jog.reconnectTimer);
     state.jog.reconnectTimer = null;
   }
-}
-
-function scheduleJogReconnect() {
-  if (!state.jog.caps?.enabled) {
-    clearJogReconnect();
-    return;
-  }
-  if (state.jog.reconnectTimer || document.hidden) return;
-  const attempt = Math.min(state.jog.reconnectAttempt++, 5);
-  const delay = Math.min(10000, 500 * 2 ** attempt);
-  state.jog.link = "reconnecting";
-  renderJog();
-  state.jog.reconnectTimer = setTimeout(() => {
-    state.jog.reconnectTimer = null;
-    connectJog();
-  }, delay);
-}
-
-function sameJogInput(a, b) {
-  return !!a && !!b && a.deadman === b.deadman && a.slow === b.slow && sameJogAxes(a.axes, b.axes);
-}
-
-function jogInputActive(input) {
-  return !!input?.deadman && ["x", "y", "z", "a"].some((axis) => Math.abs(Number(input.axes?.[axis] || 0)) > JOG_INPUT_DEADZONE);
 }
 
 function resetJogInputSender() {
@@ -8681,55 +5363,6 @@ function clearDisconnectedJogInput() {
   state.jog.buttons = [];
   state.jog.surfaceStepSource = "";
   resetJogInputSender();
-}
-
-function sendJogInput(msg, force = false) {
-  const ws = state.jog.ws;
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    connectJog();
-    return 0;
-  }
-
-  const input = {
-    type: "input",
-    deadman: !!msg.deadman,
-    slow: !!msg.slow,
-    axes: {
-      x: clampAxis(Number(msg.axes?.x || 0)),
-      y: clampAxis(Number(msg.axes?.y || 0)),
-      z: clampAxis(Number(msg.axes?.z || 0)),
-    },
-  };
-  const now = performance.now();
-  const previous = state.jog.lastInput;
-  const changed = !sameJogInput(previous, input);
-  const urgentStop = jogInputActive(previous) && !jogInputActive(input);
-  const heartbeatDue = jogInputActive(input) && now - Number(state.jog.lastInputSentAt || 0) >= JOG_INPUT_HEARTBEAT_MS;
-  if (!force && !changed && !heartbeatDue) return 0;
-
-  // Gamepad intent is latest-wins. Never build a browser-side train of stale
-  // active samples behind a congested WebSocket; the next sample retries the
-  // newest axes. A stop always enters the socket immediately and therefore
-  // sits behind at most the one frame the browser has already handed off.
-  if (!force && !urgentStop && Number(ws.bufferedAmount || 0) > 0) return 0;
-  input.seq = msg.seq || state.jog.seq++;
-  ws.send(JSON.stringify(input));
-  state.jog.lastInput = input;
-  state.jog.lastInputSentAt = now;
-  return input.seq;
-}
-
-function sendJog(msg, force = false) {
-  if (msg.type === "input") return sendJogInput(msg, force);
-  const ws = state.jog.ws;
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    connectJog();
-    return 0;
-  }
-  if (!msg.seq) msg.seq = state.jog.seq++;
-  state.jog.sent.set(msg.seq, performance.now());
-  ws.send(JSON.stringify(msg));
-  return msg.seq;
 }
 
 function setTapFeedback(text, kind = "") {
@@ -9092,652 +5725,6 @@ function stepZ(dir) {
   state.jog.tapFeedback = "Sending " + label + "...";
   state.jog.tapFeedbackKind = "";
   renderJog();
-}
-
-function originCommandLine(axis, value = 0) {
-  return "G10L20P0" + axis.toUpperCase() + formatOriginValue(value);
-}
-
-function formatOriginValue(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "0";
-  if (Math.abs(n) < 0.00005) return "0";
-  return n.toFixed(4).replace(/\.?0+$/, "");
-}
-
-function originTargetsFromXYZ() {
-  const targets = {};
-  for (const axis of ["x", "y", "z"]) {
-    const raw = String(document.getElementById("origin-xyz-" + axis)?.value || "").trim();
-    if (!raw) continue;
-    const value = Number(raw);
-    if (!Number.isFinite(value)) throw new Error(axis.toUpperCase() + " value must be finite.");
-    targets[axis] = value;
-  }
-  if (!originAxes(targets).length) throw new Error("Enter at least one coordinate.");
-  return { targets, label: "XYZ" };
-}
-
-function originTargetsFromSaved(saved) {
-  if (!saved) throw new Error("select a saved zero to recall.");
-  const { mpos } = currentAxisValues();
-  const mx = axisValue(mpos, "x");
-  const my = axisValue(mpos, "y");
-  if (mx === null || my === null) throw new Error("current machine XY position is unavailable.");
-  return {
-    targets: { x: mx - saved.origin.x, y: my - saved.origin.y },
-    label: saved.label,
-  };
-}
-
-function machineAnchorPoints() {
-  const anchors = normalizeMachineLearned(state.ui.machine?.learned).anchors;
-  const anchor1X = axisValue(anchors?.anchor1, "x");
-  const anchor1Y = axisValue(anchors?.anchor1, "y");
-  const anchor2X = axisValue(anchors?.anchor2, "x");
-  const anchor2Y = axisValue(anchors?.anchor2, "y");
-  if (!anchors?.available || anchor1X === null || anchor1Y === null || anchor2X === null || anchor2Y === null) return null;
-  return {
-    anchor1: { x: anchor1X, y: anchor1Y },
-    anchor2: { x: anchor2X, y: anchor2Y },
-  };
-}
-
-function originTargetsFromOriginSource() {
-  const source = document.getElementById("origin-set-source")?.value || "anchor1";
-  const x = finiteOr(document.getElementById("origin-set-x")?.value, NaN);
-  const y = finiteOr(document.getElementById("origin-set-y")?.value, NaN);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error("Origin coordinates must be finite.");
-  const { mpos } = currentAxisValues();
-  const mx = axisValue(mpos, "x");
-  const my = axisValue(mpos, "y");
-  if (mx === null || my === null) throw new Error("Current machine XY position is unavailable.");
-  let machineOrigin;
-  let label;
-  if (source === "machine") {
-    machineOrigin = { x, y };
-    label = "machine coordinate origin";
-  } else {
-    const anchors = machineAnchorPoints();
-    if (!anchors) throw new Error("Machine anchor positions are unavailable. Learn machine parameters first.");
-    const selected = source === "anchor2" ? "anchor2" : "anchor1";
-    const anchor = anchors[selected];
-    machineOrigin = { x: anchor.x + x, y: anchor.y + y };
-    label = (selected === "anchor2" ? "Anchor 2" : "Anchor 1") + " origin";
-  }
-  return {
-    targets: { x: mx - machineOrigin.x, y: my - machineOrigin.y },
-    label,
-    machineOrigin,
-  };
-}
-
-function originReferenceRequestFromInputs() {
-  const reference = document.getElementById("origin-set-source")?.value || "anchor1";
-  const x = finiteOr(document.getElementById("origin-set-x")?.value, NaN);
-  const y = finiteOr(document.getElementById("origin-set-y")?.value, NaN);
-  if (!["anchor1", "anchor2", "machine"].includes(reference)) throw new Error("Origin reference is invalid.");
-  if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error("Origin coordinates must be finite.");
-  return {
-    reference,
-    x,
-    y,
-    label: reference === "anchor2" ? "Anchor 2 origin" : (reference === "anchor1" ? "Anchor 1 origin" : "machine coordinate origin"),
-  };
-}
-
-function renderOriginSetChange() {
-  const out = document.getElementById("origin-set-change");
-  if (!out) return;
-  try {
-    const { machineOrigin } = originTargetsFromOriginSource();
-    const current = currentWorkOrigin();
-    const currentX = axisValue(current, "x");
-    const currentY = axisValue(current, "y");
-    if (currentX === null || currentY === null) {
-      out.textContent = "Change from current origin: unavailable (machine and work XY required).";
-      return;
-    }
-    const signed = (value) => (value >= 0 ? "+" : "") + formatOriginValue(value);
-    out.textContent = "Change from current origin: X " + signed(machineOrigin.x - currentX) + "  Y " + signed(machineOrigin.y - currentY) + " mm";
-  } catch (e) {
-    out.textContent = "Change from current origin: " + e.message;
-  }
-}
-
-function originAxes(targets) {
-  return ["x", "y", "z"].filter((axis) => Number.isFinite(Number(targets?.[axis])));
-}
-
-function originTargetLabel(label, targets) {
-  const parts = originAxes(targets).map((axis) => axis.toUpperCase() + " " + formatOriginValue(targets[axis]));
-  return label || parts.join(" ");
-}
-
-function clearOriginVerification() {
-  if (state.jog.originVerifyTimer) {
-    clearTimeout(state.jog.originVerifyTimer);
-    state.jog.originVerifyTimer = null;
-  }
-  state.jog.originPending = 0;
-  state.jog.originPendingAxis = "";
-  state.jog.originPendingMode = "";
-  state.jog.originPendingAxes = [];
-  state.jog.originPendingIndex = 0;
-  state.jog.originPendingTargets = null;
-  state.jog.originPendingLabel = "";
-  state.jog.originVerifyDeadline = 0;
-}
-
-function beginOriginVerification() {
-  state.jog.originPending = 0;
-  state.jog.originPendingAxis = "";
-  state.jog.originVerifyDeadline = Date.now() + 5000;
-  setOriginFeedback("Verifying " + originTargetLabel(state.jog.originPendingLabel, state.jog.originPendingTargets) + "...");
-  if (!checkOriginVerification()) scheduleOriginVerification();
-}
-
-function checkOriginVerification() {
-  const targets = state.jog.originPendingTargets;
-  const axes = originAxes(targets);
-  if (!axes.length || state.jog.originPending) return false;
-  const values = axes.map((axis) => {
-    const w = state.jog.originPendingMode === "jog"
-      ? (axisValue(state.jog.wpos, axis) ?? axisValue(state.machine.wpos, axis))
-      : (axisValue(state.machine.wpos, axis) ?? axisValue(state.jog.wpos, axis));
-    return { axis, w, target: Number(targets[axis]) };
-  });
-  if (values.every((v) => v.w !== null && Math.abs(v.w - v.target) <= 0.01)) {
-    const label = originTargetLabel(state.jog.originPendingLabel, targets);
-    clearOriginVerification();
-    setOriginFeedback(label + " set.", "ok");
-    return true;
-  }
-  if (Date.now() > state.jog.originVerifyDeadline) {
-    const seen = values.map((v) => v.w === null ? v.axis.toUpperCase() + " no WPos" : v.axis.toUpperCase() + " " + v.w.toFixed(3)).join(", ");
-    const label = originTargetLabel(state.jog.originPendingLabel, targets);
-    clearOriginVerification();
-    setOriginFeedback("Set " + label + " could not be verified (" + seen + ").", "error");
-    return true;
-  }
-  return false;
-}
-
-function scheduleOriginVerification() {
-  if (state.jog.originVerifyTimer) clearTimeout(state.jog.originVerifyTimer);
-  if (!state.jog.originPendingTargets || state.jog.originPending) return;
-  state.jog.originVerifyTimer = setTimeout(async () => {
-    state.jog.originVerifyTimer = null;
-    if (!state.jog.originPendingTargets || state.jog.originPending) return;
-    if (checkOriginVerification()) {
-      renderJog();
-      return;
-    }
-    await pollMachine();
-    if (!state.jog.originPendingTargets || state.jog.originPending) return;
-    if (checkOriginVerification()) renderJog();
-    else scheduleOriginVerification();
-  }, 350);
-}
-
-async function setOriginViaGcode(targets, label) {
-  const axes = originAxes(targets);
-  state.jog.originPending = -1;
-  state.jog.originPendingAxis = axes[0] || "";
-  state.jog.originPendingMode = "api";
-  state.jog.originPendingAxes = axes;
-  state.jog.originPendingIndex = 0;
-  state.jog.originPendingTargets = { ...targets };
-  state.jog.originPendingLabel = label;
-  setOriginFeedback("Setting " + originTargetLabel(label, targets) + "...");
-  renderJog();
-  try {
-    for (const axis of axes) {
-      state.jog.originPendingAxis = axis;
-      await request("/api/gcode", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ line: originCommandLine(axis, targets[axis]) }),
-      });
-    }
-    beginOriginVerification();
-  } catch (e) {
-    const pendingLabel = originTargetLabel(label, targets);
-    clearOriginVerification();
-    setOriginFeedback("Set " + pendingLabel + " failed: " + e.message, "error");
-    appendGcodeLine({ seq: "local-" + Date.now(), dir: "recv", source: "api", text: "error: " + e.message });
-  } finally {
-    renderJog();
-  }
-}
-
-async function setReferenceOriginViaAPI(origin) {
-  state.jog.originPending = -1;
-  state.jog.originPendingAxis = "xy";
-  state.jog.originPendingMode = "api-reference";
-  state.jog.originPendingAxes = ["x", "y"];
-  state.jog.originPendingTargets = null;
-  state.jog.originPendingLabel = origin.label;
-  setOriginFeedback("Setting " + origin.label + "...");
-  renderJog();
-  try {
-    const response = await request("/api/origin/reference", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reference: origin.reference, x: origin.x, y: origin.y }),
-    });
-    const result = await response.json();
-    state.jog.originPendingTargets = result.target || null;
-    if (!state.jog.originPendingTargets) throw new Error("machine did not return an origin verification target");
-    beginOriginVerification();
-  } catch (e) {
-    clearOriginVerification();
-    setOriginFeedback("Set " + origin.label + " failed: " + e.message, "error");
-    appendGcodeLine({ seq: "local-" + Date.now(), dir: "recv", source: "api", text: "error: " + e.message });
-  } finally {
-    renderJog();
-  }
-}
-
-function setReferenceOriginViaJog(origin) {
-  const seq = sendJog({
-    type: "origin_reference",
-    reference: origin.reference,
-    x: origin.x,
-    y: origin.y,
-  });
-  if (!seq) {
-    setOriginFeedback("Set " + origin.label + " failed: jog service is not connected.", "error");
-    return;
-  }
-  state.jog.originPending = seq;
-  state.jog.originPendingAxis = "xy";
-  state.jog.originPendingMode = "jog-reference";
-  state.jog.originPendingAxes = ["x", "y"];
-  state.jog.originPendingIndex = 0;
-  state.jog.originPendingTargets = null;
-  state.jog.originPendingLabel = origin.label;
-  setOriginFeedback("Setting " + origin.label + "...");
-  renderJog();
-}
-
-function sendNextJogOriginAxis() {
-  const axes = state.jog.originPendingAxes || [];
-  const axis = axes[state.jog.originPendingIndex] || "";
-  const targets = state.jog.originPendingTargets || {};
-  if (!axis) {
-    beginOriginVerification();
-    return true;
-  }
-  const seq = sendJog({ type: "origin", axis, value: Number(targets[axis]) || 0 });
-  if (!seq) {
-    const label = originTargetLabel(state.jog.originPendingLabel, targets);
-    clearOriginVerification();
-    setOriginFeedback("Set " + label + " failed: jog service is not connected.", "error");
-    return false;
-  }
-  state.jog.originPending = seq;
-  state.jog.originPendingAxis = axis;
-  setOriginFeedback("Setting " + originTargetLabel(state.jog.originPendingLabel, targets) + "...");
-  renderJog();
-  return true;
-}
-
-function handleOriginAck() {
-  state.jog.originPending = 0;
-  state.jog.originPendingIndex += 1;
-  if (state.jog.originPendingIndex < state.jog.originPendingAxes.length) {
-    sendNextJogOriginAxis();
-    return;
-  }
-  beginOriginVerification();
-}
-
-function applyOriginTargets(targets, label) {
-  const axes = originAxes(targets);
-  if (!axes.length) return;
-  if (hasPendingOriginOperation() || tapMoveTargetBusy() || state.jog.zStepPending) return;
-  if (state.jog.armed) {
-    if (state.jog.link !== "online") {
-      setOriginFeedback("Jog service is not connected.", "error");
-      connectJog();
-      return;
-    }
-    state.jog.originPendingMode = "jog";
-    state.jog.originPendingAxes = axes;
-    state.jog.originPendingIndex = 0;
-    state.jog.originPendingTargets = { ...targets };
-    state.jog.originPendingLabel = label;
-    sendNextJogOriginAxis();
-    return;
-  }
-  if (!machineReadyForOriginSet()) {
-    setOriginFeedback("Machine must be connected and Idle to set origin.", "error");
-    return;
-  }
-  setOriginViaGcode(targets, label);
-}
-
-function setOriginAxis(axis) {
-  axis = String(axis || "").toLowerCase();
-  if (!["x", "y", "z"].includes(axis)) return;
-  applyOriginTargets({ [axis]: 0 }, axis.toUpperCase() + "0");
-}
-
-function openOriginDialog(id) {
-  const dialog = document.getElementById(id);
-  if (!dialog || dialog.open) return;
-  renderOriginButtons();
-  dialog.showModal();
-  if (id === "origin-set-modal") refreshMachineLearnedSettings();
-}
-
-function closeOriginDialog(id) {
-  document.getElementById(id)?.close();
-}
-
-function probe3DFieldRules(kind) {
-  kind = String(kind || "");
-  const x = !kind.endsWith("_y");
-  const y = !kind.endsWith("_x");
-  const z = !kind.startsWith("bore_pocket");
-  const note = kind.startsWith("bore_pocket")
-    ? "Move the 3D Probe inside the bore or pocket with its contact point below the top surface, and make sure the probe is stable."
-    : "Z Offset is the probe tip-to-surface distance during edge probing. Make sure the 3D Probe is stable.";
-  return { x, y, z, note };
-}
-
-function probe3DInitialPositioning(kind, xOffset, yOffset) {
-  const x = Math.abs(Number(xOffset));
-  const y = Math.abs(Number(yOffset));
-  switch (String(kind || "")) {
-    case "outside_top_left": return { x: -x, y };
-    case "outside_top_right": return { x, y };
-    case "outside_bottom_right": return { x, y: -y };
-    case "outside_bottom_left": return { x: -x, y: -y };
-    case "inside_top_left": return { x, y: -y };
-    case "inside_top_right": return { x: -x, y: -y };
-    case "inside_bottom_right": return { x: -x, y };
-    case "inside_bottom_left": return { x, y };
-    case "boss_block": return { x: -x, y: -y };
-    case "boss_block_x": return { x: -x };
-    case "boss_block_y": return { y: -y };
-    default: return {};
-  }
-}
-
-function probe3DTravelPreflight(kind, xOffset, yOffset, mpos, bounds) {
-  const delta = probe3DInitialPositioning(kind, xOffset, yOffset);
-  const issues = [];
-  for (const axis of ["x", "y"]) {
-    if (!Object.hasOwn(delta, axis)) continue;
-    const current = Number(mpos?.[axis]);
-    const min = Number(bounds?.[axis]?.min);
-    const max = Number(bounds?.[axis]?.max);
-    if (![current, delta[axis], min, max].every(Number.isFinite) || min >= max) continue;
-    const target = current + delta[axis];
-    const label = axis.toUpperCase();
-    if (target < min) {
-      issues.push(`${label} target ${target.toFixed(3)} mm is below learned minimum ${min.toFixed(3)} mm (maximum ${label} Offset here: ${Math.max(0, current - min).toFixed(3)} mm).`);
-    } else if (target > max) {
-      issues.push(`${label} target ${target.toFixed(3)} mm is above learned maximum ${max.toFixed(3)} mm (maximum ${label} Offset here: ${Math.max(0, max - current).toFixed(3)} mm).`);
-    }
-  }
-  return {
-    blocked: issues.length > 0,
-    warning: issues.length ? "Soft-limit risk: " + issues.join(" ") + " Reduce the offset or reposition the probe." : "",
-  };
-}
-
-function probe3DLearnedTravelBounds() {
-  const learned = state.ui.machine?.learned || {};
-  const soft = learned.soft_endstop || {};
-  const xMin = Number(soft.x_min);
-  const xMax = Number(soft.x_max);
-  const yMin = Number(soft.y_min);
-  const yMax = Number(soft.y_max);
-  return {
-    x: Number.isFinite(xMin) && Number.isFinite(xMax) && xMin < xMax ? { min: xMin, max: xMax } : null,
-    y: Number.isFinite(yMin) && Number.isFinite(yMax) && yMin < yMax ? { min: yMin, max: yMax } : null,
-  };
-}
-
-function probe3DPreflightFromControls() {
-  const kind = document.getElementById("probe-3d-kind")?.value || "";
-  const x = Number(document.getElementById("probe-3d-x")?.value);
-  const y = Number(document.getElementById("probe-3d-y")?.value);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return { blocked: false, warning: "" };
-  return probe3DTravelPreflight(kind, x, y, state.machine.mpos, probe3DLearnedTravelBounds());
-}
-
-function renderProbe3DForm() {
-  const kind = document.getElementById("probe-3d-kind")?.value || "";
-  const rules = probe3DFieldRules(kind);
-  const pending = !!state.jog.probe3DPending;
-  for (const axis of ["x", "y", "z"]) {
-    const field = document.getElementById("probe-3d-" + axis + "-field");
-    const input = document.getElementById("probe-3d-" + axis);
-    const active = !!rules[axis];
-    field?.classList.toggle("is-inactive", !active);
-    field?.setAttribute("aria-hidden", active ? "false" : "true");
-    if (input) input.disabled = pending || !active;
-  }
-  const kindSelect = document.getElementById("probe-3d-kind");
-  const diameter = document.getElementById("probe-3d-diameter");
-  if (kindSelect) kindSelect.disabled = pending;
-  if (diameter) diameter.disabled = pending;
-  const note = document.getElementById("probe-3d-note");
-  if (note) note.textContent = rules.note;
-  const preflight = probe3DPreflightFromControls();
-  const preflightNode = document.getElementById("probe-3d-preflight");
-  if (preflightNode) {
-    preflightNode.textContent = preflight.warning;
-    preflightNode.classList.toggle("is-visible", preflight.blocked);
-    preflightNode.setAttribute("aria-hidden", preflight.blocked ? "false" : "true");
-  }
-  const run = document.getElementById("probe-3d-run");
-  if (run) {
-    run.disabled = pending || preflight.blocked;
-    setTextIfChanged(run, pending ? "Probing..." : "Probe");
-    setElementBusy(run, pending);
-  }
-  const cancel = document.getElementById("probe-3d-cancel");
-  const close = document.getElementById("probe-3d-close");
-  if (cancel) cancel.disabled = pending;
-  if (close) close.disabled = pending;
-}
-
-function probe3DNumber(id, label, positive = false) {
-  const raw = String(document.getElementById(id)?.value || "").trim();
-  const value = Number(raw);
-  if (raw === "" || !Number.isFinite(value)) throw new Error(label + " must be a number.");
-  if (value < 0 || value > 5000 || (positive && value === 0)) {
-    throw new Error(label + (positive ? " must be greater than 0 and no more than 5000 mm." : " must be between 0 and 5000 mm."));
-  }
-  return value;
-}
-
-function probe3DRequestFromControls() {
-  return {
-    kind: document.getElementById("probe-3d-kind")?.value || "",
-    x_offset_mm: probe3DNumber("probe-3d-x", "X Offset"),
-    y_offset_mm: probe3DNumber("probe-3d-y", "Y Offset"),
-    z_offset_mm: probe3DNumber("probe-3d-z", "Z Offset"),
-    diameter_mm: probe3DNumber("probe-3d-diameter", "Probe Diameter", true),
-  };
-}
-
-function openProbe3D() {
-  if (state.jog.armed) {
-    setOriginFeedback("Disarm Movement before running 3D probe.", "error");
-    return;
-  }
-  if (!machineReadyForOriginSet()) {
-    setOriginFeedback("Machine must be connected and Idle to run 3D probe.", "error");
-    return;
-  }
-  if (!is3DProbeToolActive()) {
-    setOriginFeedback("3D probe requires the 3D Probe tool to be active.", "error");
-    return;
-  }
-  const dialog = document.getElementById("probe-3d-modal");
-  if (!dialog || dialog.open) return;
-  renderProbe3DForm();
-  dialog.showModal();
-  document.getElementById("probe-3d-kind")?.focus();
-}
-
-function closeProbe3D() {
-  if (state.jog.probe3DPending) return;
-  document.getElementById("probe-3d-modal")?.close();
-}
-
-async function runProbe3D() {
-  if (state.jog.zProbePending || tapMoveTargetBusy() || state.jog.zStepPending || hasPendingOriginOperation()) return;
-  if (state.jog.armed) {
-    setOriginFeedback("Disarm Movement before running 3D probe.", "error");
-    return;
-  }
-  if (!machineReadyForOriginSet()) {
-    setOriginFeedback("Machine must be connected and Idle to run 3D probe.", "error");
-    return;
-  }
-  if (!is3DProbeToolActive()) {
-    setOriginFeedback("3D probe requires the 3D Probe tool to be active.", "error");
-    return;
-  }
-  let body;
-  try {
-    body = probe3DRequestFromControls();
-  } catch (e) {
-    setOriginFeedback(e.message, "error");
-    return;
-  }
-  const preflight = probe3DTravelPreflight(body.kind, body.x_offset_mm, body.y_offset_mm, state.machine.mpos, probe3DLearnedTravelBounds());
-  if (preflight.blocked) {
-    setOriginFeedback(preflight.warning, "error");
-    renderProbe3DForm();
-    return;
-  }
-
-  state.jog.zProbePending = true;
-  state.jog.probe3DPending = true;
-  setOriginFeedback("Starting 3D probe...");
-  renderJog();
-  renderProbe3DForm();
-  try {
-    const resp = await request("/api/probe/3d", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const result = await resp.json();
-    // M480 owns all subsequent motion and origin changes, so a completed Tap
-    // Move target no longer represents an active or useful machine target.
-    // Clear it only after the 3D-probe command has been accepted; rejected
-    // requests retain the marker.
-    state.jog.target = null;
-    state.jog.targetLabel = "";
-    setOriginFeedback(result.message || "3D probe command sent; machine completion was not available.", result.verified ? "ok" : "");
-    document.getElementById("probe-3d-modal")?.close();
-    pollMachine();
-    setTimeout(pollMachine, 1200);
-  } catch (e) {
-    setOriginFeedback("3D probe failed: " + e.message, "error");
-    appendGcodeLine({ seq: "local-" + Date.now(), dir: "recv", source: "api", text: "error: " + e.message });
-  } finally {
-    state.jog.probe3DPending = false;
-    state.jog.zProbePending = false;
-    renderProbe3DForm();
-    renderJog();
-  }
-}
-
-function applyXYZOrigin() {
-  try {
-    const { targets, label } = originTargetsFromXYZ();
-    applyOriginTargets(targets, label);
-  } catch (e) {
-    setOriginFeedback(e.message, "error");
-  }
-}
-
-function applyOriginSource() {
-  try {
-    const origin = originReferenceRequestFromInputs();
-    if (hasPendingOriginOperation() || tapMoveTargetBusy() || state.jog.zStepPending) return;
-    if (state.jog.armed) {
-      if (state.jog.link !== "online") {
-        setOriginFeedback("Jog service is not connected.", "error");
-        connectJog();
-        return;
-      }
-      setReferenceOriginViaJog(origin);
-      return;
-    }
-    if (!machineReadyForOriginSet()) {
-      setOriginFeedback("Machine must be connected and Idle to set origin.", "error");
-      return;
-    }
-    setReferenceOriginViaAPI(origin);
-  } catch (e) {
-    setOriginFeedback(e.message, "error");
-    renderJog();
-  }
-}
-
-async function runAutoZProbe() {
-  if (state.jog.zProbePending || tapMoveTargetBusy() || state.jog.zStepPending || hasPendingOriginOperation()) return;
-  if (state.jog.armed) {
-    setOriginFeedback("Disarm Movement before running Z probe.", "error");
-    renderJog();
-    return;
-  }
-  if (!machineReadyForOriginSet()) {
-    setOriginFeedback("Machine must be connected and Idle to run Z probe.", "error");
-    renderJog();
-    return;
-  }
-  if (!isProbeToolActive()) {
-    setOriginFeedback("Z probe requires the probe tool to be active.", "error");
-    renderJog();
-    return;
-  }
-  const { wpos } = currentAxisValues();
-  if (axisValue(wpos, "x") === null || axisValue(wpos, "y") === null) {
-    setOriginFeedback("Current work XY is unavailable.", "error");
-    renderJog();
-    return;
-  }
-  state.jog.zProbePending = true;
-  setOriginFeedback("Starting Z probe...");
-  renderJog();
-  try {
-    const resp = await request("/api/probe/auto-z", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
-    const result = await resp.json();
-    const msg = result.message || "Z probe command sent.";
-    setOriginFeedback(msg, result.verified ? "ok" : "");
-    await pollMachine();
-  } catch (e) {
-    setOriginFeedback("Z probe failed: " + e.message, "error");
-    appendGcodeLine({ seq: "local-" + Date.now(), dir: "recv", source: "api", text: "error: " + e.message });
-  } finally {
-    state.jog.zProbePending = false;
-    renderJog();
-  }
-}
-
-function recallSelectedOrigin() {
-  try {
-    const { targets, label } = originTargetsFromSaved(selectedSavedOrigin());
-    applyOriginTargets(targets, label);
-  } catch (e) {
-    setOriginFeedback(e.message, "error");
-  }
 }
 
 function handleWorkAreaTap(local) {
@@ -10465,10 +6452,6 @@ function handleGamepadMacroButtons(buttons, deadman) {
   }
 }
 
-function sameJogAxes(a, b) {
-  return ["x", "y", "z", "a"].every((axis) => Number(a?.[axis] || 0) === Number(b?.[axis] || 0));
-}
-
 function sameButtonStates(a, b) {
   a = Array.isArray(a) ? a : [];
   b = Array.isArray(b) ? b : [];
@@ -10477,98 +6460,6 @@ function sameButtonStates(a, b) {
     if (!!a[i] !== !!b[i]) return false;
   }
   return true;
-}
-
-function sampleJog() {
-  try {
-    if (state.jog.inputSuspended) {
-      const changed = releaseJogInput();
-      if (changed) renderJog();
-      return;
-    }
-    if (state.jog.surfaceInput) {
-      const { axis, sign } = state.jog.surfaceInput;
-      const axes = { x: axis === "x" ? sign : 0, y: axis === "y" ? sign : 0, z: axis === "z" ? sign : 0, a: axis === "a" ? sign : 0 };
-      state.jog.pad = "Surface";
-      state.jog.deadman = true;
-      state.jog.axes = axes;
-      if (state.jog.armed) sendJog({ type: "input", deadman: true, axes });
-      return;
-    }
-    if (state.workarea?.mobileJogActive) {
-      const axes = state.workarea.mobileJogAxes || { x: 0, y: 0, z: 0 };
-      state.jog.pad = "Touch";
-      state.jog.deadman = true;
-      state.jog.axes = axes;
-      if (state.jog.armed) sendJog({ type: "input", deadman: true, axes });
-      return;
-    }
-    const gp = currentGamepad();
-    if (!gp) {
-      const changed = releaseJogInput();
-      if (changed) renderJog();
-      return;
-    }
-    const gamepad = state.ui.gamepad;
-    const axes = {
-      x: mappedAxis(gp, "x"),
-      y: mappedAxis(gp, "y"),
-      z: mappedAxis(gp, "z"),
-    };
-    const buttons = buttonStates(gp);
-    const deadman = buttonPressed(gp, gamepad.deadman_button);
-    const slow = gamepad.slow_buttons.some((btn) => buttonPressed(gp, btn));
-    const label = gamepadLabel(gp);
-    const changed = state.jog.preferredPadIndex !== gp.index ||
-      state.jog.pad !== label ||
-      state.jog.deadman !== deadman ||
-      !sameJogAxes(state.jog.axes, axes) ||
-      !sameButtonStates(state.jog.buttons, buttons);
-    state.jog.preferredPadIndex = gp.index;
-    state.jog.pad = label;
-    state.jog.deadman = deadman;
-    state.jog.axes = axes;
-    const capturingOutlineButton = captureGamepadOutlineButton(buttons);
-    // The stop/latest input frame must precede a point-capture request on the
-    // WebSocket. This makes a release+button press in one sampled gamepad frame
-    // freeze the endpoint of the released motion, never the previous position.
-    if (state.jog.armed) sendJog({ type: "input", deadman, axes, slow });
-    handleGamepadOutlineButton(buttons, capturingOutlineButton);
-    handleGamepadMacroButtons(buttons, deadman);
-    state.jog.buttons = buttons;
-    if (changed) renderJog();
-  } catch (e) {
-    state.jog.error = "gamepad read failed: " + e.message;
-    renderJog();
-  } finally {
-    scheduleJogSample();
-  }
-}
-
-function releaseJogInput(force = false) {
-  const touchChanged = resetMobileWorkAreaJog();
-  const surfaceChanged = !!state.jog.surfaceInput;
-  state.jog.surfaceInput = null;
-  const changed = touchChanged || surfaceChanged || !!state.jog.pad || !!state.jog.deadman ||
-    !sameJogAxes(state.jog.axes, { x: 0, y: 0, z: 0, a: 0 }) ||
-    (Array.isArray(state.jog.buttons) && state.jog.buttons.length > 0);
-  state.jog.pad = "";
-  state.jog.deadman = false;
-  state.jog.axes = { x: 0, y: 0, z: 0, a: 0 };
-  state.jog.buttons = [];
-  if (state.jog.armed && (force || changed || jogInputActive(state.jog.lastInput))) {
-    sendJog({ type: "input", deadman: false, axes: state.jog.axes }, true);
-  }
-  return changed;
-}
-
-function scheduleJogSample() {
-  if (state.jog.sampleTimer) return;
-  const ms = Math.max(8, Number(state.jog.caps?.tick_ms) || 20);
-  state.jog.sampleTimer = setTimeout(() => {
-    state.jog.sampleTimer = null;
-    sampleJog();
-  }, ms);
 }
 
 function clampAxis(v) {
@@ -10580,7 +6471,7 @@ function applySnapshot(snap) {
   if (snap.machine) {
     applyMachineStatus(snap.machine, false);
   }
-  filesTransitions.applySnapshot(snap);
+  filesFeature.applySnapshot(snap);
   renderMachine();
   renderFiles();
   renderJobs();
@@ -10629,9 +6520,9 @@ function applyChange(ev) {
     return;
   }
   if (ev.kind === "entry" && ev.entry) {
-    filesTransitions.applyEntry(ev.entry);
+    filesFeature.applyEntry(ev.entry);
   } else if (ev.kind === "job" && ev.job) {
-    filesTransitions.applyJob(ev.job);
+    filesFeature.applyJob(ev.job);
   } else if (ev.kind === "active_gcode") {
     loadActiveGcode();
   }
@@ -10943,202 +6834,6 @@ function bindSurfaceHoldButton(button, axis, sign, useSelectedAxis = false) {
   button.addEventListener("click", (e) => e.preventDefault());
 }
 
-function surfaceMPGPointerSample(clientX, clientY, rect) {
-  const width = Math.max(1, Number(rect?.width || 0));
-  const height = Math.max(1, Number(rect?.height || 0));
-  const dx = Number(clientX) - (Number(rect?.left || 0) + width / 2);
-  const dy = Number(clientY) - (Number(rect?.top || 0) + height / 2);
-  return {
-    angle: Math.atan2(dy, dx) * 180 / Math.PI,
-    radius: Math.hypot(dx, dy) / (Math.min(width, height) / 2),
-  };
-}
-
-function surfaceMPGAngleDelta(previous, current) {
-  return ((Number(current) - Number(previous) + 540) % 360) - 180;
-}
-
-function prepareSurfaceMPGFeedback() {
-  const AudioContextCtor = globalThis.AudioContext || globalThis.webkitAudioContext;
-  if (!AudioContextCtor) return null;
-  try {
-    if (!surfaceMPGAudioContext) surfaceMPGAudioContext = new AudioContextCtor({ latencyHint: "interactive" });
-    if (surfaceMPGAudioContext.state !== "running" && !surfaceMPGAudioResume) {
-      surfaceMPGAudioResume = Promise.resolve(surfaceMPGAudioContext.resume?.())
-        .catch(() => null)
-        .then(() => surfaceMPGAudioContext)
-        .finally(() => { surfaceMPGAudioResume = null; });
-    }
-  } catch {
-    surfaceMPGAudioContext = null;
-    surfaceMPGAudioResume = null;
-  }
-  return surfaceMPGAudioContext;
-}
-
-function playSurfaceMPGClick(audio) {
-  if (!audio || audio.state !== "running") return false;
-  const now = audio.currentTime;
-  // Browser/WebAudio can receive several acknowledgement callbacks inside one
-  // render turn. Space the physical feedback pulses so they remain audible as
-  // distinct detents instead of summing into one nearly silent transient.
-  // Starting exactly at currentTime can miss the first audio render quantum in
-  // Firefox. The oscillator then joins after the fast fade has already begun,
-  // making an otherwise identical click sound randomly quiet. A tiny fixed
-  // lead gives every pulse the same full attack without adding perceptible lag.
-  const start = Math.max(now + SURFACE_MPG_AUDIO_LOOKAHEAD_S, surfaceMPGNextClickTime);
-  surfaceMPGNextClickTime = start + 0.03;
-  const oscillator = audio.createOscillator();
-  const gain = audio.createGain();
-  oscillator.type = "square";
-  oscillator.frequency.setValueAtTime(900, start);
-  // Keep each detent equally prominent; system volume remains the operator's
-  // overall loudness control.  This is deliberately twice the original level
-  // for the comparatively quiet Surface speakers.
-  gain.gain.setValueAtTime(0.15, start);
-  gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.026);
-  oscillator.connect(gain);
-  gain.connect(audio.destination);
-  oscillator.start(start);
-  oscillator.stop(start + 0.027);
-  return true;
-}
-
-function pulseSurfaceMPGDetent(wheel) {
-  try {
-    globalThis.navigator?.vibrate?.(8);
-  } catch {
-    // Vibration is optional and is not exposed by most desktop hardware.
-  }
-  const audio = prepareSurfaceMPGFeedback();
-  if (!playSurfaceMPGClick(audio) && surfaceMPGAudioResume) {
-    const resume = surfaceMPGAudioResume;
-    resume.then((resumedAudio) => { playSurfaceMPGClick(resumedAudio); }).catch(() => {});
-  }
-  if (!wheel) return;
-  wheel.classList.add("is-detent");
-  if (surfaceMPGFeedbackTimer) clearTimeout(surfaceMPGFeedbackTimer);
-  surfaceMPGFeedbackTimer = setTimeout(() => {
-    wheel.classList.remove("is-detent");
-    surfaceMPGFeedbackTimer = null;
-  }, 55);
-}
-
-function finishSurfaceMPGGesture() {
-  const gesture = state.jog.surfaceWheel;
-  if (!gesture.gestureReleased || state.jog.surfaceStepPending) return false;
-  if (!gesture.blocked && gesture.gestureAccepted > 0) {
-    const noun = gesture.gestureAccepted === 1 ? "increment" : "increments";
-    setStatusMessage(
-      "surface-jog",
-      `MPG ${gesture.gestureAxis.toUpperCase()}: ${gesture.gestureAccepted} ${noun} accepted.`,
-      "ok",
-      { force: true },
-    );
-  }
-  gesture.gestureSteps = 0;
-  gesture.gestureAccepted = 0;
-  gesture.gestureReleased = false;
-  gesture.gestureAxis = "";
-  gesture.blocked = false;
-  return true;
-}
-
-function bindSurfaceMPGWheel() {
-  const wheel = document.getElementById("surface-mpg-wheel");
-  if (!wheel) return;
-  const release = (e) => {
-    if (state.jog.surfaceWheel.pointerId !== e.pointerId) return;
-    state.jog.surfaceWheel.pointerId = null;
-    state.jog.surfaceWheel.lastAngle = null;
-    state.jog.surfaceWheel.remainder = 0;
-    state.jog.surfaceWheel.gestureReleased = true;
-    finishSurfaceMPGGesture();
-    renderSurfaceMPGWheel();
-    renderMachine();
-  };
-  const retainPointerCapture = (e) => {
-    if (state.jog.surfaceWheel.pointerId !== e.pointerId) return;
-    // Chrome can transiently drop capture while relaying a fast touch gesture.
-    // Reclaim it while the pointer is still held; pointerup/cancel remains the
-    // terminal path and is also observed on window below.
-    if (e.buttons) {
-      try {
-        wheel.setPointerCapture?.(e.pointerId);
-        return;
-      } catch {
-        // The window-level release handlers below cover a capture failure.
-      }
-    }
-    release(e);
-  };
-  wheel.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0 || !surfaceJogReady()) return;
-    const sample = surfaceMPGPointerSample(e.clientX, e.clientY, wheel.getBoundingClientRect());
-    if (sample.radius < SURFACE_MPG_DEAD_ZONE) return;
-    state.jog.surfaceWheel.pointerId = e.pointerId;
-    state.jog.surfaceWheel.lastAngle = sample.angle;
-    state.jog.surfaceWheel.remainder = 0;
-    state.jog.surfaceWheel.gestureSteps = 0;
-    state.jog.surfaceWheel.gestureAccepted = 0;
-    state.jog.surfaceWheel.gestureReleased = false;
-    state.jog.surfaceWheel.gestureAxis = state.surface.mpg_axis;
-    state.jog.surfaceWheel.blocked = false;
-    prepareSurfaceMPGFeedback();
-    wheel.setPointerCapture?.(e.pointerId);
-    e.preventDefault();
-    renderSurfaceMPGWheel();
-  });
-  wheel.addEventListener("pointermove", (e) => {
-    if (state.jog.surfaceWheel.pointerId !== e.pointerId) return;
-    if (state.jog.surfaceWheel.blocked) return;
-    const sample = surfaceMPGPointerSample(e.clientX, e.clientY, wheel.getBoundingClientRect());
-    if (sample.radius < SURFACE_MPG_DEAD_ZONE) {
-      state.jog.surfaceWheel.lastAngle = null;
-      return;
-    }
-    if (!Number.isFinite(state.jog.surfaceWheel.lastAngle)) {
-      state.jog.surfaceWheel.lastAngle = sample.angle;
-      return;
-    }
-    const delta = surfaceMPGAngleDelta(state.jog.surfaceWheel.lastAngle, sample.angle);
-    state.jog.surfaceWheel.lastAngle = sample.angle;
-    state.jog.surfaceWheel.angle = (Number(state.jog.surfaceWheel.angle || 0) + delta + 360) % 360;
-    state.jog.surfaceWheel.remainder += delta;
-    while (Math.abs(state.jog.surfaceWheel.remainder) >= SURFACE_MPG_DETENT_DEG) {
-      const sign = state.jog.surfaceWheel.remainder > 0 ? 1 : -1;
-      state.jog.surfaceWheel.remainder -= SURFACE_MPG_DETENT_DEG * sign;
-      if (state.surface.mpg_feedback === "detent") pulseSurfaceMPGDetent(wheel);
-      if (!state.jog.surfaceStepPending && sendSurfaceStep(state.jog.surfaceWheel.gestureAxis, sign, "mpg")) {
-        state.jog.surfaceWheel.gestureSteps++;
-        state.jog.surfaceWheel.value += sign;
-        if (state.surface.mpg_feedback !== "detent") pulseSurfaceMPGDetent(wheel);
-      } else {
-        if (!state.jog.surfaceStepPending) state.jog.surfaceWheel.remainder = 0;
-      }
-    }
-    renderSurfaceMPGWheel();
-  });
-  wheel.addEventListener("pointerup", release);
-  wheel.addEventListener("pointercancel", release);
-  wheel.addEventListener("lostpointercapture", retainPointerCapture);
-  window.addEventListener("pointerup", release);
-  window.addEventListener("pointercancel", release);
-  wheel.addEventListener("keydown", (e) => {
-    if (!["ArrowUp", "ArrowRight", "ArrowDown", "ArrowLeft"].includes(e.key)) return;
-    e.preventDefault();
-    const sign = ["ArrowUp", "ArrowRight"].includes(e.key) ? 1 : -1;
-    if (state.jog.surfaceStepPending) return;
-    prepareSurfaceMPGFeedback();
-    if (sendSurfaceStep(state.surface.mpg_axis, sign)) {
-      state.jog.surfaceWheel.value += sign;
-      state.jog.surfaceWheel.angle = (Number(state.jog.surfaceWheel.angle || 0) + SURFACE_MPG_DETENT_DEG * sign + 360) % 360;
-      pulseSurfaceMPGDetent(wheel);
-    }
-    renderSurfaceMPGWheel();
-  });
-}
-
 function bindSurfaceXYMap() {
   const modal = document.getElementById("surface-xy-map-modal");
   const plot = document.getElementById("surface-xy-map-plot");
@@ -11158,6 +6853,8 @@ function bindSurfaceXYMap() {
 }
 
 function init() {
+  const gcodeView = gcodeViewer.getGcodeView();
+  const activeGcodeSource = gcodeViewer.getActiveGcodeSource();
   maintenance.mount();
   mountMachineReadouts();
   initializeResponsiveControlSections();
@@ -11226,8 +6923,8 @@ function init() {
   }
   showActiveJobLeftTab(state.activeJobLeftTab);
   bindActiveJobSplitter();
-  filesCommands.bind();
-  filesNavigation.mount();
+  filesFeature.bind();
+  filesFeature.mount();
 
   const form = document.getElementById("gcode-form");
   const gcodeInput = document.getElementById("gcode-input");

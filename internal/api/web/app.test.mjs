@@ -18,6 +18,7 @@ import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
 import { dashboardExternalCameraIsSnapshot, normalizeDashboardExternalCameraView } from "./modules/camera.js";
 import { beginFileAction, createFileCatalog, createFileHelpers, endFileAction, fileRowLocallyOwned, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
+import { createSettingsFeature, defaultMachineSettings } from "./modules/settings.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
@@ -27,12 +28,26 @@ const geometryHelpers = new Set(["triangulationEdgeKey","triangleCross","pointIn
 const feedbackModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/feedback.js"), "utf8");
 const mdiModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/mdi-macros.js"), "utf8");
 const toolActionsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/tool-actions.js"), "utf8");
+const originProbingModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/origin-probing.js"), "utf8");
+const machineStatusModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/machine-status.js"), "utf8");
+const settingsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/settings.js"), "utf8");
 const dashboardProfilesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/dashboard-profiles.js"), "utf8");
+const gcodeModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/gcode-viewer.js"), "utf8");
+const jogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/jog.js"), "utf8");
+const workareaModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/workarea-outline.js"), "utf8");
 // Transitional VM tests retain their assertions against these exact production helpers.
 const feedbackHelpers = new Set(["setNotice", "noticeTimeoutMs", "statusMessageSignature", "setStatusMessage", "consumeStatusFeedback", "clearNotice", "setConnectivityIssue", "clearConnectivityIssue", "renderConnectivityNotice", "noticeItemRects", "animateNoticeReflow", "dismissNotice", "renderNoticeBar"]);
 const mdiMacrosHelpers = new Set(["macroByID", "slotForMacro", "sortedSlots", "setMacroPlacement", "normalizeSlotOrder", "renderGcodeCommandState", "submitGcode", "navigateCommandHistory", "renderMacroButtons", "renderMacroRegion", "renderMacroEditor", "currentMacroFromForm", "saveMacroFromForm", "newMacro", "macroEditorDirty", "confirmDiscardMacroDraft", "deleteSelectedMacro", "moveSelectedMacro", "runMacro"]);
 const toolActionsHelpers = new Set(["customToolID", "resetToolSelects", "toggleToolCustomInput", "handleToolSelect", "selectedToolID", "setCurrentTool", "changeTool", "continueToolChange", "calibrateCurrentTool", "beginToolAction", "finishToolAction", "refreshMachineAfterToolAction", "renderToolActions", "setToolFeedback", "clearToolFeedback"]);
+const originProbingHelpers = new Set(["machineReadyForOriginSet", "renderOriginButtons", "setOriginFeedback", "renderOriginSetSourceLabels", "hasPendingOriginOperation", "savedOrigins", "selectedSavedOrigin", "savedOriginLabel", "renderSavedOriginSelect", "saveCurrentOrigin", "deleteSelectedOrigin", "originCommandLine", "formatOriginValue", "originTargetsFromXYZ", "originTargetsFromSaved", "machineAnchorPoints", "originTargetsFromOriginSource", "originReferenceRequestFromInputs", "renderOriginSetChange", "originAxes", "originTargetLabel", "clearOriginVerification", "beginOriginVerification", "checkOriginVerification", "scheduleOriginVerification", "setOriginViaGcode", "setReferenceOriginViaAPI", "setReferenceOriginViaJog", "sendNextJogOriginAxis", "handleOriginAck", "applyOriginTargets", "setOriginAxis", "openOriginDialog", "closeOriginDialog", "probe3DFieldRules", "probe3DInitialPositioning", "probe3DTravelPreflight", "probe3DLearnedTravelBounds", "probe3DPreflightFromControls", "renderProbe3DForm", "probe3DNumber", "probe3DRequestFromControls", "openProbe3D", "closeProbe3D", "runProbe3D", "applyXYZOrigin", "applyOriginSource", "runAutoZProbe", "recallSelectedOrigin"]);
+const machineStatusHelpers = new Set(["gcodeToolMetadata", "gcodeToolLabel", "programToolListModel", "toolChangeTargetLabel", "toolChangeAttentionDetail", "machineReadoutModel", "renderMachineReadouts", "haltReason", "recoveryText", "machineActionState", "jobControlModel", "jobControlLabel", "renderJobControls", "renderMachine", "renderAttention", "attentionResumeAction", "renderToolStatus", "renderAlarmPanel", "recoveryButtonText"]);
+const settingsHelpers = new Set(["fallbackID", "normalizeAxisSetting", "normalizeButtonList", "normalizeMachineSettings", "normalizeMachineLearned", "normalizeSavedOrigins", "defaultMachineSettings", "defaultGamepadSettings", "safeZForTapMove", "safeZCeiling", "feedBoundsFor", "machineLearnedSummaryLines", "normalizeGamepadSettings", "normalizeUISettings", "finiteOr", "clampNumber"]);
+const jogHelpers = new Set(["connectJog", "disableJogConnection", "scheduleJogReconnect", "sameJogInput", "jogInputActive", "sendJogInput", "sendJog", "sampleJog", "releaseJogInput", "scheduleJogSample", "surfaceMPGPointerSample", "surfaceMPGAngleDelta", "prepareSurfaceMPGFeedback", "playSurfaceMPGClick", "pulseSurfaceMPGDetent", "finishSurfaceMPGGesture", "bindSurfaceMPGWheel", "sameJogAxes"]);
+const workareaHelpers = new Set(["axisValue", "normalizeWorkAreaView", "workAreaViewCenter", "applyWorkAreaViewport", "resetWorkAreaView", "setWorkAreaZoom", "zoomWorkArea", "panWorkArea", "workAreaSVGPointFromClient", "workAreaLocalToContentPoint", "hideWorkAreaHoverPosition", "updateWorkAreaHoverPosition", "workAreaBounds", "workAreaRect", "workAreaMMToSVGUnits", "machineToWorkAreaPoint", "workAreaToMachinePoint", "renderWorkArea", "outlineSnapshot", "restoreOutlineSnapshot", "outlineCapturePositionsClose", "outlineCaptureIntentCount", "cancelOutlineCaptureIntents", "appendOutlineCapturedPosition", "resolveOutlineCaptureIntent", "clearFieldProbeData", "outlineEditingMarkersVisible"]);
 const dashboardProfilesHelpers = new Set(["dashboardURLState", "dashboardProfileByID", "currentDashboardProfile", "isWideSurfaceOverview", "dashboardPanelVisible", "resolveDashboardProfile", "applyDashboardURLState", "syncDashboardProfileURL", "selectDashboardProfile", "renderDashboardProfileControls", "applyDashboardProfile", "dashboardProfileSlug", "renderDashboardPanelOrder", "refreshDashboardPanelOrderButtons", "openDashboardSettings", "closeDashboardSettings", "dashboardProfileFromForm", "saveDashboardProfile", "deleteDashboardProfile", "copyDashboardURL"]);
+const gcodeHelpers = new Set(["dashboardGcodeWindow", "renderDashboardGcodeStream", "drawDashboardGcodePreview", "dashboardGcodeRenderStateKey", "activeGcodeSourceSignature", "gcodeCameraFitKey", "ensureActiveGcodeGeometry", "splitGcodeSourceLines", "ensureActiveGcodeSource", "resetActiveGcodeSource", "fetchActiveGcodeSourcePage", "activeGcodeSourceLine", "gcodeSourceWindow", "scheduleActiveGcodeSourceRender", "renderActiveGcodeSource", "gcodeSourceLineForCursor", "syncActiveGcodeSourceLine", "scrollActiveGcodeSourceToLine", "activeJobOverlayOriginFrom", "activeJobOverlayOrigin", "activeJobOverlayPoint", "probePlanMatchesResults", "activeJobFieldProbeComplete", "interpolateOutlinePathZ", "activeJobContextOverlayData", "activeJobOverlayBounds", "combineGcodeBounds", "activeJobContextOverlayKey", "syncGcodeContextOverlay", "rebuildGcodeContextOverlay", "rebuildGcodeContextOverlayForGroup", "gcodeRenderPixelRatio", "ensureGcodeViewer", "ensureDashboardGcodeViewer", "clearDashboardGcodeScene", "setDashboardGcodePreviewEmpty", "fitDashboardGcodeCamera", "updateDashboardGcodeCamera", "syncDashboardGcodeProjection", "scheduleDashboardGcodeRender", "renderDashboardGcodeScene", "bindGcodeOrbitControls", "gcodePinchDistance", "gcodeOrbitRadiusAfterPinch", "gcodeOrbitRadiusAfterWheel", "rotateGcodeOrbitByDrag", "isTypingTarget", "rebuildGcodeScene", "populateGcodePathScene", "addGcodeGrid", "addGcodeGridToView", "buildGcodeOriginAxes", "makeGcodeAxisLabel", "clearGcodeScene", "fitGcodeCamera", "updateGcodeCamera", "syncGcodeProjection", "setGcodeProjection", "bindGcodeProjectionToggle", "initGcodeViewCube", "makeViewCubeFaceTexture", "renderGcodeViewCube", "syncGcodeViewCubeResolution", "viewCubeTargetComponents", "gcodeViewCubeTarget", "setGcodeViewCubeHover", "viewCubeHoverGeometry", "clearGcodeViewCubeHover", "onGcodeViewCubePointerDown", "onGcodeViewCubePointerMove", "gcodeCubeDragStep", "finishGcodeViewCubeDrag", "onGcodeViewCubePointerUp", "onGcodeViewCubePointerCancel", "onGcodeViewCubeClick", "snapGcodeViewTo", "gcodeOrbitAnglesForDirection", "gcodeTimelineLocallyOwned", "gcodeTimelineEventLabel", "gcodeTimelineEventMarkers", "gcodeTimelineMarkerLabel", "setGcodeTimelineEventDetail", "selectGcodeTimelineEvent", "renderGcodeTimelineEventList", "renderGcodeTimelineEvents", "updateGcodeTimeline", "gcodeWorldCoordinates", "gcodeWorldPoint", "setGcodePreviewEmpty", "scheduleGcodeRender", "renderGcodeScene"]);
+const gcodeConstants = new Set(["GCODE_SOURCE_ROW_HEIGHT", "GCODE_SOURCE_OVERSCAN", "GCODE_SOURCE_PAGE_SIZE", "GCODE_SOURCE_MAX_PAGES", "GCODE_SEGMENT_PAGE_SIZE", "GCODE_RENDER_PIXEL_BUDGET", "GCODE_FOV", "GCODE_ORBIT_MIN_RADIUS", "GCODE_ORBIT_MAX_RADIUS", "GCODE_ORBIT_DRAG_RAD_PER_PX", "GCODE_CUBE_DRAG_THRESHOLD_PX"]);
+const jogConstants = new Set(["JOG_INPUT_HEARTBEAT_MS", "JOG_INPUT_DEADZONE", "SURFACE_MPG_DETENT_DEG", "SURFACE_MPG_DEAD_ZONE", "SURFACE_MPG_AUDIO_LOOKAHEAD_S"]);
 const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.html"), "utf8")
   + readFileSync(join(dirname(fileURLToPath(import.meta.url)), "styles/app.css"), "utf8");
 
@@ -168,7 +183,7 @@ test("dashboard layout controls are hidden and expose their expanded state", () 
 });
 
 function extractFunction(name) {
-  const source = feedbackHelpers.has(name) ? feedbackModuleSource.replace(/^  /gm, "") : mdiMacrosHelpers.has(name) ? mdiModuleSource.replace(/^  /gm, "") : toolActionsHelpers.has(name) ? toolActionsModuleSource.replace(/^  /gm, "") : dashboardProfilesHelpers.has(name) ? dashboardProfilesModuleSource.replace(/^  /gm, "") : geometryHelpers.has(name) ? geometryModuleSource : globalSource();
+  const source = feedbackHelpers.has(name) ? feedbackModuleSource.replace(/^  /gm, "") : mdiMacrosHelpers.has(name) ? mdiModuleSource.replace(/^  /gm, "") : toolActionsHelpers.has(name) ? toolActionsModuleSource.replace(/^  /gm, "") : originProbingHelpers.has(name) ? originProbingModuleSource.replace(/^  /gm, "") : machineStatusHelpers.has(name) ? machineStatusModuleSource.replace(/^  /gm, "") : settingsHelpers.has(name) ? settingsModuleSource.replace(/^export /gm, "") : jogHelpers.has(name) ? jogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : workareaHelpers.has(name) ? workareaModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : dashboardProfilesHelpers.has(name) ? dashboardProfilesModuleSource.replace(/^  /gm, "") : geometryHelpers.has(name) ? geometryModuleSource : gcodeHelpers.has(name) ? gcodeModuleSource.replace(/^  /gm, "") : globalSource();
   let start = source.indexOf("\nfunction " + name + "(");
   if (start < 0) start = source.indexOf("\nasync function " + name + "(");
   if (start < 0) throw new Error("function not found in app.js: " + name);
@@ -196,7 +211,7 @@ function extractFunction(name) {
 function globalSource() { return source; }
 
 function extractConst(name) {
-  const constSource = name === "DASHBOARD_PANEL_DEFS" ? dashboardProfilesModuleSource : source;
+  const constSource = name === "DASHBOARD_PANEL_DEFS" ? dashboardProfilesModuleSource : gcodeConstants.has(name) ? gcodeModuleSource : jogConstants.has(name) ? jogModuleSource : settingsConsts.includes(name) ? settingsModuleSource : source;
   const m = constSource.match(new RegExp("^(?:export )?const " + name + " = .*;$", "m"));
   if (!m) throw new Error("const not found in app.js: " + name);
   return m[0].replace(/^export /, "");
@@ -312,7 +327,7 @@ test("built-in camera keeps the previous frame until the replacement has loaded"
 });
 
 test("empty G-code viewers do not repeatedly clear their WebGL scenes", () => {
-  assert.match(source, /if \(dashboardGcodeView\.key \|\| dashboardGcodeView\.segments\.length\) clearDashboardGcodeScene\(\);/);
+  assert.match(gcodeModuleSource, /if \(dashboardGcodeView\.key \|\| dashboardGcodeView\.segments\.length\) clearDashboardGcodeScene\(\);/);
   assert.match(source, /if \(gcodeView\.key \|\| gcodeView\.segments\.length\) clearGcodeScene\(\);/);
 });
 
@@ -419,7 +434,7 @@ test("Overview and Active Job share server-owned job controls", () => {
   assert.match(htmlSource, /active-job-controls \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); padding: 8px;/);
   assert.match(htmlSource, /id="paused-job-spindle-speed" type="number" inputmode="numeric" min="1" max="13000"/);
   assert.match(htmlSource, /<option value="" selected disabled>Choose…<\/option>/);
-  assert.match(source, /group\.hidden = !visibleAction;/, "empty action clusters do not reserve a blank card");
+  assert.match(machineStatusModuleSource, /group\.hidden = !visibleAction;/, "empty action clusters do not reserve a blank card");
   const ctx = buildContext(["machineActionState", "jobControlModel", "jobControlLabel"]);
   const model = (machine, pending = "", readOnly = false) => JSON.parse(vm.runInContext(
     `JSON.stringify(jobControlModel(${JSON.stringify(machine)}, ${JSON.stringify(pending)}, ${readOnly}))`,
@@ -690,6 +705,7 @@ function dxfRecordValue(record, code) {
 }
 
 const settingsFunctions = [
+  "fallbackID",
   "normalizeMachineSettings",
   "normalizeMachineLearned",
   "normalizeSavedOrigins",
@@ -700,6 +716,8 @@ const settingsFunctions = [
   "finiteOr",
   "clampNumber",
   "newID",
+  "normalizeAxisSetting",
+  "normalizeButtonList",
 ];
 const settingsConsts = [
   "DEFAULT_MACHINE_FEED_MIN_MM_MIN",
@@ -1002,10 +1020,10 @@ test("dashboard gcode stream remains a bounded window around the current line", 
 });
 
 test("active gcode uses the summary overview until streamed full geometry is ready", () => {
-  const state = { activeGcode: {} };
   const active = { path: "/sd/gcodes/part.nc", preview: { overview_segments: [{ line: 1 }, { line: 99 }] } };
+  const activeGcodeGeometry = { signature: "", segments: [] };
   const ctx = buildContext(["activeGcodeDisplaySegments"], [], {
-    activeGcodeGeometry: { signature: "", segments: [] },
+    gcodeViewer: { getActiveGcodeGeometry: () => activeGcodeGeometry },
     activeGcodeSourceSignature: () => "part-signature",
   });
   ctx.active = active;
@@ -1013,7 +1031,8 @@ test("active gcode uses the summary overview until streamed full geometry is rea
     JSON.parse(vm.runInContext(`JSON.stringify(activeGcodeDisplaySegments(active))`, ctx)),
     active.preview.overview_segments,
   );
-  vm.runInContext(`activeGcodeGeometry.signature = "part-signature"; activeGcodeGeometry.segments = [{line: 1}, {line: 2}, {line: 3}]`, ctx);
+  activeGcodeGeometry.signature = "part-signature";
+  activeGcodeGeometry.segments = [{ line: 1 }, { line: 2 }, { line: 3 }];
   assert.equal(vm.runInContext(`activeGcodeDisplaySegments(active).length`, ctx), 3);
 });
 
@@ -1566,9 +1585,9 @@ test("virtual MPG click uses a short audible pulse once the audio context is run
   assert.deepEqual(roundedPulses("gain"), [["gain", 0.15, 3.01], ["gain", 0.15, 3.04]]);
   assert.deepEqual(calls.find(([name]) => name === "start"), ["start", 3.01]);
   assert.deepEqual(calls.find(([name]) => name === "stop"), ["stop", 3.037]);
-  assert.match(source, /SURFACE_MPG_AUDIO_LOOKAHEAD_S/, "each click gets a short scheduling lead so Firefox can render its full attack");
-  assert.match(source, /surfaceMPGAudioResume/, "early detents wait for Firefox to finish waking its audio context");
-  assert.match(source, /surfaceMPGNextClickTime/, "rapid detents stay audibly separate");
+  assert.match(jogModuleSource, /SURFACE_MPG_AUDIO_LOOKAHEAD_S/, "each click gets a short scheduling lead so Firefox can render its full attack");
+  assert.match(jogModuleSource, /surfaceMPGAudioResume/, "early detents wait for Firefox to finish waking its audio context");
+  assert.match(jogModuleSource, /surfaceMPGNextClickTime/, "rapid detents stay audibly separate");
 });
 
 test("mobile jog options start collapsed without changing the desktop default", () => {
@@ -4432,6 +4451,7 @@ test("an observing UI describes the explicit movement handoff", () => {
 
 test("outline gamepad button defaults to the standard right trigger and persists a custom binding", () => {
   const ctx = buildContext([
+    "fallbackID",
     "defaultGamepadSettings",
     "normalizeGamepadSettings",
     "normalizeAxisSetting",
@@ -5046,7 +5066,7 @@ test("work-area spindle never falls back to the raw pre-jog observation", () => 
   };
   const ctx = buildContext(["renderWorkArea"], [], {
     state,
-    gcodeView: { renderer: null },
+    gcodeViewer: { getGcodeView: () => ({ renderer: null }) },
     applyWorkAreaViewport: () => {},
     renderWorkAreaBoundary: () => {},
     renderWorkAreaGrid: () => {},
@@ -5055,6 +5075,9 @@ test("work-area spindle never falls back to the raw pre-jog observation", () => 
     renderWorkAreaFieldProbePreview: () => {},
     setWorkAreaToolRadius: () => {},
     setWorkAreaMarker: (id, point) => markers.push({ id, point }),
+    hasGcodeRenderer: () => false,
+    syncGcodeContextOverlay: () => false,
+    renderActiveGcode: () => {},
   });
   vm.runInContext("renderWorkArea()", ctx);
   assert.deepEqual(JSON.parse(JSON.stringify(markers[0])), {
@@ -5216,22 +5239,18 @@ test("saving Machine Settings keeps learned machine profiles", () => {
       },
     },
   };
-  const ctx = buildContext(["updateMachineSettings"], [], {
-    state,
-    MACHINE_SETTING_IDS: ids,
-    document: { getElementById: (id) => elements[id] || null },
-    normalizeMachineSettings: (settings) => settings,
-    clearControlDrafts: () => {},
+  const feature = createSettingsFeature({
+    documentRef: { activeElement: null, getElementById: (id) => elements[id] || null },
+    getUI: () => state.ui,
+    setUI: (next) => { state.ui = next; },
     queueSaveUISettings: () => {},
-    renderMachineSettings: () => {},
     renderJog: () => {},
     renderWorkArea: () => {},
+    renderMachineSettingsExternal: () => {},
+    machineSettingIDs: ids,
   });
-  vm.runInContext("updateMachineSettings()", ctx);
-  assert.deepEqual(
-    state.ui.machine.learned_profiles,
-    { "Carvera|1.0": { identity: { model: "Carvera" } } },
-  );
+  feature.updateMachineSettings();
+  assert.equal(state.ui.machine.learned_profiles["Carvera|1.0"].identity.model, "Carvera");
 });
 
 test("running a macro disables its controls until the command completes", async () => {
@@ -5616,15 +5635,18 @@ test("machine learning always leaves pending state and reports through the botto
   const state = { machineLearnPending: false };
   const calls = [];
   const messages = [];
-  const ctx = buildContext(["learnMachineParameters"], [], {
-    state,
+  const feature = createSettingsFeature({
+    getUI: () => state.ui || { machine: defaultMachineSettings() },
+    setUI: (next) => { state.ui = next; },
+    getMachineLearnPending: () => state.machineLearnPending,
+    setMachineLearnPending: (value) => { state.machineLearnPending = value; },
     request: async () => ({ json: async () => ({ ui: { machine: {} }, message: "Machine parameters learned." }) }),
     applyUISettings: () => calls.push("settings"),
-    renderMachineSettings: () => calls.push("render"),
+    renderMachineSettingsExternal: () => calls.push("render"),
     renderJog: () => calls.push("jog"),
     setStatusMessage: (...args) => messages.push(args),
   });
-  await vm.runInContext("learnMachineParameters()", ctx);
+  await feature.learnMachineParameters();
   assert.equal(state.machineLearnPending, false);
   assert.deepEqual(messages.map(([key, text, kind]) => ({ key, text, kind })), [
     { key: "machine-learn", text: "Learning machine parameters...", kind: "info" },
@@ -5634,15 +5656,18 @@ test("machine learning always leaves pending state and reports through the botto
 
   const failedState = { machineLearnPending: false };
   const failedMessages = [];
-  const failed = buildContext(["learnMachineParameters"], [], {
-    state: failedState,
+  const failed = createSettingsFeature({
+    getUI: () => failedState.ui || { machine: defaultMachineSettings() },
+    setUI: (next) => { failedState.ui = next; },
+    getMachineLearnPending: () => failedState.machineLearnPending,
+    setMachineLearnPending: (value) => { failedState.machineLearnPending = value; },
     request: async () => { throw new Error("offline"); },
     applyUISettings: () => {},
-    renderMachineSettings: () => {},
+    renderMachineSettingsExternal: () => {},
     renderJog: () => {},
     setStatusMessage: (...args) => failedMessages.push(args),
   });
-  await vm.runInContext("learnMachineParameters()", failed);
+  await failed.learnMachineParameters();
   assert.equal(failedState.machineLearnPending, false);
   assert.deepEqual(failedMessages.map(([key, text, kind]) => ({ key, text, kind })), [
     { key: "machine-learn", text: "Learning machine parameters...", kind: "info" },
