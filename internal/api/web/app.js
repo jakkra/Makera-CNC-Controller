@@ -1,4 +1,4 @@
-import { createDashboardProfiles, DASHBOARD_PANEL_DEFS } from "./modules/dashboard-profiles.js";
+import { createDashboardProfiles, defaultDashboardSettings, normalizeDashboardSettings } from "./modules/dashboard-profiles.js";
 import { createLiveUpdates } from "./modules/live-updates.js";
 import { pointInPolygonOrBoundary, effectiveOutlineGeometry, normalizedClosedPolygon, buildFieldProbePreview as computeFieldProbePreview } from "./modules/outline-geometry.js";
 import * as THREE from "./three.module.min.js";
@@ -1135,56 +1135,6 @@ function isXboxGamepad(gp) {
 function isXboxGamepadID(id) {
   const s = String(id || "").toLowerCase();
   return /\bxbox\b/.test(s) || /\bxinput\b/.test(s) || s.includes("x-input") || s.includes("vendor: 045e") || s.includes("vid_045e");
-}
-
-function defaultDashboardSettings() {
-  return {
-    profiles: [{
-      id: "overview",
-      name: "Overview",
-      layout: "job-focus",
-      density: "comfortable",
-      background: "solid",
-      panels: DASHBOARD_PANEL_DEFS.map((panel) => panel.id),
-      gcode_lines: 9,
-    }],
-    default_profile_id: "overview",
-  };
-}
-
-function normalizeDashboardSettings(settings) {
-  const defaults = defaultDashboardSettings();
-  const knownPanels = new Set(DASHBOARD_PANEL_DEFS.map((panel) => panel.id));
-  const profiles = [];
-  const seen = new Set();
-  for (const candidate of Array.isArray(settings?.profiles) ? settings.profiles : []) {
-    const id = String(candidate?.id || "").trim();
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    const panels = [];
-    const seenPanels = new Set();
-    for (const panel of Array.isArray(candidate.panels) ? candidate.panels : []) {
-      if (!knownPanels.has(panel) || seenPanels.has(panel)) continue;
-      seenPanels.add(panel);
-      panels.push(panel);
-    }
-    const lines = Math.trunc(Number(candidate.gcode_lines));
-    profiles.push({
-      id,
-      name: String(candidate.name || id).trim() || id,
-      layout: ["grid", "job-focus", "stacked"].includes(candidate.layout) ? candidate.layout : "job-focus",
-      density: candidate.density === "compact" ? "compact" : "comfortable",
-      background: candidate.background === "transparent" ? "transparent" : "solid",
-      panels: panels.length ? panels : [...defaults.profiles[0].panels],
-      gcode_lines: lines >= 3 && lines <= 30 ? lines : defaults.profiles[0].gcode_lines,
-    });
-  }
-  if (!profiles.length) return defaults;
-  const requestedDefault = String(settings?.default_profile_id || "").trim();
-  return {
-    profiles,
-    default_profile_id: profiles.some((profile) => profile.id === requestedDefault) ? requestedDefault : profiles[0].id,
-  };
 }
 
 async function loadUISettings() {
