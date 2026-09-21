@@ -13,3 +13,7 @@ export function setElementBusy(el, busy) {
   if (busy) el.setAttribute("aria-busy", "true");
   else el.removeAttribute("aria-busy");
 }
+
+export function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>\"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}

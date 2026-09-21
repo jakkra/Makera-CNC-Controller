@@ -5,7 +5,7 @@ import * as THREE from "./three.module.min.js";
 import { request } from "./modules/api.js";
 import { gcodeCursorForPlayedLine, mountActiveJobControl, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection } from "./modules/active-job.js";
 import { createActiveJobView } from "./modules/active-job-view.js";
-import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
+import { escapeHtml, setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtActiveFeed, fmtAge, fmtCoord, fmtDashboardFeed, fmtDashboardSpindle, fmtDuration, fmtPos, fmtSize, fmtSpindle, fmtTemperature, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
 import { mountDashboardCamera } from "./modules/camera.js";
@@ -974,10 +974,6 @@ function mountMachineReadouts() {
   for (const host of document.querySelectorAll("[data-machine-readout-host]")) {
     if (!host.querySelector(".machine-readout")) host.appendChild(template.content.cloneNode(true));
   }
-}
-
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
 function loadCommandHistory() {
