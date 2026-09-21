@@ -13,6 +13,10 @@ export function toolDisplayName(toolID) {
   }
 }
 
+export function fmtActiveTool(tool) {
+  return Number.isFinite(tool?.active) ? toolDisplayName(tool.active) : "-";
+}
+
 export function validToolID(toolID, allowEmpty = false) {
   if (!Number.isInteger(toolID)) return false;
   if (toolID === -1) return allowEmpty;

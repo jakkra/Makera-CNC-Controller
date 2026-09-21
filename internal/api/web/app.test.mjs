@@ -24,7 +24,7 @@ import { createGcodeLogFeature, formatLogLine, lineMatchesFilter, visibleGcodeLi
 import { beginFileAction, createFileCatalog, createFileHelpers, endFileAction, fileRowLocallyOwned, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
 import { createSettingsFeature, defaultMachineSettings } from "./modules/settings.js";
 import { apiFileURL, basename, cleanRelPath, dirname as fileDirname, joinRelPath, parentRelPath, relPath, remotePathFromRel } from "./modules/file-paths.js";
-import { toolDisplayName, validToolID } from "./modules/tooling.js";
+import { fmtActiveTool, toolDisplayName, validToolID } from "./modules/tooling.js";
 import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
 import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dxf.js";
 import { createOutlineFilesFeature } from "./modules/outline-files.js";
@@ -92,7 +92,7 @@ const outlineCaptureHelpers = new Set(["capturedOutlinePosition"]);
 const outlineDXFHelpers = new Set(["buildOutlineDXF"]);
 const surfaceJogHelpers = new Set(["defaultSurfaceViewPreferences", "loadSurfaceViewPreferences", "saveSurfaceViewPreferences", "isSurfaceKiosk", "surfaceStepDistance", "surfaceStepUnit", "surfaceJogOptionsSummary", "surfaceQuickActionState", "renderSurfaceJog", "surfaceMPGGestureActive", "surfaceJogDisplayState", "deferSurfaceMPGMachineRender", "renderSurfaceMPGWheel", "renderSurfaceQuickActions", "initializeSurfaceMobileOptions", "selectSurfaceJogMethod", "selectSurfaceMPGAxis", "selectSurfaceStep", "selectSurfaceMotion"]);
 const settingsHelpers = new Set(["fallbackID", "normalizeAxisSetting", "normalizeButtonList", "normalizeMachineSettings", "normalizeMachineLearned", "normalizeSavedOrigins", "defaultMachineSettings", "defaultGamepadSettings", "safeZForTapMove", "safeZCeiling", "feedBoundsFor", "machineLearnedSummaryLines", "normalizeGamepadSettings", "normalizeUISettings", "finiteOr", "clampNumber"]);
-const toolingHelpers = new Set(["toolDisplayName", "validToolID"]);
+const toolingHelpers = new Set(["fmtActiveTool", "toolDisplayName", "validToolID"]);
 const domHelpers = new Set(["escapeHtml"]);
 const jogHelpers = new Set(["connectJog", "disableJogConnection", "scheduleJogReconnect", "sameJogInput", "jogInputActive", "sendJogInput", "sendJog", "sampleJog", "releaseJogInput", "scheduleJogSample", "surfaceMPGPointerSample", "surfaceMPGAngleDelta", "prepareSurfaceMPGFeedback", "playSurfaceMPGClick", "pulseSurfaceMPGDetent", "finishSurfaceMPGGesture", "bindSurfaceMPGWheel", "sameJogAxes"]);
 const workareaHelpers = new Set(["axisValue", "normalizeWorkAreaView", "workAreaViewCenter", "applyWorkAreaViewport", "resetWorkAreaView", "setWorkAreaZoom", "zoomWorkArea", "panWorkArea", "workAreaSVGPointFromClient", "workAreaLocalToContentPoint", "hideWorkAreaHoverPosition", "updateWorkAreaHoverPosition", "workAreaBounds", "workAreaRect", "workAreaMMToSVGUnits", "workAreaMMRadius", "machineToWorkAreaPoint", "workAreaToMachinePoint", "renderWorkArea", "outlineSnapshot", "restoreOutlineSnapshot", "outlineCapturePositionsClose", "outlineCaptureIntentCount", "cancelOutlineCaptureIntents", "appendOutlineCapturedPosition", "resolveOutlineCaptureIntent", "clearFieldProbeData", "outlineEditingMarkersVisible"]);

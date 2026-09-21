@@ -19,7 +19,7 @@ import { createToolActions } from "./modules/tool-actions.js";
 import { createOriginProbing } from "./modules/origin-probing.js";
 import { createFilesFeature } from "./modules/files.js";
 import { apiFileURL, basename, cleanRelPath, dirname, joinRelPath, parentRelPath, relPath, remotePathFromRel } from "./modules/file-paths.js";
-import { toolDisplayName, validToolID } from "./modules/tooling.js";
+import { fmtActiveTool, toolDisplayName, validToolID } from "./modules/tooling.js";
 import { createMachineStatusFeature } from "./modules/machine-status.js";
 import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive } from "./modules/jog.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
@@ -1014,10 +1014,6 @@ const dashboardProfiles = createDashboardProfiles({
   scheduleDashboardGcodeRender: () => gcodeViewer.scheduleDashboardGcodeRender(),
 });
 const { dashboardURLState, dashboardProfileByID, currentDashboardProfile, isWideSurfaceOverview, dashboardPanelVisible, resolveDashboardProfile, applyDashboardURLState, syncDashboardProfileURL, selectDashboardProfile, renderDashboardProfileControls, applyDashboardProfile, dashboardProfileSlug, renderDashboardPanelOrder, refreshDashboardPanelOrderButtons, openDashboardSettings, closeDashboardSettings, dashboardProfileFromForm, saveDashboardProfile, deleteDashboardProfile, copyDashboardURL } = dashboardProfiles;
-
-function fmtActiveTool(t) {
-  return Number.isFinite(t?.active) ? toolDisplayName(t.active) : "-";
-}
 
 function mountMachineReadouts() {
   const template = document.getElementById("machine-readout-template");
