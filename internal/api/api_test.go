@@ -969,14 +969,25 @@ func TestWebUIServed(t *testing.T) {
 	resp := get(t, srv.URL+"/")
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if !bytes.Contains(body, []byte(`href="styles/app.css"`)) {
-		t.Fatal("index missing external stylesheet")
+	styleNames := []string{"base.css", "layout.css", "machine.css", "active-job.css", "jog.css", "camera.css", "files.css", "mobile.css"}
+	var styleBody []byte
+	for _, name := range styleNames {
+		if !bytes.Contains(body, []byte(`href="styles/`+name+`"`)) {
+			t.Fatalf("index missing external stylesheet %s", name)
+		}
+		style := get(t, srv.URL+"/styles/"+name)
+		chunk, _ := io.ReadAll(style.Body)
+		style.Body.Close()
+		if style.StatusCode != http.StatusOK || !strings.HasPrefix(style.Header.Get("Content-Type"), "text/css") || style.Header.Get("Cache-Control") != "no-store" {
+			t.Fatalf("stylesheet %s status=%d type=%q cache=%q", name, style.StatusCode, style.Header.Get("Content-Type"), style.Header.Get("Cache-Control"))
+		}
+		styleBody = append(styleBody, chunk...)
 	}
-	style := get(t, srv.URL+"/styles/app.css")
-	styleBody, _ := io.ReadAll(style.Body)
-	style.Body.Close()
-	if style.StatusCode != http.StatusOK || !strings.HasPrefix(style.Header.Get("Content-Type"), "text/css") || style.Header.Get("Cache-Control") != "no-store" {
-		t.Fatalf("stylesheet status=%d type=%q cache=%q", style.StatusCode, style.Header.Get("Content-Type"), style.Header.Get("Cache-Control"))
+	// Keep the aggregate stylesheet route working for direct clients and older bookmarks.
+	aggregateStyle := get(t, srv.URL+"/styles/app.css")
+	aggregateStyle.Body.Close()
+	if aggregateStyle.StatusCode != http.StatusOK || !strings.HasPrefix(aggregateStyle.Header.Get("Content-Type"), "text/css") || aggregateStyle.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("aggregate stylesheet status=%d type=%q cache=%q", aggregateStyle.StatusCode, aggregateStyle.Header.Get("Content-Type"), aggregateStyle.Header.Get("Cache-Control"))
 	}
 	missingStyle := get(t, srv.URL+"/styles/missing.css")
 	missingStyle.Body.Close()
@@ -1273,6 +1284,9 @@ func TestWebUIServed(t *testing.T) {
 	if js.StatusCode != http.StatusOK || !strings.Contains(string(jsBody), "createLiveUpdates") {
 		t.Errorf("app.js status=%d", js.StatusCode)
 	}
+	activeJobViewModule := get(t, srv.URL+"/modules/active-job-view.js")
+	activeJobViewBody, _ := io.ReadAll(activeJobViewModule.Body)
+	activeJobViewModule.Body.Close()
 	liveModule := get(t, srv.URL+"/modules/live-updates.js")
 	liveBody, _ := io.ReadAll(liveModule.Body)
 	liveModule.Body.Close()
@@ -1332,13 +1346,13 @@ func TestWebUIServed(t *testing.T) {
 	workareaJogModule := get(t, srv.URL+"/modules/workarea-jog.js")
 	workareaJogBody, _ := io.ReadAll(workareaJogModule.Body)
 	workareaJogModule.Body.Close()
-	webSource := string(jsBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(dashboardTelemetryBody) + string(dashboardViewBody) + string(gcodeLogBody) + string(navigationBody) + string(surfaceJogBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody) + string(outlineCaptureBody) + string(workareaJogBody)
+	webSource := string(jsBody) + string(activeJobViewBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(dashboardTelemetryBody) + string(dashboardViewBody) + string(gcodeLogBody) + string(navigationBody) + string(surfaceJogBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody) + string(outlineCaptureBody) + string(workareaJogBody)
 	for _, want := range []string{"export function mountFilesCommands", "export function mountFilesTransitions", "export function mountFilesJobRefresh"} {
 		if filesModule.StatusCode != http.StatusOK || !strings.Contains(string(filesModuleBody), want) {
 			t.Errorf("modules/files.js missing %s (status=%d)", want, filesModule.StatusCode)
 		}
 	}
-	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`, `from "./modules/camera.js"`, `from "./modules/dashboard-telemetry.js"`, `from "./modules/dashboard-view.js"`, `from "./modules/gcode-log.js"`, `from "./modules/navigation.js"`, `from "./modules/outline-io.js"`, `from "./modules/outline-capture.js"`, `from "./modules/workarea-jog.js"`} {
+	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`, `from "./modules/active-job-view.js"`, `from "./modules/camera.js"`, `from "./modules/dashboard-telemetry.js"`, `from "./modules/dashboard-view.js"`, `from "./modules/gcode-log.js"`, `from "./modules/navigation.js"`, `from "./modules/outline-io.js"`, `from "./modules/outline-capture.js"`, `from "./modules/workarea-jog.js"`} {
 		if !strings.Contains(string(jsBody), want) {
 			t.Errorf("app.js missing shared module import %s", want)
 		}
@@ -1347,6 +1361,7 @@ func TestWebUIServed(t *testing.T) {
 		path string
 		mark string
 	}{
+		{"/modules/active-job-view.js", "export function createActiveJobView"},
 		{"/modules/api.js", "export async function request"},
 		{"/modules/dom.js", "export function setSoftDisabled"},
 		{"/modules/format.js", "export function fmtCoord"},

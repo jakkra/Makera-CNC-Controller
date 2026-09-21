@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { request } from "./modules/api.js";
 import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountActiveJobSelection, mountPausedJobCommand, previewBoundsText } from "./modules/active-job.js";
+import { createActiveJobView } from "./modules/active-job-view.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
@@ -29,6 +30,7 @@ import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWork
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
+const activeJobViewModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/active-job-view.js"), "utf8");
 const cameraModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/camera.js"), "utf8");
 const dashboardTelemetryModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/dashboard-telemetry.js"), "utf8");
 const dashboardViewModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/dashboard-view.js"), "utf8");
@@ -69,11 +71,13 @@ const dashboardProfilesHelpers = new Set(["dashboardURLState", "dashboardProfile
 const dashboardTelemetryHelpers = new Set(["dashboardOptionalNumber", "dashboardOnOff", "dashboardRotaryText", "dashboardLaserText", "dashboardATCText", "dashboardControllerText", "dashboardAlarmText", "renderDashboardTelemetry"]);
 const dashboardViewHelpers = new Set(["renderDashboard"]);
 const gcodeLogHelpers = new Set(["lineMatchesFilter", "visibleGcodeLines", "formatLogLine", "appendGcodeLineElement", "renderGcodeLog", "clearGcodeLog"]);
+const activeJobViewHelpers = new Set(["renderActiveGcode", "renderActiveGcodeControls"]);
 const gcodeHelpers = new Set(["dashboardGcodeWindow", "renderDashboardGcodeStream", "drawDashboardGcodePreview", "dashboardGcodeRenderStateKey", "activeGcodeSourceSignature", "gcodeCameraFitKey", "ensureActiveGcodeGeometry", "splitGcodeSourceLines", "ensureActiveGcodeSource", "resetActiveGcodeSource", "fetchActiveGcodeSourcePage", "activeGcodeSourceLine", "gcodeSourceWindow", "scheduleActiveGcodeSourceRender", "renderActiveGcodeSource", "gcodeSourceLineForCursor", "syncActiveGcodeSourceLine", "scrollActiveGcodeSourceToLine", "activeJobOverlayOriginFrom", "activeJobOverlayOrigin", "activeJobOverlayPoint", "probePlanMatchesResults", "activeJobFieldProbeComplete", "interpolateOutlinePathZ", "activeJobContextOverlayData", "activeJobOverlayBounds", "combineGcodeBounds", "activeJobContextOverlayKey", "syncGcodeContextOverlay", "rebuildGcodeContextOverlay", "rebuildGcodeContextOverlayForGroup", "gcodeRenderPixelRatio", "ensureGcodeViewer", "ensureDashboardGcodeViewer", "clearDashboardGcodeScene", "setDashboardGcodePreviewEmpty", "fitDashboardGcodeCamera", "updateDashboardGcodeCamera", "syncDashboardGcodeProjection", "scheduleDashboardGcodeRender", "renderDashboardGcodeScene", "bindGcodeOrbitControls", "gcodePinchDistance", "gcodeOrbitRadiusAfterPinch", "gcodeOrbitRadiusAfterWheel", "rotateGcodeOrbitByDrag", "isTypingTarget", "rebuildGcodeScene", "populateGcodePathScene", "addGcodeGrid", "addGcodeGridToView", "buildGcodeOriginAxes", "makeGcodeAxisLabel", "clearGcodeScene", "fitGcodeCamera", "updateGcodeCamera", "syncGcodeProjection", "setGcodeProjection", "bindGcodeProjectionToggle", "initGcodeViewCube", "makeViewCubeFaceTexture", "renderGcodeViewCube", "syncGcodeViewCubeResolution", "viewCubeTargetComponents", "gcodeViewCubeTarget", "setGcodeViewCubeHover", "viewCubeHoverGeometry", "clearGcodeViewCubeHover", "onGcodeViewCubePointerDown", "onGcodeViewCubePointerMove", "gcodeCubeDragStep", "finishGcodeViewCubeDrag", "onGcodeViewCubePointerUp", "onGcodeViewCubePointerCancel", "onGcodeViewCubeClick", "snapGcodeViewTo", "gcodeOrbitAnglesForDirection", "gcodeTimelineLocallyOwned", "gcodeTimelineEventLabel", "gcodeTimelineEventMarkers", "gcodeTimelineMarkerLabel", "setGcodeTimelineEventDetail", "selectGcodeTimelineEvent", "renderGcodeTimelineEventList", "renderGcodeTimelineEvents", "updateGcodeTimeline", "gcodeWorldCoordinates", "gcodeWorldPoint", "setGcodePreviewEmpty", "scheduleGcodeRender", "renderGcodeScene"]);
 const gcodeConstants = new Set(["GCODE_SOURCE_ROW_HEIGHT", "GCODE_SOURCE_OVERSCAN", "GCODE_SOURCE_PAGE_SIZE", "GCODE_SOURCE_MAX_PAGES", "GCODE_SEGMENT_PAGE_SIZE", "GCODE_RENDER_PIXEL_BUDGET", "GCODE_FOV", "GCODE_ORBIT_MIN_RADIUS", "GCODE_ORBIT_MAX_RADIUS", "GCODE_ORBIT_DRAG_RAD_PER_PX", "GCODE_CUBE_DRAG_THRESHOLD_PX"]);
 const jogConstants = new Set(["JOG_INPUT_HEARTBEAT_MS", "JOG_INPUT_DEADZONE", "SURFACE_MPG_DETENT_DEG", "SURFACE_MPG_DEAD_ZONE", "SURFACE_MPG_AUDIO_LOOKAHEAD_S"]);
+const cssFiles = ["base.css", "layout.css", "machine.css", "active-job.css", "jog.css", "camera.css", "files.css", "mobile.css"];
 const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.html"), "utf8")
-  + readFileSync(join(dirname(fileURLToPath(import.meta.url)), "styles/app.css"), "utf8");
+  + cssFiles.map((name) => readFileSync(join(dirname(fileURLToPath(import.meta.url)), "styles", name), "utf8")).join("");
 
 test("shared helpers are imported as production ES modules", async () => {
   assert.equal(fmtCoord(1.2345), "1.234");
@@ -173,8 +177,57 @@ test("active job metadata stays operator-focused and mobile shows the preview fi
   assert.match(htmlSource, /\.active-gcode-workspace:not\(\.is-empty\) \{ grid-template-areas: "preview" "details"; \}/);
 });
 
+test("active job view preserves empty state and pending control presentation", () => {
+  const nodes = new Map();
+  const node = (extra = {}) => ({ hidden: false, disabled: false, value: "", textContent: "", attrs: new Map(), setAttribute(name, value) { this.attrs.set(name, value); }, ...extra });
+  nodes.set("active-gcode-title", node());
+  nodes.set("active-gcode-meta", node());
+  nodes.set("active-gcode-run", node());
+  nodes.set("paused-job-controls", node());
+  nodes.set("paused-job-raise", node());
+  nodes.set("feed-override-controls", node());
+  nodes.set("feed-override-decrease", node());
+  nodes.set("feed-override-increase", node());
+  nodes.set("feed-override-reset", node());
+  nodes.set("feed-override-value", node());
+  const actions = node();
+  const workspace = node({ classList: { toggled: null, toggle(name, value) { this.toggled = [name, value]; } } });
+  const documentRef = {
+    getElementById: (id) => nodes.get(id) || null,
+    querySelector: (selector) => selector === ".active-gcode-actions" ? actions : selector === ".active-gcode-workspace" ? workspace : null,
+  };
+  let active = { path: "", runnable: false };
+  let pending = "run";
+  const calls = [];
+  const view = createActiveJobView({
+    documentRef,
+    getActiveGcode: () => active,
+    getMachine: () => ({ state: "Run", feed: { override: 100 } }),
+    getActiveGcodePending: () => pending,
+    machineActionState: () => "Run",
+    externalJobInfo: () => null,
+    ensureActiveGcodeGeometry: (value) => calls.push(["geometry", value]),
+    ensureActiveGcodeSource: (value) => calls.push(["source", value]),
+    drawGcodePreview: (value) => calls.push(["preview", value]),
+    renderActiveJobProgress: (...args) => calls.push(["progress", ...args]),
+    renderProgramToolLists: (...args) => calls.push(["tools", ...args]),
+    renderDashboard: () => calls.push(["dashboard"]),
+    renderJobControls: () => calls.push(["controls"]),
+    setSoftDisabled: (target, value) => { target.softDisabled = value; },
+  });
+
+  view.renderActiveGcode();
+
+  assert.equal(nodes.get("active-gcode-title").textContent, "No active gcode selected.");
+  assert.equal(nodes.get("active-gcode-run").disabled, false, "empty-state rendering preserves the existing run-control reset");
+  assert.deepEqual(workspace.classList.toggled, ["is-empty", true]);
+  assert.deepEqual(calls.map(([name]) => name), ["controls", "geometry", "source", "preview", "progress", "tools", "dashboard"]);
+  assert.equal(actions.attrs.get("data-machine-state"), "Run");
+  assert.equal(nodes.get("feed-override-controls").attrs.get("aria-busy"), "true");
+});
+
 test("wide Active Job keeps Run controls in one compact row", () => {
-  assert.match(source, /active-gcode-actions"\)\?\.setAttribute\("data-machine-state", machineState\)/);
+  assert.match(activeJobViewModuleSource, /data-machine-state/);
   assert.match(htmlSource, /\.active-gcode-actions\[data-machine-state="Run"\] \{ min-width: 384px; grid-template-columns: max-content minmax\(232px,1fr\); align-items: stretch; \}/);
   assert.match(htmlSource, /\[data-machine-state="Run"\] #feed-override-controls \{ grid-column: 2;/);
 });
@@ -215,7 +268,7 @@ test("dashboard presentation is owned by its feature module", () => {
 });
 
 function extractFunction(name) {
-  const source = feedbackHelpers.has(name) ? feedbackModuleSource.replace(/^  /gm, "") : mdiMacrosHelpers.has(name) ? mdiModuleSource.replace(/^  /gm, "") : toolActionsHelpers.has(name) ? toolActionsModuleSource.replace(/^  /gm, "") : originProbingHelpers.has(name) ? originProbingModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : machineStatusHelpers.has(name) ? machineStatusModuleSource.replace(/^  /gm, "") : outlineHelpers.has(name) ? outlineModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : outlineIOHelpers.has(name) ? outlineIOModuleSource.replace(/^export /gm, "") : navigationHelpers.has(name) ? navigationModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : settingsHelpers.has(name) ? settingsModuleSource.replace(/^export /gm, "") : jogHelpers.has(name) ? jogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : workareaHelpers.has(name) ? workareaModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : dashboardProfilesHelpers.has(name) ? dashboardProfilesModuleSource.replace(/^  /gm, "") : dashboardTelemetryHelpers.has(name) ? dashboardTelemetryModuleSource.replace(/^export /gm, "") : dashboardViewHelpers.has(name) ? dashboardViewModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : gcodeLogHelpers.has(name) ? gcodeLogModuleSource.replace(/^export /gm, "") : geometryHelpers.has(name) ? geometryModuleSource : gcodeHelpers.has(name) ? gcodeModuleSource.replace(/^  /gm, "") : outlineCaptureHelpers.has(name) ? outlineCaptureModuleSource.replace(/^export /gm, "") : surfaceJogHelpers.has(name) ? surfaceJogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : globalSource();
+  const source = feedbackHelpers.has(name) ? feedbackModuleSource.replace(/^  /gm, "") : mdiMacrosHelpers.has(name) ? mdiModuleSource.replace(/^  /gm, "") : toolActionsHelpers.has(name) ? toolActionsModuleSource.replace(/^  /gm, "") : originProbingHelpers.has(name) ? originProbingModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : machineStatusHelpers.has(name) ? machineStatusModuleSource.replace(/^  /gm, "") : outlineHelpers.has(name) ? outlineModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : outlineIOHelpers.has(name) ? outlineIOModuleSource.replace(/^export /gm, "") : navigationHelpers.has(name) ? navigationModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : settingsHelpers.has(name) ? settingsModuleSource.replace(/^export /gm, "") : jogHelpers.has(name) ? jogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : workareaHelpers.has(name) ? workareaModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : dashboardProfilesHelpers.has(name) ? dashboardProfilesModuleSource.replace(/^  /gm, "") : dashboardTelemetryHelpers.has(name) ? dashboardTelemetryModuleSource.replace(/^export /gm, "") : dashboardViewHelpers.has(name) ? dashboardViewModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : gcodeLogHelpers.has(name) ? gcodeLogModuleSource.replace(/^export /gm, "") : activeJobViewHelpers.has(name) ? activeJobViewModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : geometryHelpers.has(name) ? geometryModuleSource : gcodeHelpers.has(name) ? gcodeModuleSource.replace(/^  /gm, "") : outlineCaptureHelpers.has(name) ? outlineCaptureModuleSource.replace(/^export /gm, "") : surfaceJogHelpers.has(name) ? surfaceJogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : globalSource();
   let start = source.indexOf("\nfunction " + name + "(");
   if (start < 0) start = source.indexOf("\nasync function " + name + "(");
   if (start < 0) throw new Error("function not found in app.js: " + name);

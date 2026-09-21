@@ -4,6 +4,7 @@ import { triangulationEdgeKey, triangleCross, pointInTriangle2D, triangleCCW, po
 import * as THREE from "./three.module.min.js";
 import { request } from "./modules/api.js";
 import { mountActiveJobControl, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection, previewBoundsText as activeJobPreviewBoundsText } from "./modules/active-job.js";
+import { createActiveJobView } from "./modules/active-job-view.js";
 import { setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtCoord, fmtDuration, fmtPos, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
@@ -246,6 +247,7 @@ const {
   renderDashboardTelemetry,
 } = dashboardTelemetry;
 let dashboardView = null;
+let activeJobView = null;
 
 // Navigation is mounted after the feature factories below. Keep callbacks
 // that are handed to those factories late-bound so module evaluation never
@@ -753,6 +755,31 @@ const gcodeViewer = mountGcodeViewer({
     toolDisplayName,
     fmtCoord,
   },
+});
+
+activeJobView = createActiveJobView({
+  documentRef: document,
+  getActiveGcode: () => state.activeGcode,
+  getMachine: () => state.machine,
+  getActiveGcodePending: () => state.activeGcodePending,
+  getFeedOverridePendingPercent: () => state.feedOverridePendingPercent,
+  externalJobInfo,
+  relPath,
+  fmtSize,
+  syncLabel: SYNC_LABEL,
+  machineActionState,
+  renderProgramToolLists,
+  ensureActiveGcodeGeometry,
+  ensureActiveGcodeSource,
+  drawGcodePreview,
+  renderActiveJobProgress,
+  renderDashboard,
+  activeJobPreviewState,
+  activeGcodeDisplaySegments,
+  renderJobControls,
+  setSoftDisabled,
+  getFile: (path) => filesFeature.getFile(path),
+  gcodeToolLabel,
 });
 
 dashboardView = createDashboardView({
@@ -3702,94 +3729,12 @@ function interpolateZ(x, y, samples) {
   return den ? num / den : 0;
 }
 
-function renderActiveGcode() {
-  const active = state.activeGcode || {};
-  const external = externalJobInfo(state.machine, active);
-  const title = document.getElementById("active-gcode-title");
-  const meta = document.getElementById("active-gcode-meta");
-  const run = document.getElementById("active-gcode-run");
-  if (!title || !meta || !run) return;
-
-  renderActiveGcodeControls(active);
-  document.querySelector(".active-gcode-workspace")?.classList.toggle("is-empty", !active.path);
-
-  if (!active.path) {
-    title.textContent = external ? external.title : "No active gcode selected.";
-    meta.textContent = external ? external.detail : "-";
-    run.disabled = false;
-    setSoftDisabled(run, true);
-    ensureActiveGcodeGeometry(null);
-    ensureActiveGcodeSource(null);
-    drawGcodePreview(null);
-    renderActiveJobProgress(null, {}, external);
-    renderProgramToolLists({}, state.machine);
-    renderDashboard();
-    return;
-  }
-
-  title.textContent = relPath(active.path);
-  ensureActiveGcodeGeometry(active);
-  ensureActiveGcodeSource(active);
-  const preview = active.preview || {};
-  const renderedPreview = { ...preview, segments: activeGcodeDisplaySegments(active) };
-  const live = activeJobPreviewState(state.machine, renderedPreview, active.path);
-  const tools = Array.isArray(preview.tool_metadata) && preview.tool_metadata.length
-    ? preview.tool_metadata.map((tool) => [gcodeToolLabel(tool), tool.name].filter(Boolean).join(" · ")).join(" | ")
-    : (Array.isArray(preview.tools) && preview.tools.length ? "tools T" + preview.tools.join(", T") : "");
-  const entry = active.entry || filesFeature.getFile(active.path) || {};
-  const sync = SYNC_LABEL[entry.sync] || entry.sync || "";
-  meta.textContent = [
-    fmtSize(entry.size || 0, false),
-    sync,
-    preview.has_4axis ? "4-axis" : "",
-    tools,
-  ].filter(Boolean).join(" | ");
-  renderProgramToolLists(preview, state.machine);
-  const machineReady = machineActionState() === "Idle";
-  run.disabled = !!state.activeGcodePending;
-  setSoftDisabled(run, !state.activeGcodePending && (!active.runnable || !machineReady));
-  renderActiveJobProgress(live, preview);
-  drawGcodePreview(renderedPreview, live);
-  renderDashboard();
+function renderActiveGcode(...args) {
+  return activeJobView?.renderActiveGcode(...args);
 }
 
-function renderActiveGcodeControls(active) {
-  const machineState = machineActionState();
-  document.querySelector(".active-gcode-actions")?.setAttribute("data-machine-state", machineState);
-  const pending = !!state.activeGcodePending;
-  const run = document.getElementById("active-gcode-run");
-  const paused = document.getElementById("paused-job-controls");
-  const raise = document.getElementById("paused-job-raise");
-  const feedControls = document.getElementById("feed-override-controls");
-  const feedDecrease = document.getElementById("feed-override-decrease");
-  const feedIncrease = document.getElementById("feed-override-increase");
-  const feedReset = document.getElementById("feed-override-reset");
-  const feedValue = document.getElementById("feed-override-value");
-  if (!run || !paused || !raise || !feedControls || !feedDecrease || !feedIncrease || !feedReset || !feedValue) return;
-
-  const running = machineState === "Run";
-  const suspended = machineState === "Pause";
-  const held = machineState === "Hold";
-  run.hidden = running || suspended || held;
-  paused.hidden = !suspended;
-  raise.hidden = !suspended;
-  feedControls.hidden = !running && !suspended && !held;
-  const feedOverride = Number(state.machine?.feed?.override);
-  const hasFeedOverride = Number.isFinite(feedOverride);
-  const roundedFeedOverride = hasFeedOverride ? Math.round(feedOverride) : 0;
-  const shownFeedOverride = state.activeGcodePending === "feed_override" && Number.isFinite(state.feedOverridePendingPercent)
-    ? state.feedOverridePendingPercent
-    : roundedFeedOverride;
-  feedValue.value = hasFeedOverride ? Math.round(shownFeedOverride) + "%" : "-";
-  feedValue.textContent = feedValue.value;
-  feedControls.setAttribute("aria-busy", pending ? "true" : "false");
-  feedDecrease.disabled = pending || !hasFeedOverride || roundedFeedOverride <= 50;
-  feedIncrease.disabled = pending || !hasFeedOverride || roundedFeedOverride >= 200;
-  feedReset.disabled = pending || roundedFeedOverride === 100;
-  raise.disabled = pending;
-  run.disabled = pending;
-  if (!pending) setSoftDisabled(run, !active?.runnable || machineState !== "Idle");
-  renderJobControls();
+function renderActiveGcodeControls(...args) {
+  return activeJobView?.renderActiveGcodeControls(...args);
 }
 
 function activeGcodeDisplaySegments(active) {

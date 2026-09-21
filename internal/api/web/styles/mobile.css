@@ -1,0 +1,459 @@
+
+  /* Surface controller shell.  These final rules deliberately override the
+     older desktop toolbar without changing the long-lived control DOM. */
+  #command-toolbar { min-height: 58px; gap: 14px; }
+  #app-brand { flex: 0 0 auto; display: grid; gap: 0; min-width: 92px; color: var(--text); line-height: 1.05; }
+  #app-brand strong { font-size: 14px; letter-spacing: .08em; text-transform: uppercase; }
+  #app-brand span { color: var(--muted); font-size: 10px; letter-spacing: .04em; }
+  #development-refresh { display: none; }
+  #machine { order: 1; }
+  #machine-status-toolbar { order: 2; margin-left: 0; }
+  #command-actions { order: 3; margin-left: auto; }
+  #mobile-actions-toggle { display: none; }
+  #ctl-halt { order: 4; flex: 0 0 auto; min-height: 40px; min-width: 96px; border-radius: 8px; font-weight: 750; }
+  #view-navigation { align-items: center; min-height: 42px; }
+  .tabs { gap: 4px; padding: 3px; background: rgba(12,16,17,.46); border: 1px solid var(--border); border-radius: 9px; }
+  .tab { min-height: 34px; padding: 5px 14px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font-weight: 650; }
+  .tab.active { color: var(--text); background: rgba(87,166,214,.17); box-shadow: inset 0 0 0 1px rgba(87,166,214,.28); }
+  main { padding: clamp(12px, 1.8vw, 22px); }
+  .view > .page-section, #jog-view, #attention-view { max-width: 1480px; margin-inline: auto; }
+  .surface-jog { min-height: min(720px, calc(100dvh - 148px)); grid-template-columns: minmax(560px, 1.18fr) minmax(330px, .62fr); }
+  .surface-jog-panel { border-radius: 12px; background: var(--panel); }
+  .surface-jog-heading h2 { font-size: clamp(20px, 2vw, 28px); }
+  .surface-direction-pad { width: min(100%, 520px); }
+  .surface-position-panel { justify-content: space-between; }
+  .surface-position-value { font-size: clamp(34px, 4.2vw, 58px); }
+  .surface-position-row { min-height: 76px; }
+  .dashboard-grid.layout-job-focus.dashboard-job-focus-split { grid-template-columns: minmax(300px, .78fr) minmax(420px, 1.22fr); grid-template-rows: minmax(390px, 1fr) auto; grid-template-areas: "machine job" "telemetry gcode"; gap: 14px; }
+  .dashboard-machine { grid-area: machine; }
+  .dashboard-job { grid-area: job; min-height: 390px; }
+  .dashboard-grid.layout-job-focus.dashboard-job-focus-split .dashboard-job { grid-column: auto; grid-row: auto; }
+  .dashboard-telemetry { grid-area: telemetry; }
+  .dashboard-gcode { grid-area: gcode; }
+  .dashboard-telemetry, .dashboard-gcode { min-height: 54px; height: auto; align-self: start; }
+  .dashboard-panel { border-radius: 12px; }
+  .dashboard-job .dashboard-heading h2, .active-gcode-summary #active-gcode-title { font-size: 20px; }
+  .dashboard-progress { padding-block: 14px; }
+  .dashboard-secondary { min-height: 0; height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 10px; }
+  .dashboard-secondary > summary { cursor: pointer; color: var(--muted); font-weight: 700; list-style: none; }
+  .dashboard-secondary > summary::-webkit-details-marker { display: none; }
+  .dashboard-secondary > summary::after { content: "Show"; float: right; color: var(--accent); font-size: 12px; }
+  .dashboard-secondary[open] > summary::after { content: "Hide"; }
+  .dashboard-eyebrow { display: block; color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+  .dashboard-machine { grid-template-rows: auto minmax(0,1fr); }
+  .dashboard-machine-heading h2, .dashboard-job-heading h2 { margin: 2px 0 0; }
+  .dashboard-machine > .machine-readout-host { align-self: start; }
+  .dashboard-job-heading { align-items: center; }
+  .dashboard-job-heading > div { min-width: 0; }
+  .dashboard-job-heading h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dashboard-camera-stage { position: relative; min-height: 300px; overflow: hidden; border: 1px solid #34444e; border-radius: 10px; background: #080e12; }
+  .dashboard-camera { position: absolute; overflow: hidden; background: radial-gradient(circle at 50% 40%,#17242b,#080d10 72%); }
+  .dashboard-camera[role="button"] { cursor: pointer; }
+  .dashboard-camera[data-camera-primary="false"] { border-color: #7695a3; }
+  .dashboard-camera[data-camera-primary="false"]:hover { border-color: #8fd1e8; }
+  .dashboard-camera:focus-visible { z-index: 6; outline: 2px solid #79d2ed; outline-offset: -2px; }
+  .dashboard-camera img { width: 100%; height: 100%; display: block; object-fit: cover; }
+  .dashboard-external-camera-frame { position: absolute; inset: 0; transform: scale(var(--external-camera-zoom,1)); transform-origin: var(--external-camera-focus-x,50%) var(--external-camera-focus-y,50%); transition: transform 140ms ease-out; pointer-events: none; }
+  #dashboard-external-camera-image { transform: rotate(180deg); }
+  .dashboard-camera.is-zoomed[data-camera-primary="true"] { cursor: crosshair; }
+  .dashboard-camera-zoom { position: absolute; z-index: 5; top: 12px; left: 12px; display: none; align-items: center; gap: 4px; padding: 4px; background: rgba(5,9,11,.82); border: 1px solid rgba(98,119,129,.65); border-radius: 7px; backdrop-filter: blur(8px); cursor: default; }
+  .dashboard-camera-stage.external-camera-live:not(.builtin-primary) .dashboard-camera-zoom { display: flex; }
+  .dashboard-camera-zoom button { width: 40px; min-width: 40px; height: 40px; min-height: 40px; padding: 0; font-size: 18px; line-height: 1; }
+  .dashboard-camera-zoom output { width: 48px; color: #dce7eb; font-size: 12px; font-weight: 750; text-align: center; font-variant-numeric: tabular-nums; }
+  .dashboard-camera-snapshot-modal { width: min(920px, calc(100vw - 24px)); }
+  .dashboard-camera-snapshot-body { display: grid; gap: 10px; padding: 12px; }
+  .dashboard-camera-snapshot-viewport { width: 100%; max-height: min(78dvh, 720px); overflow: hidden; background: #080e12; border: 1px solid var(--border); border-radius: 6px; }
+  .dashboard-camera-snapshot-image { display: block; width: 100%; height: 100%; object-fit: contain; transform-origin: 50% 50%; transition: transform 140ms ease-out; cursor: zoom-in; }
+  .dashboard-camera-snapshot-image.is-zoomed { cursor: zoom-out; }
+  .dashboard-camera-snapshot-meta { color: var(--muted); font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .dashboard-camera-focus-modal { width: min(440px, calc(100vw - 24px)); }
+  .dashboard-camera-focus-body { display: grid; gap: 14px; padding: 16px; }
+  .dashboard-camera-focus-field { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+  .dashboard-camera-focus-field select, .dashboard-camera-focus-field input { width: 100%; }
+  .dashboard-camera-focus-value { color: var(--text); font: 650 14px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .dashboard-camera-focus-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .dashboard-camera-main { inset: 0; }
+  .dashboard-camera-inset { z-index: 3; top: 16px; right: 16px; width: min(34%,310px); aspect-ratio: 4/3; border: 1px solid #586872; border-radius: 7px; box-shadow: 0 14px 34px rgba(0,0,0,.5); }
+  .dashboard-camera-empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 7px; padding: 20px; color: var(--muted); text-align: center; }
+  .dashboard-camera-empty strong { color: #c8d3d9; font-size: 15px; }
+  .dashboard-camera-empty small { max-width: 38ch; font-size: 11px; line-height: 1.45; }
+  .dashboard-camera-icon { width: 48px; height: 48px; display: grid; place-items: center; color: #66808d; border: 1px solid #42535c; border-radius: 50%; font-size: 22px; }
+  .dashboard-camera-label { position: absolute; z-index: 4; left: 12px; bottom: 10px; display: flex; gap: 8px; align-items: center; padding: 5px 8px; color: #dce7eb; background: rgba(5,9,11,.78); border: 1px solid rgba(98,119,129,.55); border-radius: 5px; font-size: 10px; backdrop-filter: blur(8px); }
+  .dashboard-camera-label b { color: #8f9ca3; font-weight: 650; }
+  .dashboard-camera.is-live .dashboard-camera-empty { display: none; }
+  .dashboard-camera.is-live .dashboard-camera-label b { color: #55dc81; }
+  .dashboard-camera.is-error .dashboard-camera-label b { color: #ff8181; }
+  .dashboard-toolpath-fallback { position: absolute; z-index: 2; right: 16px; bottom: 16px; width: min(34%,310px); height: auto; aspect-ratio: 16/10; min-height: 0; border-color: #586872; border-radius: 7px; background: #10181d; box-shadow: 0 14px 34px rgba(0,0,0,.5); }
+  .dashboard-toolpath-fallback[role="button"] { cursor: pointer; }
+  .dashboard-toolpath-fallback[role="button"]:hover { border-color: #8fd1e8; }
+  .dashboard-toolpath-fallback[role="button"]:focus-visible { z-index: 6; outline: 2px solid #79d2ed; outline-offset: -2px; }
+  .dashboard-toolpath-fallback:not(.has-toolpath) { display: none; }
+  .dashboard-preview-label { position: absolute; left: 8px; bottom: 7px; padding: 3px 6px; color: #c6d4db; background: rgba(5,9,11,.76); border-radius: 3px; font-size: 9px; text-transform: uppercase; }
+  .dashboard-camera-inset + .dashboard-toolpath-fallback { bottom: 16px; }
+  .dashboard-camera-stage.builtin-primary .dashboard-camera-main { z-index: 3; inset: auto; top: 16px; right: 16px; width: min(34%,310px); aspect-ratio: 4/3; border: 1px solid #586872; border-radius: 7px; box-shadow: 0 14px 34px rgba(0,0,0,.5); }
+  .dashboard-camera-stage.builtin-primary .dashboard-camera-inset { z-index: 1; inset: 0; width: auto; aspect-ratio: auto; border: 0; border-radius: 0; box-shadow: none; }
+  #active-gcode-panel { border-radius: 12px; }
+  .active-gcode-head { gap: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+  .active-gcode-workspace { border-radius: 10px; overflow: hidden; }
+  #attention-view { min-height: min(620px, calc(100dvh - 148px)); display: grid; place-items: center; }
+  .attention-surface { width: min(680px, 100%); display: grid; gap: 16px; padding: clamp(20px, 4vw, 42px); }
+  .attention-surface h2 { margin: 0; font-size: clamp(24px, 4vw, 38px); }
+  .attention-surface p { margin: 0; color: var(--muted); font-size: 16px; }
+  .attention-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  .attention-actions button { min-height: 46px; padding-inline: 18px; }
+  @media (max-width: 760px), (pointer: coarse) and (max-width: 1179px) {
+    body { background: radial-gradient(circle at 52% 18%, #14222c 0, #0b1218 46%, #090e12 100%); }
+    header { gap: 6px; padding: 7px 10px; background: rgba(8,14,19,.96); border-bottom-color: #31404a; box-shadow: none; }
+    #command-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) max-content; grid-template-areas: "brand halt" "machine actions"; min-height: 0; gap: 7px 10px; }
+    #app-brand { grid-area: brand; }
+    #app-brand strong { color: #edf6fb; }
+    #app-brand span { color: #8da1ac; }
+    #machine { grid-area: machine; }
+    #machine .badge { background: transparent; text-transform: uppercase; }
+    #machine-status-toolbar { display: none; }
+    #command-actions { grid-area: actions; margin-left: 0; }
+    #command-actions { position: relative; justify-self: end; overflow: visible; }
+    #mobile-actions-toggle { min-height: 36px; min-width: 96px; display: inline-flex; justify-content: center; color: #dbe4ea; background: #111a20; border-color: #34434c; border-radius: 2px; }
+    #command-menu { display: none; position: absolute; top: calc(100% + 7px); right: 0; z-index: 92; width: min(320px, calc(100vw - 20px)); padding: 8px; grid-template-columns: 1fr; gap: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 18px 46px rgba(0,0,0,.42); }
+    #command-actions.mobile-menu-open #command-menu { display: grid; }
+    .command-popout > summary { min-height: 36px; padding: 5px 8px; font-size: 12px; }
+    #ctl-halt { grid-area: halt; min-height: 38px; min-width: 82px; border-color: #f04444; color: #fff; background: linear-gradient(#ec3737,#c91924); border-radius: 2px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; }
+    #view-navigation { display: block; overflow: hidden; }
+    .tabs { display: grid; width: 100%; min-width: 0; grid-template-columns: repeat(5, minmax(0, 1fr)); overflow: hidden; }
+    .tab { flex: 1 1 0; width: auto; min-width: 0; min-height: 38px; padding-inline: 4px; font-size: 11px; }
+    #header-toggle, .dashboard-controls { display: none !important; }
+    main { overflow-y: auto; padding: 10px; }
+    .dashboard-grid, .dashboard-grid.layout-job-focus, .dashboard-grid.layout-job-focus.dashboard-job-focus-split, .dashboard-grid.layout-grid { display: grid; height: auto; grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: auto; grid-template-areas: "job" "machine" "telemetry" "gcode"; align-content: start; overflow: visible; }
+    .dashboard-grid.layout-job-focus.dashboard-job-focus-split .dashboard-job { grid-column: auto; grid-row: auto; }
+    .dashboard-job { min-height: 330px; }
+    .dashboard-job-heading { align-items: flex-start; }
+    .dashboard-camera-stage { min-height: 280px; }
+    .dashboard-camera-inset, .dashboard-toolpath-fallback { width: 38%; right: 10px; }
+    .dashboard-camera-stage.builtin-primary .dashboard-camera-main { width: 38%; right: 10px; top: 10px; }
+    .dashboard-camera-inset { top: 10px; }
+    .dashboard-toolpath-fallback { bottom: 10px; }
+    .machine-axis strong { font-size: clamp(14px, 3.5vw, 20px); }
+    /* Phone dashboard: remote monitoring comes first.  It deliberately reads
+       as one camera-led instrument, not a compressed copy of the desktop. */
+    body:not(.dashboard-embed) main { padding-bottom: 94px; }
+    body:not(.dashboard-embed) #view-navigation { position: fixed; z-index: 75; right: 0; bottom: 0; left: 0; display: block; padding: 9px 10px calc(9px + env(safe-area-inset-bottom)); background: rgba(8,14,19,.98); border-top: 1px solid #31404a; box-shadow: 0 -12px 28px rgba(0,0,0,.28); }
+    body:not(.dashboard-embed) .tabs { gap: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+    body:not(.dashboard-embed) .tab { min-height: 66px; display: grid; grid-template-rows: 30px auto; place-items: center; gap: 2px; padding: 3px 2px; border-radius: 0; color: #7f919d; font-size: 11px; font-weight: 700; }
+    body:not(.dashboard-embed) .tab::before { color: currentColor; font-size: 22px; line-height: 1; }
+    body:not(.dashboard-embed) #tab-dashboard::before { content: "⌂"; }
+    body:not(.dashboard-embed) #tab-active-job::before { content: "▤"; }
+    body:not(.dashboard-embed) #tab-jog::before { content: "⌖"; }
+    body:not(.dashboard-embed) #tab-control::before { content: "⌁"; }
+    body:not(.dashboard-embed) #tab-files::before { content: "▱"; }
+    body:not(.dashboard-embed) .tab.active { color: #68d9ee; background: transparent; box-shadow: inset 0 -2px 0 #68d9ee; }
+    body[data-active-tab="dashboard"] main { padding-top: 14px; }
+    body[data-active-tab="dashboard"] .dashboard-grid { gap: 18px; }
+    body[data-active-tab="dashboard"] .dashboard-job, body[data-active-tab="dashboard"] .dashboard-machine { min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+    body[data-active-tab="dashboard"] .dashboard-job-heading { min-height: 0; padding: 0 2px 9px; }
+    body[data-active-tab="dashboard"] .dashboard-job-heading h2 { font-size: 18px; }
+    body[data-active-tab="dashboard"] .dashboard-job.is-empty .dashboard-heading, body[data-active-tab="dashboard"] .dashboard-job.is-empty .dashboard-progress { display: none; }
+    body[data-active-tab="dashboard"] .dashboard-progress { min-height: 0; padding: 0 2px 9px; }
+    body[data-active-tab="dashboard"] .dashboard-camera-stage { min-height: 0; aspect-ratio: 4 / 3; border-color: #38515e; border-radius: 12px; box-shadow: 0 18px 38px rgba(0,0,0,.25); }
+    body[data-active-tab="dashboard"] .dashboard-camera-label { left: 10px; bottom: 10px; border-radius: 999px; }
+    body[data-active-tab="dashboard"] .dashboard-machine-heading { padding: 0 2px 8px; }
+    body[data-active-tab="dashboard"] .dashboard-machine-heading h2 { font-size: 18px; }
+    body[data-active-tab="dashboard"] #dashboard-state { display: inline-flex; min-width: 0; padding-inline: 10px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-grid, body[data-active-tab="dashboard"] .dashboard-machine .machine-metric-grid { border-color: #344852; border-radius: 10px; }
+    body[data-active-tab="dashboard"] .dashboard-telemetry, body[data-active-tab="dashboard"] .dashboard-gcode { display: none; }
+    /* The rest of the phone UI uses the same quiet instrument language: one
+       clear task surface per view, with the fixed navigation as the anchor. */
+    body:not(.dashboard-embed) #jog-view { gap: 16px; }
+    body:not(.dashboard-embed) #jog-view .surface-position-panel { grid-template-rows: auto auto auto auto; border-color: #344852; border-radius: 12px; background: rgba(20,28,33,.88); }
+    body:not(.dashboard-embed) #jog-view .surface-position-panel::before { content: "Position"; color: #d9e7ec; font-size: 14px; font-weight: 750; letter-spacing: .02em; }
+    body:not(.dashboard-embed) #jog-view .surface-motion-panel { padding: 0; gap: 12px; border: 0; background: transparent; }
+    body:not(.dashboard-embed) #jog-view .surface-jog-heading { padding: 0 2px; justify-content: space-between; }
+    body:not(.dashboard-embed) #jog-view .surface-jog-heading h2 { display: block; margin: 0; color: #d9e7ec; font-size: 18px; letter-spacing: .08em; text-transform: uppercase; }
+    body:not(.dashboard-embed) #jog-view #surface-jog-arm { width: auto; min-width: 144px; min-height: 42px; }
+    body:not(.dashboard-embed) #jog-view .surface-motion-stage { padding: 14px 10px 10px; border: 1px solid #344852; border-radius: 12px; background: rgba(16,24,29,.84); }
+    body:not(.dashboard-embed) #jog-view .surface-direction-pad button { border-color: #405560; background: linear-gradient(145deg,#1c2a31,#11191e); }
+    body:not(.dashboard-embed) #active-job-view #active-gcode-panel, body:not(.dashboard-embed) #control-view .control-command-drawer, body:not(.dashboard-embed) #control-view .workarea-frame { border-color: #344852; border-radius: 12px; background: rgba(16,24,29,.84); }
+    body:not(.dashboard-embed) #active-job-view .active-gcode-head { padding: 2px 2px 12px; border-bottom: 1px solid #344852; }
+    body:not(.dashboard-embed) #active-job-view .active-gcode-actions > button { border-color: #477386; }
+    body:not(.dashboard-embed) #control-view #jog { padding: 0; }
+    body:not(.dashboard-embed) #control-view .control-page-layout { gap: 14px; }
+    body:not(.dashboard-embed) #files-view { gap: 8px; }
+    body:not(.dashboard-embed) .files-page-header { grid-template-columns: 1fr; grid-template-areas: "title" "tools" "summary"; gap: 6px; }
+    body:not(.dashboard-embed) .files-eyebrow,
+    body:not(.dashboard-embed) .files-title-block p { display: none; }
+    body:not(.dashboard-embed) .files-title-block h1 { font-size: 21px; line-height: 1.1; }
+    body:not(.dashboard-embed) .files-toolbar { grid-template-columns: minmax(0,1fr) 124px; gap: 7px; }
+    body:not(.dashboard-embed) #drop, body:not(.dashboard-embed) #filter { height: 40px; min-height: 40px; }
+    body:not(.dashboard-embed) #drop { padding-inline: 9px; font-size: 13px; }
+    body:not(.dashboard-embed) #filter { padding-inline: 11px; font-size: 13px; }
+    body:not(.dashboard-embed) #file-summary { height: 22px; display: flex; justify-content: flex-start; gap: 5px; }
+    body:not(.dashboard-embed) #file-summary .summary-pill { min-height: 21px; padding: 1px 7px; font-size: 10px; }
+    body:not(.dashboard-embed) #file-browser { min-height: 220px; grid-template-columns: 1fr; border-radius: 10px; }
+    body:not(.dashboard-embed) #folder-bar { min-height: 44px; grid-template-columns: minmax(0,1fr) auto; padding: 4px 7px; }
+    body:not(.dashboard-embed) #breadcrumbs { min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+    body:not(.dashboard-embed) #breadcrumbs button { flex: 0 0 auto; height: 34px; min-height: 34px; padding-inline: 8px; }
+    body:not(.dashboard-embed) #folder-actions { grid-template-columns: 36px 88px; gap: 5px; }
+    body:not(.dashboard-embed) #folder-actions button { width: 100%; height: 34px; min-height: 34px; padding-inline: 5px; font-size: 12px; }
+    body:not(.dashboard-embed) #folder-up { font-size: 0; }
+    body:not(.dashboard-embed) #folder-up::before { content: "↑"; font-size: 14px; }
+    body:not(.dashboard-embed) #files { gap: 0; padding: 0 7px; }
+    body:not(.dashboard-embed) #files tr { grid-template-columns: minmax(0,1fr) max-content; grid-template-areas: "name status" "size actions"; gap: 3px 8px; padding: 7px 3px; border: 0; border-bottom: 1px solid rgba(52,72,82,.72); border-radius: 0; background: transparent; }
+    body:not(.dashboard-embed) #files tr:last-child { border-bottom: 0; }
+    body:not(.dashboard-embed) #files td { height: auto; }
+    body:not(.dashboard-embed) #files .path-cell { min-height: 30px; display: flex; align-items: center; padding-left: 30px; }
+    body:not(.dashboard-embed) #files .path-cell::before { left: 5px; }
+    body:not(.dashboard-embed) #files .file-name { min-height: 30px; font-size: 13px; }
+    body:not(.dashboard-embed) #files .file-type-cell,
+    body:not(.dashboard-embed) #files .file-modified-cell { display: none; }
+    body:not(.dashboard-embed) #files .file-size-cell { display: flex; grid-area: size; align-items: center; gap: 5px; padding-left: 30px; font-size: 11px; }
+    body:not(.dashboard-embed) #files .file-size-cell::before { display: none; }
+    body:not(.dashboard-embed) #files .status-cell { align-self: center; font-size: 11px; }
+    body:not(.dashboard-embed) #files .status-cell .sync { gap: 5px; }
+    body:not(.dashboard-embed) #files .actions { display: flex; grid-area: actions; justify-content: flex-end; gap: 6px; padding: 0; border: 0; }
+    body:not(.dashboard-embed) #files .actions > :first-child { display: none; }
+    body:not(.dashboard-embed) #files .actions > button { flex: 0 0 82px; padding-inline: 8px; }
+    body:not(.dashboard-embed) #files .file-row-menu { flex: 0 0 38px; width: 38px; }
+    body:not(.dashboard-embed) #files .actions button, body:not(.dashboard-embed) #files .actions a,
+    body:not(.dashboard-embed) #files .file-row-menu > summary { min-height: 34px; }
+    body:not(.dashboard-embed) #files-empty { min-height: 180px; }
+    body:not(.dashboard-embed)[data-active-tab="files"] #files-view { height: 100%; min-height: 0; grid-template-rows: auto minmax(240px,1fr) auto; align-content: stretch; overflow: hidden; }
+    body:not(.dashboard-embed)[data-active-tab="files"] .files-browser-section,
+    body:not(.dashboard-embed)[data-active-tab="files"] #file-browser,
+    body:not(.dashboard-embed)[data-active-tab="files"] #file-main { height: 100%; min-height: 0; }
+    body:not(.dashboard-embed)[data-active-tab="files"] #file-main { grid-template-rows: auto minmax(0,1fr); }
+    body:not(.dashboard-embed)[data-active-tab="files"] .table-scroll { min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+    body:not(.dashboard-embed) .files-secondary-grid { grid-template-columns: 1fr; gap: 6px; }
+    body:not(.dashboard-embed) .files-secondary-panel > summary { min-height: 42px; padding-block: 6px; }
+    /* Keep the same Work/Machine readout language as the Surface dashboard.
+       A phone has less horizontal space, so the labels become short stacked
+       rows rather than falling back to the old four-column mini readout. */
+    .dashboard-machine .machine-readout, body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-readout { gap: 10px; }
+    .dashboard-machine .machine-axis-grid, body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-axis-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 68px; }
+    .dashboard-machine .machine-axis, body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-axis { min-height: 0; grid-template-columns: 20px minmax(0, 1fr); grid-template-rows: 1fr 1fr; gap: 2px 5px; padding: 7px 8px; }
+    .dashboard-machine .machine-axis:nth-child(2), body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-axis:nth-child(2) { border-right: 0; }
+    .dashboard-machine .machine-axis:nth-child(n+3), body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-axis:nth-child(n+3) { border-top: 1px solid var(--border); }
+    .dashboard-machine .machine-axis-label, body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-axis-label { position: static; grid-column: 1; grid-row: 1 / -1; align-self: center; font-size: 20px; }
+    .dashboard-machine .machine-axis-value, body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-axis-value { grid-column: 2; grid-template-columns: 40px minmax(0, 1fr); gap: 3px; padding: 0; }
+    .dashboard-machine .machine-axis-value i, body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-axis-value i { color: #9bb3c1; font-size: 0; font-weight: 750; }
+    .dashboard-machine .machine-axis-value[data-machine-row="work"] i::after, body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-axis-value[data-machine-row="work"] i::after { content: "Work"; font-size: 10px; }
+    .dashboard-machine .machine-axis-value[data-machine-row="machine"] i::after, body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-axis-value[data-machine-row="machine"] i::after { content: "Machine"; font-size: 10px; }
+    .dashboard-machine .machine-axis strong, .dashboard-machine .machine-axis small, body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-axis strong, body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-axis small { text-align: left; }
+    .dashboard-machine .machine-axis strong, body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-axis strong { font-size: clamp(13px, 3.6vw, 15px); }
+    .dashboard-machine .machine-axis small, body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-axis small { font-size: clamp(10px, 2.8vw, 12px); }
+    .dashboard-machine .machine-axis-unit, body:not(.dashboard-embed) #jog-view .surface-position-panel .machine-axis-unit { display: none; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-metric-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-metric[data-machine-metric="feed"] { grid-column: 1 / -1; grid-template-columns: minmax(0,1fr) minmax(148px,auto); grid-template-rows: repeat(3,auto); column-gap: 12px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-metric[data-machine-metric="feed"] > span, body[data-active-tab="dashboard"] .dashboard-machine .machine-metric[data-machine-metric="feed"] > strong, body[data-active-tab="dashboard"] .dashboard-machine .machine-metric[data-machine-metric="feed"] > small { grid-column: 1; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-feed-override { grid-column: 2; grid-row: 1 / -1; align-self: center; margin-top: 0; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-feed-override button { min-height: 44px; }
+    .dashboard-telemetry, .dashboard-gcode { min-height: auto; }
+    .surface-jog { min-height: 0; grid-template-columns: 1fr; }
+    .surface-jog-panel { min-height: 0; }
+    .surface-direction-pad { width: min(100%, 440px); }
+    .surface-position-panel .machine-readout { gap: 8px; }
+    #attention-view { min-height: 0; place-items: stretch; }
+  }
+  @media (max-width: 600px) {
+    header { padding: 6px 10px; }
+    #command-toolbar { grid-template-columns: max-content max-content minmax(44px, 1fr) max-content; grid-template-areas: "brand machine actions halt"; gap: 6px; align-items: center; }
+    #app-brand { min-width: 0; }
+    #app-brand strong { font-size: 12px; }
+    #app-brand span { display: none; }
+    #status-connection { width: 12px; height: 12px; display: inline-grid; border: 0; background: currentColor; }
+    #status-connection::before { color: #07100b; font-size: 7px; }
+    #machine { min-width: 0; }
+    #machine .badge { min-height: 34px; padding-inline: 10px; }
+    #command-actions { width: auto; justify-self: end; }
+    #mobile-actions-toggle { width: 44px; min-width: 44px; padding: 0; font-size: 0; }
+    #mobile-actions-toggle::before { content: "•••"; font-size: 15px; letter-spacing: 1px; }
+    #ctl-halt { min-width: 78px; min-height: 40px; }
+    #jog-view { align-content: start; }
+    .surface-jog { height: auto; align-self: start; grid-auto-rows: max-content; align-items: start; gap: 10px; }
+    .surface-jog-panel { height: auto; min-height: 0; padding: 10px; gap: 10px; overflow: hidden; }
+    .surface-position-panel { order: -1; justify-content: normal; grid-template-rows: auto auto auto; padding-block: 8px; }
+    .machine-readout { gap: 8px; }
+    .machine-axis { gap: 2px; padding: 8px 5px; }
+    .machine-axis-label { left: 5px; top: 6px; font-size: 15px; }
+    .machine-axis-value { grid-template-columns: 8px minmax(0,1fr); gap: 2px; padding-left: 15px; }
+    .machine-axis strong { font-size: clamp(12px, 3.4vw, 15px); }
+    .machine-axis small { font-size: clamp(9px, 2.5vw, 11px); }
+    .machine-metric { padding: 7px 8px; }
+    .surface-position-summary, #surface-open-active-job { display: none; }
+    .surface-jog-heading p { display: none; }
+    .surface-position-actions { grid-template-columns: 1fr; }
+    #surface-jog-settings-open { min-height: 36px; font-size: 12px; }
+    .surface-jog-heading { justify-content: stretch; }
+    .surface-jog-heading h2 { display: none; }
+    #surface-jog-arm { width: 100%; min-height: 44px; justify-content: center; }
+    .surface-mobile-options { display: block; padding: 0; background: transparent; border: 0; }
+    .surface-mobile-options > summary { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); list-style: none; }
+    .surface-mobile-options > summary::-webkit-details-marker { display: none; }
+    .surface-mobile-options > summary::after { content: "▾"; color: var(--muted); }
+    .surface-mobile-options:not([open]) > summary::after { content: "▸"; }
+    .surface-mobile-options[open] { display: grid; gap: 8px; }
+    #surface-jog-options-summary { color: var(--muted); font-size: 11px; font-weight: 500; }
+    .surface-jog-options label { font-size: 10px; }
+    .surface-direction-pad { width: min(82vw, 310px); }
+    .surface-direction-pad button { min-height: 66px; }
+    .surface-wheel { width: min(74vw, 280px); }
+    .surface-jog-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .surface-jog-actions button { min-height: 48px; }
+    .surface-jog-actions button:last-child:nth-child(odd) { grid-column: auto; }
+    #surface-map-open { display: none; }
+  }
+  @media (hover: hover) and (pointer: fine), (min-width: 1180px) {
+    :root { --surface-header-h: 72px; --surface-rail-w: 188px; --surface-footer-h: 76px; }
+    body { background: radial-gradient(circle at 52% 18%, #14222c 0, #0b1218 46%, #090e12 100%); }
+    header { position: relative; height: var(--surface-header-h); min-height: var(--surface-header-h); display: block; padding: 0 22px 0 26px; background: rgba(8,14,19,.96); border-bottom-color: #31404a; box-shadow: none; }
+    #command-toolbar { height: 100%; min-height: 0; display: grid; grid-template-columns: 190px minmax(160px, 1fr) 188px; gap: 20px; align-items: center; }
+    #app-brand { min-width: 0; }
+    #app-brand { grid-column: 1; grid-row: 1; }
+    #development-refresh { grid-column: 1; grid-row: 1; justify-self: end; width: 32px; min-width: 32px; min-height: 32px; display: grid; place-items: center; padding: 0; color: var(--muted); background: transparent; border-color: transparent; font-size: 18px; }
+    #development-refresh:hover, #development-refresh:focus-visible { color: var(--text); border-color: var(--border); background: rgba(87,166,214,.12); }
+    #app-brand strong { font-size: 20px; letter-spacing: .06em; }
+    #app-brand span { font-size: 10px; text-transform: uppercase; }
+    #machine { order: initial; grid-column: 2; grid-row: 1; justify-self: center; font-size: 14px; }
+    #status-connection { width: 18px; height: 18px; border: 0; background: currentColor; }
+    #status-connection::before { color: #07100b; font-size: 10px; }
+    #machine .badge { min-height: 34px; padding-inline: 14px; background: transparent; font-size: 15px; text-transform: uppercase; }
+    #machine-status-toolbar { display: none; }
+    #command-actions { position: fixed; left: calc(var(--surface-rail-w) + 16px); top: calc(var(--surface-header-h) + 12px); z-index: 95; margin: 0; overflow: visible; }
+    #mobile-actions-toggle { display: none; }
+    #command-menu { display: none; width: min(620px, calc(100vw - var(--surface-rail-w) - 40px)); max-height: calc(100dvh - var(--surface-header-h) - var(--surface-footer-h) - 28px); overflow: auto; padding: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; background: #111a20; border: 1px solid #34434c; border-radius: 4px; box-shadow: 0 24px 60px rgba(0,0,0,.55); }
+    #command-actions.mobile-menu-open #command-menu { display: grid; }
+    .command-popout > summary { width: 100%; min-height: 52px; }
+    .command-panel { max-width: calc(100vw - var(--surface-rail-w) - 48px); }
+    #ctl-halt { order: initial; grid-column: 3; grid-row: 1; justify-self: stretch; width: auto; min-height: 52px; border-radius: 2px; border-color: #f04444; color: #fff; background: linear-gradient(#ec3737,#c91924); font-size: 20px; letter-spacing: .05em; text-transform: uppercase; }
+    #view-navigation { display: none; }
+    #surface-kiosk-nav { position: fixed; z-index: 52; top: var(--surface-header-h); left: 0; bottom: var(--surface-footer-h); width: var(--surface-rail-w); display: grid; grid-auto-rows: minmax(68px, auto); align-content: start; background: rgba(9,16,21,.97); border-right: 1px solid #31404a; }
+    .surface-nav-button { position: relative; min-height: 68px; display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 12px; align-items: center; padding: 0 18px; border: 0; border-bottom: 1px solid rgba(49,64,74,.36); border-radius: 0; color: #aab4bc; background: transparent; text-align: left; font-size: 15px; }
+    .surface-nav-button .surface-nav-icon { font-size: 22px; text-align: center; }
+    .surface-nav-button:hover { color: #edf6fb; background: rgba(83,201,224,.06); }
+    .surface-nav-button[aria-current="page"] { color: #68d9ee; background: linear-gradient(90deg,rgba(73,195,218,.14),rgba(73,195,218,.035)); }
+    .surface-nav-button[aria-current="page"]::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: #58d3e9; }
+    .surface-nav-button:disabled { color: #53606a; opacity: 1; }
+    main { width: auto; min-height: 0; margin-left: var(--surface-rail-w); padding: 18px 24px calc(var(--surface-footer-h) + 18px); background: transparent; }
+    .view { gap: 12px; scrollbar-gutter: auto; }
+    .view > .page-section, #jog-view, #attention-view { max-width: none; margin: 0; }
+    #surface-quick-actions { position: fixed; z-index: 54; left: var(--surface-rail-w); right: 0; bottom: 0; height: var(--surface-footer-h); display: grid; grid-template-columns: minmax(250px, 1.25fr) repeat(5,minmax(150px,1fr)); background: rgba(8,14,19,.98); border-top: 1px solid #31404a; }
+    .surface-quick-state { min-width: 0; display: flex; gap: 12px; align-items: center; padding: 0 24px; color: #dbe8ee; border-right: 1px solid #31404a; }
+    .surface-quick-state::before { content: "✓"; width: 30px; height: 30px; display: grid; place-items: center; color: #51da7d; border: 2px solid #51da7d; border-radius: 50%; font-weight: 800; }
+    #surface-footer-state { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .surface-quick-button { min-width: 0; border: 0; border-right: 1px solid #31404a; border-radius: 0; background: transparent; color: #dbe4ea; font-size: 15px; }
+    .surface-quick-button:hover { color: #63d9ee; background: rgba(83,201,224,.06); }
+    #surface-footer-vacuum[aria-pressed="true"] { color: #071116; background: #68d9ee; font-weight: 750; }
+    #surface-footer-vacuum[aria-busy="true"] { color: #f2bd57; }
+    #surface-quick-actions.is-job-state { grid-template-columns: minmax(250px,1.4fr) repeat(3,minmax(180px,1fr)); }
+    #status-bar { left: var(--surface-rail-w); bottom: var(--surface-footer-h); }
+    .surface-jog { min-height: 0; height: 100%; grid-template-columns: minmax(640px,1fr) minmax(330px,390px); gap: 0; border: 1px solid #31404a; background: rgba(9,16,21,.72); }
+    .surface-jog-panel { min-height: 0; padding: 20px 26px; gap: 14px; border: 0; border-radius: 0; background: transparent; }
+    .surface-motion-panel { grid-template-rows: auto minmax(0,1fr) auto; border-right: 1px solid #31404a; }
+    .surface-jog-heading { align-items: flex-start; }
+    .surface-jog-heading h2 { margin: 0; font-size: 24px; letter-spacing: .05em; }
+    .surface-jog-heading p { margin: 2px 0 0; color: var(--muted); }
+    #surface-jog-arm { min-width: 210px; min-height: 48px; justify-content: center; border-color: #45616f; background: #17242c; font-weight: 700; }
+    #surface-jog-arm.armed { color: #071116; border-color: #68d9ee; background: #68d9ee; }
+    .surface-mobile-options { order: 3; display: block; }
+    .surface-mobile-options > summary, .surface-jog-options { display: none; }
+    .surface-mobile-options[open] > .surface-options-content { display: grid; grid-template-columns: minmax(0,1.35fr) minmax(0,.8fr) minmax(0,.9fr); gap: 12px; align-items: stretch; }
+    .surface-kiosk-precision { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); border: 1px solid #3a4a54; }
+    .surface-kiosk-precision { grid-column: 1; grid-row: 1; }
+    .surface-kiosk-precision button, .surface-kiosk-motion button { min-height: 52px; border: 0; border-right: 1px solid #3a4a54; border-radius: 0; background: #10191f; color: #c6d0d6; }
+    .surface-kiosk-precision button:last-child, .surface-kiosk-motion button:last-child { border-right: 0; }
+    .surface-kiosk-precision button[aria-pressed="true"], .surface-kiosk-motion button[aria-pressed="true"], .surface-jog-mode button[aria-pressed="true"] { color: #071116; background: #68d9ee; box-shadow: none; }
+    .surface-kiosk-motion { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); border: 1px solid #3a4a54; }
+    .surface-kiosk-motion { grid-column: 2; grid-row: 1; }
+    .surface-jog-mode { gap: 0; padding: 0; border-color: #3a4a54; border-radius: 0; background: #10191f; }
+    .surface-jog-mode { grid-column: 3; grid-row: 1; }
+    .surface-jog-mode button { min-height: 52px; border: 0; border-right: 1px solid #3a4a54; border-radius: 0; }
+    .surface-jog-mode button:last-child { border-right: 0; }
+    .surface-motion-stage { order: 2; min-height: 0; display: grid; grid-template-columns: minmax(440px,1fr) 180px; gap: 24px; align-items: center; }
+    .surface-primary-motion { min-height: 0; display: grid; align-items: center; }
+    #surface-directional-panel, #surface-mpg-panel { min-height: 0; }
+    .surface-direction-pad { width: min(49vh, 440px); max-width: 100%; gap: 8px; transform: rotate(45deg) scale(.96); }
+    .surface-direction-pad button, .surface-jog-center { border: 1px solid #52626b; border-radius: 14px; background: linear-gradient(145deg,#202b32,#11191e); transform: rotate(-45deg); }
+    .surface-direction-pad button { min-height: 100px; color: #e1e9ed; font-size: 25px; }
+    .surface-jog-center { color: #68d9ee; border-color: #68d9ee; font-size: 13px; }
+    .surface-axis-column { min-height: 0; align-self: start; display: grid; grid-template-rows: 152px 52px 60px; gap: 12px; }
+    .surface-jog-actions { display: grid; grid-template-columns: 1fr; grid-template-rows: repeat(2,76px); gap: 0; }
+    .surface-jog-actions button { min-height: 0; border-radius: 0; border-color: #52626b; font-size: 21px; font-weight: 750; }
+    .surface-jog-actions button:first-child { border-radius: 10px 10px 0 0; }
+    .surface-jog-actions button:nth-child(2) { border-top: 0; border-radius: 0 0 10px 10px; }
+    #surface-map-open { grid-row: 2; min-height: 52px; border-radius: 2px; font-size: 14px; }
+    .surface-a-guard { display: grid; grid-template-columns: 38px repeat(3,minmax(0,1fr)); gap: 0; align-items: stretch; min-height: 58px; border: 1px solid #3a4a54; color: #77848d; }
+    .surface-a-guard span { display: grid; place-items: center; border-right: 1px solid #3a4a54; }
+    .surface-a-guard button { padding: 0 4px; border: 0; border-radius: 0; background: transparent; color: #65717a; font-size: 13px; font-weight: 750; }
+    .surface-position-panel { align-content: start; justify-content: stretch; padding-inline: 22px; }
+    .surface-position-panel .machine-axis-grid { grid-template-columns: repeat(2, minmax(0,1fr)); grid-auto-rows: 74px; }
+    .surface-position-panel .machine-axis { min-height: 0; grid-template-columns: 40px minmax(0,1fr); grid-template-rows: 1fr 1fr; gap: 2px 6px; padding: 7px 10px; }
+    .surface-position-panel .machine-axis:nth-child(2) { border-right: 0; }
+    .surface-position-panel .machine-axis:nth-child(n+3) { border-top: 1px solid var(--border); }
+    .surface-position-panel .machine-axis-label { position: static; grid-column: 1; grid-row: 1 / -1; align-self: center; font-size: 25px; }
+    .surface-position-panel .machine-axis-label::after { content: " / mm"; color: #8ca5b4; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+    .surface-position-panel .machine-axis-a .machine-axis-label::after { content: " / °"; }
+    .surface-position-panel .machine-axis-value { grid-column: 2; grid-template-columns: 22px minmax(0,1fr); gap: 3px; margin-left: -12px; padding: 0; }
+    .surface-position-panel .machine-axis-value i { color: #9bb3c1; font-size: 13px; font-weight: 750; letter-spacing: .02em; }
+    .surface-position-panel .machine-axis-value[data-machine-row="work"] i { font-size: 0; }
+    .surface-position-panel .machine-axis-value[data-machine-row="work"] i::after { content: "W"; font-size: 13px; }
+    .surface-position-panel .machine-axis-value[data-machine-row="machine"] i { font-size: 0; }
+    .surface-position-panel .machine-axis-value[data-machine-row="machine"] i::after { content: "M"; font-size: 13px; }
+    .surface-position-panel .machine-axis strong, .surface-position-panel .machine-axis small { text-align: left; }
+    .surface-position-panel .machine-axis strong { font-size: clamp(16px, 1.5vw, 22px); }
+    .surface-position-panel .machine-axis small { font-size: clamp(11px, .95vw, 13px); }
+    .surface-position-summary { gap: 4px; padding: 12px 0; border-bottom: 1px solid #31404a; }
+    .surface-position-actions { margin-top: auto; }
+    .surface-position-actions button { min-height: 46px; }
+    .surface-wheel { width: min(43vh,390px); filter: drop-shadow(0 0 1px #55646c); }
+    .surface-mpg { max-width: 520px; margin: 0 auto 10px; }
+    .surface-mpg-axis { min-height: 48px; }
+    .surface-hold-controls { max-width: 520px; margin: 10px auto 0; }
+    .surface-hold-controls button { min-height: 54px; }
+    body[data-active-tab="active-job"] #active-job-view > .page-section, body[data-active-tab="active-job"] #active-gcode-panel, body[data-active-tab="active-job"] .active-gcode-body { height: 100%; min-height: 0; }
+    body[data-active-tab="active-job"] #active-gcode-panel { border: 1px solid #31404a; border-radius: 0; background: rgba(9,16,21,.72); }
+    body[data-active-tab="active-job"] .active-gcode-head { min-height: 84px; padding: 14px 18px; }
+    body[data-active-tab="active-job"] .active-gcode-workspace { min-height: 0; grid-template-columns: minmax(0,1fr) 8px minmax(300px,32%); border: 0; border-radius: 0; }
+    body[data-active-tab="active-job"] #gcode-preview-wrap { grid-column: 1; grid-row: 1; border-right: 1px solid #31404a; }
+    body[data-active-tab="active-job"] #active-gcode-splitter { grid-column: 2; grid-row: 1; }
+    body[data-active-tab="active-job"] #active-gcode-left { grid-column: 3; grid-row: 1; }
+    body[data-active-tab="active-job"] .active-gcode-actions button { min-height: 46px; }
+    /* A running program has only Pause plus feed override. Keep those peer
+       controls in one compact row rather than letting two independent cards
+       determine the height of the Active Job header. */
+    body[data-active-tab="active-job"] .active-gcode-actions[data-machine-state="Run"] { min-width: 384px; grid-template-columns: max-content minmax(232px,1fr); align-items: stretch; }
+    body[data-active-tab="active-job"] .active-gcode-actions[data-machine-state="Run"] #active-job-controls { grid-column: 1; grid-template-columns: minmax(0,1fr); padding: 6px; }
+    body[data-active-tab="active-job"] .active-gcode-actions[data-machine-state="Run"] #feed-override-controls { grid-column: 2; grid-template-columns: 36px minmax(64px,1fr) 36px 54px; gap: 4px; padding: 6px; }
+    body[data-active-tab="active-job"] .active-gcode-actions[data-machine-state="Run"] #feed-override-controls button, body[data-active-tab="active-job"] .active-gcode-actions[data-machine-state="Run"] #feed-override-controls output { min-height: 36px; height: 36px; }
+    body[data-active-tab="dashboard"] #dashboard-view { height: 100%; min-height: 0; overflow: hidden; }
+    body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) minmax(400px, 32vw); grid-template-rows: minmax(0,1fr); grid-auto-rows: unset; grid-template-areas: "job machine"; gap: 0; overflow: hidden; border: 1px solid #31404a; background: rgba(9,16,21,.72); }
+    body[data-active-tab="dashboard"] .dashboard-job, body[data-active-tab="dashboard"] .dashboard-machine { min-height: 0; height: 100%; padding: 18px 20px; border: 0; border-radius: 0; background: transparent; }
+    body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid .dashboard-job { grid-area: job; grid-column: job; grid-row: job; grid-template-rows: auto auto minmax(0,1fr); border-right: 1px solid #31404a; }
+    body[data-active-tab="dashboard"] .dashboard-grid.dashboard-grid .dashboard-machine { grid-area: machine; height: auto; align-self: start; grid-template-rows: auto auto auto; gap: 10px; }
+    body[data-active-tab="dashboard"] .dashboard-telemetry, body[data-active-tab="dashboard"] .dashboard-gcode { display: none; }
+    body[data-active-tab="dashboard"] .dashboard-camera-stage { min-height: 0; height: 100%; border-radius: 4px; }
+    /* Dashboard positions are a live monitoring task, not a compact toolbar.
+       Two roomy axis cards per row keep Work/Machine values readable from the
+       Surface while the Jog view keeps its denser shared component. */
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-grid { grid-template-columns: repeat(2, minmax(0,1fr)); grid-auto-rows: 74px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis { min-height: 0; grid-template-columns: 46px minmax(0,1fr); grid-template-rows: 1fr 1fr; gap: 2px 8px; padding: 7px 12px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis:nth-child(2) { border-right: 0; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis:nth-child(n+3) { border-top: 1px solid var(--border); }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-label { position: static; grid-column: 1; grid-row: 1 / -1; align-self: center; font-size: 27px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-label::after { content: " / mm"; color: #8ca5b4; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-a .machine-axis-label::after { content: " / °"; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value { grid-column: 2; grid-template-columns: 24px minmax(0,1fr); gap: 4px; margin-left: -16px; padding: 0; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value i { color: #9bb3c1; font-size: 14px; font-weight: 750; letter-spacing: .02em; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value[data-machine-row="work"] i { font-size: 0; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value[data-machine-row="work"] i::after { content: "W"; font-size: 14px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value[data-machine-row="machine"] i { font-size: 0; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-value[data-machine-row="machine"] i::after { content: "M"; font-size: 14px; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis strong, body[data-active-tab="dashboard"] .dashboard-machine .machine-axis small { text-align: left; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis strong { font-size: clamp(17px, 1.65vw, 24px); }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis small { font-size: clamp(11px, 1.05vw, 14px); }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-unit { display: none; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-job-metric { display: grid; }
+    body[data-active-tab="files"] #files-view { height: 100%; min-height: 0; grid-template-rows: auto minmax(260px,1fr) auto; overflow: auto; }
+    body[data-active-tab="files"] .files-browser-section, body[data-active-tab="files"] #file-browser, body[data-active-tab="files"] #file-main { height: 100%; min-height: 0; }
+  }
+  @media (hover: hover) and (pointer: fine) {
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-label::after { content: ""; }
+    body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-unit { display: block; right: auto; bottom: 5px; left: 12px; font-size: 10px; }
+  }
