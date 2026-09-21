@@ -33,6 +33,7 @@ import { buildHeightMeshVertices as buildHeightMeshVerticesDocument, solidifyHei
 import { constrainedOutlineTriangles as constrainedOutlineTrianglesDocument, orderedOutlineBoundaryIndices as orderedOutlineBoundaryIndicesDocument } from "./modules/height-triangulation.js";
 import { exportExtents as exportExtentsDocument, fieldProbeExportPoints as fieldProbeExportPointsDocument, fieldProbeHeightReference as fieldProbeHeightReferenceDocument, outlineEffectiveExportPoints as outlineEffectiveExportPointsDocument, outlineExportPoints as outlineExportPointsDocument } from "./modules/height-coordinates.js";
 import { closeCommandPopout, commandPanelPlacement, commandPopoutSummary, createCommandUI } from "./modules/command-ui.js";
+import { GCODE_HISTORY_KEY, loadCommandHistory, rememberCommand, saveCommandHistory } from "./modules/command-history.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
@@ -70,6 +71,7 @@ const heightMeshModuleSource = readFileSync(join(dirname(fileURLToPath(import.me
 const heightTriangulationModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/height-triangulation.js"), "utf8");
 const heightCoordinatesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/height-coordinates.js"), "utf8");
 const commandUIModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/command-ui.js"), "utf8");
+const commandHistoryModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/command-history.js"), "utf8");
 const surfaceJogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-jog.js"), "utf8");
 const domModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/dom.js"), "utf8");
 // Transitional VM tests retain their assertions against these exact production helpers.
@@ -233,6 +235,21 @@ test("mobile foreground recovery refreshes suspended streams and supports pull t
   ]) {
     assert.ok(navigationModuleSource.includes(marker), `modules/navigation.js includes ${marker}`);
   }
+});
+
+test("command history keeps local persistence bounded and deduplicated", () => {
+  const values = new Map([[GCODE_HISTORY_KEY, JSON.stringify([" G1 X1 ", "", 42, "G1 X1", "G1 X2"])] ]);
+  const storage = {
+    getItem: (key) => values.get(key) || null,
+    setItem: (key, value) => values.set(key, value),
+  };
+  assert.deepEqual(loadCommandHistory(storage), [" G1 X1 ", "G1 X1", "G1 X2"].filter((value) => value.trim()));
+  const next = rememberCommand(["G1 X1", "G1 X2"], "G1 X2");
+  assert.deepEqual(next, ["G1 X2", "G1 X1"]);
+  saveCommandHistory(next, storage);
+  assert.deepEqual(JSON.parse(values.get(GCODE_HISTORY_KEY)), ["G1 X2", "G1 X1"]);
+  assert.match(commandHistoryModuleSource, /COMMAND_HISTORY_LIMIT = 24/);
+  assert.match(source, /from "\.\/modules\/command-history\.js"/);
 });
 
 test("active job metadata stays operator-focused and mobile shows the preview first", () => {

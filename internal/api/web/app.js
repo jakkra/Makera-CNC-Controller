@@ -29,6 +29,7 @@ import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./m
 import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dxf.js";
 import { createOutlineFilesFeature } from "./modules/outline-files.js";
 import { createCommandUI } from "./modules/command-ui.js";
+import { loadCommandHistory as readCommandHistory, rememberCommand as rememberCommandEntry, saveCommandHistory as persistCommandHistory } from "./modules/command-history.js";
 import { buildHeightPGM as buildHeightPGMDocument, buildInterpolatedHeightGrid as buildInterpolatedHeightGridDocument, interpolateZ as interpolateZDocument } from "./modules/height-export.js";
 import { buildHeightMeshVertices as buildHeightMeshVerticesDocument, solidifyHeightMesh as solidifyHeightMeshDocument } from "./modules/height-mesh.js";
 import { constrainedOutlineTriangles as constrainedOutlineTrianglesDocument, orderedOutlineBoundaryIndices as orderedOutlineBoundaryIndicesDocument } from "./modules/height-triangulation.js";
@@ -73,7 +74,6 @@ import {
 } from "./modules/settings.js";
 
 const GCODE_MAX_LINES = 500;
-const GCODE_HISTORY_KEY = "cnc-proxy.gcode-history.v1";
 const PROBE_SPOT_DIAMETER_MM = 2;
 const PROBE_SPOT_RADIUS_MM = PROBE_SPOT_DIAMETER_MM / 2;
 const DEFAULT_FIELD_SPOT_GAP_MM = 8;
@@ -998,23 +998,17 @@ function mountMachineReadouts() {
 }
 
 function loadCommandHistory() {
-  try {
-    const values = JSON.parse(localStorage.getItem(GCODE_HISTORY_KEY) || "[]");
-    if (Array.isArray(values)) return values.filter((v) => typeof v === "string" && v.trim()).slice(0, 24);
-  } catch {
-    // Ignore corrupt local UI state.
-  }
-  return [];
+  return readCommandHistory();
 }
 
 function saveCommandHistory() {
-  localStorage.setItem(GCODE_HISTORY_KEY, JSON.stringify(state.commandHistory.slice(0, 24)));
+  persistCommandHistory(state.commandHistory);
 }
 
 function rememberCommand(line) {
-  line = String(line || "").trim();
-  if (!line) return;
-  state.commandHistory = [line, ...state.commandHistory.filter((v) => v !== line)].slice(0, 24);
+  const next = rememberCommandEntry(state.commandHistory, line);
+  if (next === state.commandHistory || next.length === state.commandHistory.length && next.every((value, index) => value === state.commandHistory[index])) return;
+  state.commandHistory = next;
   state.historyIndex = -1;
   saveCommandHistory();
 }
