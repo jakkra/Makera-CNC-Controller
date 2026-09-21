@@ -16,6 +16,7 @@ import { createOriginProbing } from "./modules/origin-probing.js";
 import { createFilesFeature } from "./modules/files.js";
 import { createMachineStatusFeature } from "./modules/machine-status.js";
 import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive } from "./modules/jog.js";
+import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
 import { createSurfaceJogFeature, loadSurfaceViewPreferences, saveSurfaceViewPreferences as persistSurfaceViewPreferences, isSurfaceKiosk } from "./modules/surface-jog.js";
 import { createOutlineFeature } from "./modules/outline.js";
 import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
@@ -5265,7 +5266,7 @@ function handleWorkAreaTap(local) {
 }
 
 function mobileWorkAreaJogEnabled() {
-  return typeof window !== "undefined" && Number(window.innerWidth) <= MOBILE_WORKAREA_MAX_WIDTH_PX;
+  return isMobileWorkAreaJogEnabled(window, MOBILE_WORKAREA_MAX_WIDTH_PX);
 }
 
 function mobileWorkAreaActionsOpen() {
@@ -5290,32 +5291,15 @@ function mobileWorkAreaJogReady() {
 }
 
 function mobileJogAxisForResponse(value) {
-  value = clampAxis(value);
-  if (Math.abs(value) < 1e-6) return 0;
-  // The server applies a cubic response after its deadzone. Invert that
-  // response here so drag distance maps linearly to commanded feed and the
-  // edge of the controller reaches the configured jog maximum.
-  const sign = value < 0 ? -1 : 1;
-  return sign * (JOG_INPUT_DEADZONE + (1 - JOG_INPUT_DEADZONE) * Math.cbrt(Math.abs(value)));
+  return computeMobileJogAxisForResponse(value, clampAxis, JOG_INPUT_DEADZONE);
 }
 
 function mobileWorkAreaJogAxes(originX, originY, clientX, clientY, radiusPX) {
-  const radius = Math.max(1, Number(radiusPX) || 1);
-  const dx = Number(clientX) - Number(originX);
-  const dy = Number(clientY) - Number(originY);
-  const distance = Math.hypot(dx, dy);
-  const scale = distance > radius ? radius / distance : 1;
-  return {
-    x: mobileJogAxisForResponse((dx * scale) / radius),
-    y: mobileJogAxisForResponse((-dy * scale) / radius),
-    z: 0,
-  };
+  return computeMobileWorkAreaJogAxes(originX, originY, clientX, clientY, radiusPX, clampAxis, JOG_INPUT_DEADZONE);
 }
 
 function mobileWorkAreaJogRadius(svg) {
-  const rect = svg?.getBoundingClientRect?.();
-  const size = Math.min(Number(rect?.width) || 0, Number(rect?.height) || 0);
-  return clampNumber(size * 0.22, MOBILE_JOG_RADIUS_MIN_PX, MOBILE_JOG_RADIUS_MAX_PX);
+  return computeMobileWorkAreaJogRadius(svg, clampNumber, MOBILE_JOG_RADIUS_MIN_PX, MOBILE_JOG_RADIUS_MAX_PX);
 }
 
 function setMobileWorkAreaJogVisual(origin, knob, radiusPX) {

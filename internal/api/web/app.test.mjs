@@ -22,6 +22,7 @@ import { createSettingsFeature, defaultMachineSettings } from "./modules/setting
 import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
+import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
@@ -232,7 +233,14 @@ function extractConst(name) {
 }
 
 function buildContext(functionNames, constNames = [], globals = {}) {
-  const context = vm.createContext({ documentRef: globals.document, ...globals });
+  const context = vm.createContext({
+    documentRef: globals.document,
+    computeMobileJogAxisForResponse,
+    computeMobileWorkAreaJogAxes,
+    isMobileWorkAreaJogEnabled,
+    computeMobileWorkAreaJogRadius,
+    ...globals,
+  });
   const code = constNames.map(extractConst).concat(functionNames.map(extractFunction)).join("\n");
   vm.runInContext(code, context);
   return context;
@@ -5366,6 +5374,7 @@ test("mobile work-area drag maps linearly through the server jog response", () =
   const ctx = buildContext(
     ["clampAxis", "mobileJogAxisForResponse", "mobileWorkAreaJogAxes"],
     ["JOG_INPUT_DEADZONE"],
+    { computeMobileJogAxisForResponse, computeMobileWorkAreaJogAxes },
   );
   const response = (value) => {
     const sign = value < 0 ? -1 : 1;
@@ -5387,6 +5396,7 @@ test("mobile work-area drag maps linearly through the server jog response", () =
 test("mobile work-area taps never become absolute spindle targets", () => {
   let targets = 0;
   const ctx = buildContext(["mobileWorkAreaJogEnabled", "handleWorkAreaTap"], ["MOBILE_WORKAREA_MAX_WIDTH_PX"], {
+    isMobileWorkAreaJogEnabled,
     window: { innerWidth: 390 },
     workAreaLocalToContentPoint: (point) => point,
     workAreaToMachinePoint: (point) => point,
