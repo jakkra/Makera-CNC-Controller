@@ -23,6 +23,7 @@ import { createDashboardView } from "./modules/dashboard-view.js";
 import { createGcodeLogFeature, formatLogLine, lineMatchesFilter, visibleGcodeLines } from "./modules/gcode-log.js";
 import { beginFileAction, createFileCatalog, createFileHelpers, endFileAction, fileRowLocallyOwned, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
 import { createSettingsFeature, defaultMachineSettings } from "./modules/settings.js";
+import { apiFileURL, basename, cleanRelPath, dirname as fileDirname, joinRelPath, parentRelPath, relPath, remotePathFromRel } from "./modules/file-paths.js";
 import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
 import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dxf.js";
 import { createOutlineFilesFeature } from "./modules/outline-files.js";
@@ -149,6 +150,16 @@ test("shared helpers are imported as production ES modules", async () => {
   for (const [module, names] of [["api", "request"], ["dom", "setElementBusy, setSoftDisabled, setTextIfChanged"], ["format", "fmtCoord, fmtDuration, fmtPos, fmtTime"]]) {
     assert.match(source, new RegExp(`import \\{ ${names} \\} from "\\.\\/modules\\/${module}\\.js";`));
   }
+  assert.match(source, /from "\.\/modules\/file-paths\.js";/);
+  assert.equal(relPath("/sd/gcodes/jobs/example.nc"), "jobs/example.nc");
+  assert.equal(relPath("/jobs/example.nc"), "jobs/example.nc");
+  assert.equal(basename("/sd/gcodes/jobs/example.nc"), "example.nc");
+  assert.equal(fileDirname("/sd/gcodes/jobs/example.nc"), "jobs");
+  assert.equal(cleanRelPath("\\jobs//nested\\example.nc"), "jobs/nested/example.nc");
+  assert.equal(joinRelPath("jobs/", "/nested/example.nc"), "jobs/nested/example.nc");
+  assert.equal(parentRelPath("jobs/nested"), "jobs");
+  assert.equal(remotePathFromRel("jobs/example.nc"), "/sd/gcodes/jobs/example.nc");
+  assert.equal(apiFileURL("/sd/gcodes/jobs/example.nc"), "/api/files/jobs/example.nc");
   assert.equal(typeof buildOutlineDXFDocument, "function");
   assert.match(source, /import \{ buildOutlineDXF as buildOutlineDXFDocument \} from "\.\/modules\/outline-dxf\.js";/);
   assert.match(outlineDXFModuleSource, /export function buildOutlineDXF/);

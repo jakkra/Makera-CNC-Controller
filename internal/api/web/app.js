@@ -18,6 +18,7 @@ import { createMdiMacros } from "./modules/mdi-macros.js";
 import { createToolActions } from "./modules/tool-actions.js";
 import { createOriginProbing } from "./modules/origin-probing.js";
 import { createFilesFeature } from "./modules/files.js";
+import { apiFileURL, basename, cleanRelPath, dirname, joinRelPath, parentRelPath, relPath, remotePathFromRel } from "./modules/file-paths.js";
 import { createMachineStatusFeature } from "./modules/machine-status.js";
 import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive } from "./modules/jog.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
@@ -66,7 +67,6 @@ import {
   safeZForTapMove,
 } from "./modules/settings.js";
 
-const ROOT = "/sd/gcodes";
 const GCODE_MAX_LINES = 500;
 const GCODE_HISTORY_KEY = "cnc-proxy.gcode-history.v1";
 const PROBE_SPOT_DIAMETER_MM = 2;
@@ -961,48 +961,6 @@ const dashboardProfiles = createDashboardProfiles({
   scheduleDashboardGcodeRender: () => gcodeViewer.scheduleDashboardGcodeRender(),
 });
 const { dashboardURLState, dashboardProfileByID, currentDashboardProfile, isWideSurfaceOverview, dashboardPanelVisible, resolveDashboardProfile, applyDashboardURLState, syncDashboardProfileURL, selectDashboardProfile, renderDashboardProfileControls, applyDashboardProfile, dashboardProfileSlug, renderDashboardPanelOrder, refreshDashboardPanelOrderButtons, openDashboardSettings, closeDashboardSettings, dashboardProfileFromForm, saveDashboardProfile, deleteDashboardProfile, copyDashboardURL } = dashboardProfiles;
-
-function relPath(p) {
-  if (!p) return "";
-  return p.startsWith(ROOT + "/") ? p.slice(ROOT.length + 1) : p.replace(/^\/+/, "");
-}
-
-function basename(p) {
-  const r = relPath(p).replace(/\/+$/, "");
-  const i = r.lastIndexOf("/");
-  return i >= 0 ? r.slice(i + 1) : r;
-}
-
-function dirname(p) {
-  const r = relPath(p).replace(/\/+$/, "");
-  const i = r.lastIndexOf("/");
-  return i >= 0 ? r.slice(0, i) : "";
-}
-
-function cleanRelPath(p) {
-  return String(p || "").replace(/\\/g, "/").split("/").filter(Boolean).join("/");
-}
-
-function joinRelPath(dir, name) {
-  dir = cleanRelPath(dir);
-  name = cleanRelPath(name);
-  return dir && name ? dir + "/" + name : (dir || name);
-}
-
-function parentRelPath(dir) {
-  dir = cleanRelPath(dir);
-  const i = dir.lastIndexOf("/");
-  return i >= 0 ? dir.slice(0, i) : "";
-}
-
-function remotePathFromRel(p) {
-  const rel = cleanRelPath(p);
-  return rel ? ROOT + "/" + rel : ROOT;
-}
-
-function apiFileURL(p) {
-  return "/api/files/" + relPath(p).split("/").map(encodeURIComponent).join("/");
-}
 
 function fmtSize(n, isDir) {
   if (isDir) return "-";
