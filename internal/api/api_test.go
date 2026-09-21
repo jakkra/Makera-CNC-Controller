@@ -1302,6 +1302,9 @@ func TestWebUIServed(t *testing.T) {
 	navigationModule := get(t, srv.URL+"/modules/navigation.js")
 	navigationBody, _ := io.ReadAll(navigationModule.Body)
 	navigationModule.Body.Close()
+	surfaceJogModule := get(t, srv.URL+"/modules/surface-jog.js")
+	surfaceJogBody, _ := io.ReadAll(surfaceJogModule.Body)
+	surfaceJogModule.Body.Close()
 	settingsModule := get(t, srv.URL+"/modules/settings.js")
 	settingsBody, _ := io.ReadAll(settingsModule.Body)
 	settingsModule.Body.Close()
@@ -1314,7 +1317,7 @@ func TestWebUIServed(t *testing.T) {
 	outlineIOModule := get(t, srv.URL+"/modules/outline-io.js")
 	outlineIOBody, _ := io.ReadAll(outlineIOModule.Body)
 	outlineIOModule.Body.Close()
-	webSource := string(jsBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(navigationBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody)
+	webSource := string(jsBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(navigationBody) + string(surfaceJogBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody)
 	for _, want := range []string{"export function mountFilesCommands", "export function mountFilesTransitions", "export function mountFilesJobRefresh"} {
 		if filesModule.StatusCode != http.StatusOK || !strings.Contains(string(filesModuleBody), want) {
 			t.Errorf("modules/files.js missing %s (status=%d)", want, filesModule.StatusCode)
@@ -1355,6 +1358,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/workarea-outline.js", "export function mountWorkareaOutline"},
 		{"/modules/outline.js", "export function createOutlineFeature"},
 		{"/modules/outline-io.js", "export function outlineJSONDocument"},
+		{"/modules/surface-jog.js", "export function createSurfaceJogFeature"},
 	} {
 		module := get(t, srv.URL+asset.path)
 		moduleBody, _ := io.ReadAll(module.Body)

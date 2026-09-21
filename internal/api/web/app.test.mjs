@@ -20,6 +20,7 @@ import { dashboardExternalCameraIsSnapshot, normalizeDashboardExternalCameraView
 import { beginFileAction, createFileCatalog, createFileHelpers, endFileAction, fileRowLocallyOwned, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
 import { createSettingsFeature, defaultMachineSettings } from "./modules/settings.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
+import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
@@ -39,6 +40,7 @@ const jogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)
 const outlineModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline.js"), "utf8");
 const workareaModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/workarea-outline.js"), "utf8");
 const navigationModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/navigation.js"), "utf8");
+const surfaceJogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-jog.js"), "utf8");
 // Transitional VM tests retain their assertions against these exact production helpers.
 const feedbackHelpers = new Set(["setNotice", "noticeTimeoutMs", "statusMessageSignature", "setStatusMessage", "consumeStatusFeedback", "clearNotice", "setConnectivityIssue", "clearConnectivityIssue", "renderConnectivityNotice", "noticeItemRects", "animateNoticeReflow", "dismissNotice", "renderNoticeBar"]);
 const mdiMacrosHelpers = new Set(["macroByID", "slotForMacro", "sortedSlots", "setMacroPlacement", "normalizeSlotOrder", "renderGcodeCommandState", "submitGcode", "navigateCommandHistory", "renderMacroButtons", "renderMacroRegion", "renderMacroEditor", "currentMacroFromForm", "saveMacroFromForm", "newMacro", "macroEditorDirty", "confirmDiscardMacroDraft", "deleteSelectedMacro", "moveSelectedMacro", "runMacro"]);
@@ -49,6 +51,7 @@ const outlineHelpers = new Set(["fieldProbeSpotGap", "fieldProbeCenterSpacing", 
 const outlineIOHelpers = new Set(["pathNum", "pathPoint", "outlinePathD", "outlineCubicSegments", "dxfPair", "dxfPairs", "dxfNumber", "dxfBounds", "addOutlinePolylineDXF"]);
 const navigationHelpers = new Set(["viewTabFromURL", "syncViewTabURL", "setHeaderCollapsed"]);
 const navigationConsts = new Set(["DEFAULT_VIEW_TABS", "DEFAULT_NAV_VIEW_TABS", "FOREGROUND_PAGE_RELOAD_MS", "PULL_TO_REFRESH_DISTANCE_PX", "PULL_TO_REFRESH_DIRECTION_SLOP_PX"]);
+const surfaceJogHelpers = new Set(["defaultSurfaceViewPreferences", "loadSurfaceViewPreferences", "saveSurfaceViewPreferences", "isSurfaceKiosk", "surfaceStepDistance", "surfaceStepUnit", "surfaceJogOptionsSummary", "surfaceQuickActionState", "renderSurfaceJog", "surfaceMPGGestureActive", "surfaceJogDisplayState", "deferSurfaceMPGMachineRender", "renderSurfaceMPGWheel", "renderSurfaceQuickActions", "initializeSurfaceMobileOptions", "selectSurfaceJogMethod", "selectSurfaceMPGAxis", "selectSurfaceStep", "selectSurfaceMotion"]);
 const settingsHelpers = new Set(["fallbackID", "normalizeAxisSetting", "normalizeButtonList", "normalizeMachineSettings", "normalizeMachineLearned", "normalizeSavedOrigins", "defaultMachineSettings", "defaultGamepadSettings", "safeZForTapMove", "safeZCeiling", "feedBoundsFor", "machineLearnedSummaryLines", "normalizeGamepadSettings", "normalizeUISettings", "finiteOr", "clampNumber"]);
 const jogHelpers = new Set(["connectJog", "disableJogConnection", "scheduleJogReconnect", "sameJogInput", "jogInputActive", "sendJogInput", "sendJog", "sampleJog", "releaseJogInput", "scheduleJogSample", "surfaceMPGPointerSample", "surfaceMPGAngleDelta", "prepareSurfaceMPGFeedback", "playSurfaceMPGClick", "pulseSurfaceMPGDetent", "finishSurfaceMPGGesture", "bindSurfaceMPGWheel", "sameJogAxes"]);
 const workareaHelpers = new Set(["axisValue", "normalizeWorkAreaView", "workAreaViewCenter", "applyWorkAreaViewport", "resetWorkAreaView", "setWorkAreaZoom", "zoomWorkArea", "panWorkArea", "workAreaSVGPointFromClient", "workAreaLocalToContentPoint", "hideWorkAreaHoverPosition", "updateWorkAreaHoverPosition", "workAreaBounds", "workAreaRect", "workAreaMMToSVGUnits", "machineToWorkAreaPoint", "workAreaToMachinePoint", "renderWorkArea", "outlineSnapshot", "restoreOutlineSnapshot", "outlineCapturePositionsClose", "outlineCaptureIntentCount", "cancelOutlineCaptureIntents", "appendOutlineCapturedPosition", "resolveOutlineCaptureIntent", "clearFieldProbeData", "outlineEditingMarkersVisible"]);
@@ -191,7 +194,7 @@ test("dashboard layout controls are hidden and expose their expanded state", () 
 });
 
 function extractFunction(name) {
-  const source = feedbackHelpers.has(name) ? feedbackModuleSource.replace(/^  /gm, "") : mdiMacrosHelpers.has(name) ? mdiModuleSource.replace(/^  /gm, "") : toolActionsHelpers.has(name) ? toolActionsModuleSource.replace(/^  /gm, "") : originProbingHelpers.has(name) ? originProbingModuleSource.replace(/^  /gm, "") : machineStatusHelpers.has(name) ? machineStatusModuleSource.replace(/^  /gm, "") : outlineHelpers.has(name) ? outlineModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : outlineIOHelpers.has(name) ? outlineIOModuleSource.replace(/^export /gm, "") : navigationHelpers.has(name) ? navigationModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : settingsHelpers.has(name) ? settingsModuleSource.replace(/^export /gm, "") : jogHelpers.has(name) ? jogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : workareaHelpers.has(name) ? workareaModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : dashboardProfilesHelpers.has(name) ? dashboardProfilesModuleSource.replace(/^  /gm, "") : geometryHelpers.has(name) ? geometryModuleSource : gcodeHelpers.has(name) ? gcodeModuleSource.replace(/^  /gm, "") : globalSource();
+  const source = feedbackHelpers.has(name) ? feedbackModuleSource.replace(/^  /gm, "") : mdiMacrosHelpers.has(name) ? mdiModuleSource.replace(/^  /gm, "") : toolActionsHelpers.has(name) ? toolActionsModuleSource.replace(/^  /gm, "") : originProbingHelpers.has(name) ? originProbingModuleSource.replace(/^  /gm, "") : machineStatusHelpers.has(name) ? machineStatusModuleSource.replace(/^  /gm, "") : outlineHelpers.has(name) ? outlineModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : outlineIOHelpers.has(name) ? outlineIOModuleSource.replace(/^export /gm, "") : navigationHelpers.has(name) ? navigationModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : settingsHelpers.has(name) ? settingsModuleSource.replace(/^export /gm, "") : jogHelpers.has(name) ? jogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : workareaHelpers.has(name) ? workareaModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : dashboardProfilesHelpers.has(name) ? dashboardProfilesModuleSource.replace(/^  /gm, "") : geometryHelpers.has(name) ? geometryModuleSource : gcodeHelpers.has(name) ? gcodeModuleSource.replace(/^  /gm, "") : surfaceJogHelpers.has(name) ? surfaceJogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : globalSource();
   let start = source.indexOf("\nfunction " + name + "(");
   if (start < 0) start = source.indexOf("\nasync function " + name + "(");
   if (start < 0) throw new Error("function not found in app.js: " + name);
@@ -219,7 +222,7 @@ function extractFunction(name) {
 function globalSource() { return source; }
 
 function extractConst(name) {
-  const constSource = name === "DASHBOARD_PANEL_DEFS" ? dashboardProfilesModuleSource : navigationConsts.has(name) ? navigationModuleSource : gcodeConstants.has(name) ? gcodeModuleSource : jogConstants.has(name) ? jogModuleSource : settingsConsts.includes(name) ? settingsModuleSource : source;
+  const constSource = name === "DASHBOARD_PANEL_DEFS" ? dashboardProfilesModuleSource : navigationConsts.has(name) ? navigationModuleSource : gcodeConstants.has(name) ? gcodeModuleSource : jogConstants.has(name) ? jogModuleSource : settingsConsts.includes(name) ? settingsModuleSource : name === "SURFACE_VIEW_PREFERENCES_KEY" ? surfaceJogModuleSource : source;
   const m = constSource.match(new RegExp("^(?:export )?const " + name + " = .*;$", "m"));
   if (!m) throw new Error("const not found in app.js: " + name);
   return m[0].replace(/^export /, "");
@@ -557,7 +560,7 @@ test("stale machine snapshots never expose machine actions", () => {
 test("Surface footer includes one stateful Auto Vacuum control", () => {
   assert.match(htmlSource, /id="surface-footer-vacuum"/);
   assert.match(source, /request\("\/api\/outputs\/auto-vacuum"/);
-  assert.match(source, /Auto Vacuum · \$\{vacuumEnabled \? "On" : "Off"\}/);
+  assert.match(surfaceJogModuleSource, /Auto Vacuum · \$\{vacuumEnabled \? "On" : "Off"\}/);
 });
 
 test("disabled jog capability is stable and never opens a WebSocket", () => {
@@ -1385,7 +1388,7 @@ test("movement arm labels an external owner before disarming it", () => {
 });
 
 test("mobile jog options summarize the active precision and method", () => {
-  const ctx = buildContext(["surfaceJogOptionsSummary"]);
+  const ctx = buildContext(["surfaceStepDistance", "surfaceJogOptionsSummary"]);
   assert.equal(vm.runInContext(`surfaceJogOptionsSummary({motion:"step",step_mm:1,method:"directional"})`, ctx), "Step · 1 mm/° · Directional");
   assert.equal(vm.runInContext(`surfaceJogOptionsSummary({motion:"hold",step_mm:0.1,method:"mpg"})`, ctx), "Hold · 0.1 mm/° · MPG");
 });
