@@ -1,6 +1,6 @@
 import { createDashboardProfiles, defaultDashboardSettings, normalizeDashboardSettings } from "./modules/dashboard-profiles.js";
 import { createLiveUpdates } from "./modules/live-updates.js";
-import { pointInPolygonOrBoundary, effectiveOutlineGeometry, normalizedClosedPolygon, buildFieldProbePreview as computeFieldProbePreview } from "./modules/outline-geometry.js";
+import { pointInPolygonOrBoundary, effectiveOutlineGeometry, normalizedClosedPolygon, buildFieldProbePreview as computeFieldProbePreview, DEFAULT_FIELD_SPOT_GAP_MM } from "./modules/outline-geometry.js";
 import * as THREE from "./three.module.min.js";
 import { request } from "./modules/api.js";
 import { gcodeCursorForPlayedLine, mountActiveJobControl, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection } from "./modules/active-job.js";
@@ -53,6 +53,7 @@ import {
 } from "./modules/outline-io.js";
 import { axisValue, mountWorkareaOutline } from "./modules/workarea-outline.js";
 import { createWorkareaRenderers } from "./modules/workarea-render.js";
+import { defaultOutlineState, defaultWorkAreaView } from "./modules/state-defaults.js";
 import { createNavigationFeature, createLifecycleFeature, viewTabFromURL } from "./modules/navigation.js";
 import {
   createSettingsFeature,
@@ -76,7 +77,6 @@ import {
 const GCODE_MAX_LINES = 500;
 const PROBE_SPOT_DIAMETER_MM = 2;
 const PROBE_SPOT_RADIUS_MM = PROBE_SPOT_DIAMETER_MM / 2;
-const DEFAULT_FIELD_SPOT_GAP_MM = 8;
 const MAX_FIELD_PROBE_POINTS = 1500;
 const OUTLINE_CURVE_TOLERANCE_MM = 0.25;
 const MAX_EFFECTIVE_OUTLINE_POINTS = 4000;
@@ -1020,68 +1020,6 @@ function newID(prefix) {
 
 function saveSurfaceViewPreferences() {
   persistSurfaceViewPreferences(state.surface);
-}
-
-function defaultOutlineState() {
-  return {
-    active: false,
-    points: [],
-    closed: false,
-    curveFit: false,
-    origin: null,
-    undo: [],
-    redo: [],
-    fieldSpotGapMM: DEFAULT_FIELD_SPOT_GAP_MM,
-    floorMachineZ: null,
-    floorProbe: null,
-    floorProbePending: false,
-    fieldReferenceMachineZ: null,
-    fieldReferenceKind: "",
-    fieldProbePreview: [],
-    fieldProbeResults: [],
-    fieldProbeComplete: false,
-    fieldProbePending: false,
-    fieldProbeIndex: 0,
-    fieldProbeSelectedID: "",
-    fieldProbePointMovePending: false,
-    fieldProbeTooDense: false,
-    fieldProbeIssue: "",
-    tracePending: false,
-    addPointPending: false,
-    addPointQueued: 0,
-    filePending: false,
-    feedback: "",
-    feedbackKind: "",
-  };
-}
-
-function defaultWorkAreaView() {
-  return {
-    zoom: 1,
-    panX: 0,
-    panY: 0,
-    pointerId: null,
-    pointerStartX: 0,
-    pointerStartY: 0,
-    pointerLastX: 0,
-    pointerLastY: 0,
-    clientStartX: 0,
-    clientStartY: 0,
-    tapLocal: null,
-    tapProbeID: "",
-    probeDragID: "",
-    probeDragOriginal: null,
-    probeDragging: false,
-    dragging: false,
-    mobileJogPointerId: null,
-    mobileJogOriginClientX: 0,
-    mobileJogOriginClientY: 0,
-    mobileJogOriginLocal: null,
-    mobileJogKnobLocal: null,
-    mobileJogRadiusPX: 0,
-    mobileJogAxes: { x: 0, y: 0, z: 0 },
-    mobileJogActive: false,
-  };
 }
 
 async function loadUISettings() {

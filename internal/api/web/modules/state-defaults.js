@@ -1,0 +1,63 @@
+import { DEFAULT_FIELD_SPOT_GAP_MM } from "./outline-geometry.js";
+
+export function defaultOutlineState() {
+  return {
+    active: false,
+    points: [],
+    closed: false,
+    curveFit: false,
+    origin: null,
+    undo: [],
+    redo: [],
+    fieldSpotGapMM: DEFAULT_FIELD_SPOT_GAP_MM,
+    floorMachineZ: null,
+    floorProbe: null,
+    floorProbePending: false,
+    fieldReferenceMachineZ: null,
+    fieldReferenceKind: "",
+    fieldProbePreview: [],
+    fieldProbeResults: [],
+    fieldProbeComplete: false,
+    fieldProbePending: false,
+    fieldProbeIndex: 0,
+    fieldProbeSelectedID: "",
+    fieldProbePointMovePending: false,
+    fieldProbeTooDense: false,
+    fieldProbeIssue: "",
+    tracePending: false,
+    addPointPending: false,
+    addPointQueued: 0,
+    filePending: false,
+    feedback: "",
+    feedbackKind: "",
+  };
+}
+
+export function defaultWorkAreaView() {
+  return {
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    pointerId: null,
+    pointerStartX: 0,
+    pointerStartY: 0,
+    pointerLastX: 0,
+    pointerLastY: 0,
+    clientStartX: 0,
+    clientStartY: 0,
+    tapLocal: null,
+    tapProbeID: "",
+    probeDragID: "",
+    probeDragOriginal: null,
+    probeDragging: false,
+    dragging: false,
+    mobileJogPointerId: null,
+    mobileJogOriginClientX: 0,
+    mobileJogOriginClientY: 0,
+    mobileJogOriginLocal: null,
+    mobileJogKnobLocal: null,
+    mobileJogRadiusPX: 0,
+    mobileJogAxes: { x: 0, y: 0, z: 0 },
+    mobileJogActive: false,
+  };
+}

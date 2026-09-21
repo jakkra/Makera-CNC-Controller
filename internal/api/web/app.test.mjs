@@ -386,7 +386,7 @@ function extractFunction(name) {
 function globalSource() { return source; }
 
 function extractConst(name) {
-  const constSource = name === "DASHBOARD_PANEL_DEFS" ? dashboardProfilesModuleSource : navigationConsts.has(name) ? navigationModuleSource : gcodeConstants.has(name) ? gcodeModuleSource : jogConstants.has(name) ? jogModuleSource : settingsConsts.includes(name) ? settingsModuleSource : name === "SURFACE_VIEW_PREFERENCES_KEY" ? surfaceJogModuleSource : source;
+  const constSource = name === "DASHBOARD_PANEL_DEFS" ? dashboardProfilesModuleSource : name === "DEFAULT_FIELD_SPOT_GAP_MM" ? geometryModuleSource : navigationConsts.has(name) ? navigationModuleSource : gcodeConstants.has(name) ? gcodeModuleSource : jogConstants.has(name) ? jogModuleSource : settingsConsts.includes(name) ? settingsModuleSource : name === "SURFACE_VIEW_PREFERENCES_KEY" ? surfaceJogModuleSource : source;
   const m = constSource.match(new RegExp("^(?:export )?const " + name + " = .*;$", "m"));
   if (!m) throw new Error("const not found in app.js: " + name);
   return m[0].replace(/^export /, "");
