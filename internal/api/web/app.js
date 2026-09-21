@@ -31,6 +31,7 @@ import { createOutlineFilesFeature } from "./modules/outline-files.js";
 import { createCommandUI } from "./modules/command-ui.js";
 import { loadCommandHistory as readCommandHistory, rememberCommand as rememberCommandEntry, saveCommandHistory as persistCommandHistory } from "./modules/command-history.js";
 import { createUISettingsFeature } from "./modules/ui-settings.js";
+import { createOutlineView } from "./modules/outline-view.js";
 import { buildHeightPGM as buildHeightPGMDocument, buildInterpolatedHeightGrid as buildInterpolatedHeightGridDocument, interpolateZ as interpolateZDocument } from "./modules/height-export.js";
 import { buildHeightMeshVertices as buildHeightMeshVerticesDocument, solidifyHeightMesh as solidifyHeightMeshDocument } from "./modules/height-mesh.js";
 import { constrainedOutlineTriangles as constrainedOutlineTrianglesDocument, orderedOutlineBoundaryIndices as orderedOutlineBoundaryIndicesDocument } from "./modules/height-triangulation.js";
@@ -272,6 +273,7 @@ let queueSaveUISettings = () => {};
 let saveUISettings = async () => false;
 let loadUISettings = async () => {};
 let loadAPICapabilities = async () => {};
+let outlineView;
 
 const {
   clearConnectivityIssue,
@@ -965,6 +967,23 @@ workareaRender = createWorkareaRenderers({
   escapeHtml,
 });
 const { renderWorkAreaOutline, renderWorkAreaFieldProbePreview, displayedFieldProbePoints } = workareaRender;
+outlineView = createOutlineView({
+  stateFacade: state,
+  documentRef: document,
+  outlineCaptureIntentCount,
+  isProbeToolActive,
+  machineReadyForOriginSet,
+  tapMoveTargetBusy,
+  controlLocallyOwned,
+  pathNum,
+  setSoftDisabled,
+  setTextIfChanged,
+  consumeStatusFeedback,
+  fieldProbeSpotGap,
+  selectedFieldProbePoint,
+  selectedFieldProbeResult,
+  outlineSummaryText,
+});
 const fieldProbeMoveCandidate = (local) => outlineFeature.fieldProbeMoveCandidate(
   local, workAreaToMachinePoint, workAreaLocalToContentPoint, cloneOutlineOrigin, currentWorkOrigin,
 );
@@ -1714,125 +1733,7 @@ function settleProbeConfirmation(accepted) {
 }
 
 function renderOutlineCapture() {
-  const o = state.outline;
-  const panel = document.getElementById("outline-capture");
-  const start = document.getElementById("outline-start");
-  const activeControls = document.getElementById("outline-active-controls");
-  const end = document.getElementById("outline-end");
-  const add = document.getElementById("outline-add-point");
-  const undo = document.getElementById("outline-undo");
-  const redo = document.getElementById("outline-redo");
-  const close = document.getElementById("outline-close");
-  const trace = document.getElementById("outline-trace");
-  const load = document.getElementById("outline-load");
-  const save = document.getElementById("outline-save");
-  const curve = document.getElementById("outline-curve-fit");
-  const probeFloor = document.getElementById("outline-probe-floor");
-  const exp = document.getElementById("outline-export");
-  const spacing = document.getElementById("outline-field-spacing");
-  const fieldProbe = document.getElementById("outline-field-probe");
-  const resetProbe = document.getElementById("outline-field-reset");
-  const moveProbe = document.getElementById("outline-field-move");
-  const exportControls = document.getElementById("outline-export-controls");
-  const exportObj = document.getElementById("outline-export-obj");
-  const exportHeight = document.getElementById("outline-export-height");
-  const summary = document.getElementById("outline-summary");
-  const capturePending = outlineCaptureIntentCount(o) > 0;
-  const actionBusy = !!o.addPointPending || !!o.floorProbePending || !!o.fieldProbePending || !!o.fieldProbePointMovePending || !!o.tracePending || !!o.filePending || !!state.jog.zProbePending;
-  const busy = capturePending || actionBusy;
-  const probeActive = isProbeToolActive();
-  const fieldReady = o.active && o.closed && o.points.length >= 3;
-  if (panel) panel.hidden = !o.active;
-  if (start) {
-    start.hidden = !!o.active;
-    start.disabled = busy;
-    setSoftDisabled(start, false);
-  }
-  if (activeControls) activeControls.hidden = !o.active;
-  if (load) {
-    load.disabled = busy;
-    setSoftDisabled(load, false);
-    setTextIfChanged(load, o.filePending ? "Loading..." : "Load outline");
-  }
-  if (end) {
-    end.disabled = busy;
-    setSoftDisabled(end, false);
-  }
-  if (add) {
-    // Each press is an independent capture intent. Keep Add point available
-    // while earlier intents are in flight so rapid gamepad/button presses are
-    // never collapsed into one request.
-    add.disabled = actionBusy;
-    add.setAttribute("aria-busy", capturePending || o.addPointPending ? "true" : "false");
-    setSoftDisabled(add, !actionBusy && !!o.closed);
-    setTextIfChanged(add, "Add point");
-  }
-  if (undo) undo.disabled = busy || !o.undo.length;
-  if (redo) redo.disabled = busy || !o.redo.length;
-  if (close) {
-    close.disabled = busy;
-    setSoftDisabled(close, !busy && (!o.active || o.closed || o.points.length < 2));
-  }
-  if (trace) {
-    trace.hidden = !probeActive;
-    trace.disabled = busy;
-    setTextIfChanged(trace, o.tracePending ? "Tracing..." : "Trace outline");
-    setSoftDisabled(trace, !busy && (!o.active || o.points.length < 2 || state.jog.armed || tapMoveTargetBusy()));
-  }
-  if (curve) {
-    curve.checked = !!o.curveFit;
-    curve.disabled = busy || o.points.length < 2;
-  }
-  if (probeFloor) {
-    probeFloor.disabled = busy;
-    setSoftDisabled(probeFloor, !busy && (!probeActive || state.jog.armed || !machineReadyForOriginSet()));
-    setTextIfChanged(probeFloor, o.floorProbePending ? "Probing Floor..." : "Probe Floor");
-  }
-  if (exp) {
-    exp.disabled = busy;
-    setSoftDisabled(exp, !busy && o.points.length < 2);
-  }
-  if (save) {
-    save.disabled = busy;
-    setSoftDisabled(save, !busy && o.points.length < 2);
-  }
-  if (spacing) {
-    if (!controlLocallyOwned(spacing)) spacing.value = pathNum(fieldProbeSpotGap());
-    spacing.disabled = busy;
-  }
-  if (fieldProbe) {
-    setTextIfChanged(fieldProbe, o.fieldProbePending ? "Probing " + Math.min(o.fieldProbeIndex + 1, o.fieldProbePreview.length) + "/" + o.fieldProbePreview.length : "Probe Field Z");
-    fieldProbe.disabled = busy;
-    setSoftDisabled(fieldProbe, !busy && (!fieldReady || !probeActive || state.jog.armed || !o.fieldProbePreview.length || !!o.fieldProbeTooDense));
-  }
-  if (resetProbe) {
-    const selected = selectedFieldProbePoint(o);
-    const hasResult = !!selectedFieldProbeResult(o);
-    resetProbe.disabled = busy;
-    setSoftDisabled(resetProbe, !busy && !hasResult);
-    resetProbe.title = selected
-      ? (hasResult ? "Reset the selected point's probe value" : "The selected point has no probe value")
-      : "Select a field probe point first";
-  }
-  if (moveProbe) {
-    const selected = selectedFieldProbePoint(o);
-    const moving = !!state.jog.fieldProbeMovePending;
-    moveProbe.disabled = busy || moving || tapMoveTargetBusy();
-    setSoftDisabled(moveProbe, !moveProbe.disabled && (!selected || !state.jog.armed || state.jog.link !== "online"));
-    setTextIfChanged(moveProbe, moving ? "Moving..." : "Move to point");
-    moveProbe.title = selected ? "Move the spindle to the selected point using the Safe Z setting" : "Select a field probe point first";
-  }
-  if (exportControls) exportControls.hidden = !o.fieldProbeResults.length;
-  if (exportObj) {
-    exportObj.disabled = busy;
-    setSoftDisabled(exportObj, !busy && o.fieldProbeResults.length < 3);
-  }
-  if (exportHeight) {
-    exportHeight.disabled = busy;
-    setSoftDisabled(exportHeight, !busy && o.fieldProbeResults.length < 3);
-  }
-  if (summary) summary.textContent = outlineSummaryText();
-  consumeStatusFeedback("outline", o, "feedback", "feedbackKind");
+  return outlineView?.renderOutlineCapture();
 }
 
 function toggleOutlineCurveFit() {

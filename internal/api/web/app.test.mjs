@@ -35,6 +35,7 @@ import { exportExtents as exportExtentsDocument, fieldProbeExportPoints as field
 import { closeCommandPopout, commandPanelPlacement, commandPopoutSummary, createCommandUI } from "./modules/command-ui.js";
 import { GCODE_HISTORY_KEY, loadCommandHistory, rememberCommand, saveCommandHistory } from "./modules/command-history.js";
 import { createUISettingsFeature } from "./modules/ui-settings.js";
+import { createOutlineView } from "./modules/outline-view.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
@@ -76,6 +77,7 @@ const heightCoordinatesModuleSource = readFileSync(join(dirname(fileURLToPath(im
 const commandUIModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/command-ui.js"), "utf8");
 const commandHistoryModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/command-history.js"), "utf8");
 const uiSettingsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/ui-settings.js"), "utf8");
+const outlineViewModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-view.js"), "utf8");
 const surfaceJogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-jog.js"), "utf8");
 const domModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/dom.js"), "utf8");
 // Transitional VM tests retain their assertions against these exact production helpers.
@@ -290,6 +292,42 @@ test("UI settings keep read-only capabilities and local render state coordinated
   assert.equal(nodes.get("log-autoscroll").checked, false);
   assert.equal(state.selectedMacroId, "macro-1");
   assert.match(uiSettingsModuleSource, /api\/ui\/settings/);
+});
+
+test("outline view preserves pending presentation while capture intents are in flight", () => {
+  const nodes = new Map();
+  const node = () => ({ hidden: false, disabled: false, value: "", textContent: "", attrs: new Map(), setAttribute(name, value) { this.attrs.set(name, value); } });
+  nodes.set("outline-capture", node());
+  nodes.set("outline-start", node());
+  nodes.set("outline-add-point", node());
+  nodes.set("outline-field-probe", node());
+  nodes.set("outline-field-spacing", node());
+  const state = {
+    jog: { zProbePending: false, armed: false, link: "online", fieldProbeMovePending: false },
+    outline: {
+      active: true, closed: true, points: [{}, {}, {}], undo: [], redo: [],
+      addPointPending: true, floorProbePending: false, fieldProbePending: true,
+      fieldProbePointMovePending: false, tracePending: false, filePending: false,
+      fieldProbeIndex: 1, fieldProbePreview: [{}, {}, {}], fieldProbeResults: [], fieldProbeTooDense: false,
+    },
+  };
+  const view = createOutlineView({
+    stateFacade: state,
+    documentRef: { getElementById: (id) => nodes.get(id) || null },
+    outlineCaptureIntentCount: () => 1,
+    isProbeToolActive: () => true,
+    machineReadyForOriginSet: () => true,
+    fieldProbeSpotGap: () => 8,
+    pathNum: String,
+    setTextIfChanged: (target, value) => { target.textContent = value; },
+  });
+  view.renderOutlineCapture();
+  assert.equal(nodes.get("outline-capture").hidden, false);
+  assert.equal(nodes.get("outline-start").hidden, true);
+  assert.equal(nodes.get("outline-add-point").disabled, true);
+  assert.equal(nodes.get("outline-add-point").attrs.get("aria-busy"), "true");
+  assert.equal(nodes.get("outline-field-probe").textContent, "Probing 2/3");
+  assert.match(outlineViewModuleSource, /outline-field-probe/);
 });
 
 test("active job metadata stays operator-focused and mobile shows the preview first", () => {
