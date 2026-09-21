@@ -41,6 +41,7 @@ import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modul
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
 import { syncJogAvailabilityFromMachine as syncJogAvailabilityState } from "./modules/jog.js";
+import { createJogView } from "./modules/jog-view.js";
 import { createWorkareaRenderers, displayedFieldProbePoints } from "./modules/workarea-render.js";
 import { cloneFloorProbe, cloneOutlineOrigin, cloneOutlinePoint, defaultOutlineState, defaultWorkAreaView } from "./modules/state-defaults.js";
 
@@ -81,6 +82,7 @@ const commandHistoryModuleSource = readFileSync(join(dirname(fileURLToPath(impor
 const uiSettingsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/ui-settings.js"), "utf8");
 const outlineViewModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-view.js"), "utf8");
 const probeConfirmModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/probe-confirm.js"), "utf8");
+const jogViewModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/jog-view.js"), "utf8");
 const surfaceJogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-jog.js"), "utf8");
 const domModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/dom.js"), "utf8");
 // Transitional VM tests retain their assertions against these exact production helpers.
@@ -343,6 +345,36 @@ test("probe confirmation keeps one pending modal promise and resolves it once", 
   assert.equal(await pending, true);
   assert.equal(fields.get("probe-confirm-warning").hidden, false);
   assert.match(probeConfirmModuleSource, /pendingResolve/);
+});
+
+test("jog view keeps arm and feed controls synchronized with pending movement", () => {
+  const nodes = new Map();
+  const node = () => ({ textContent: "", value: "", disabled: false, attrs: new Map(), classList: { toggle() {} }, setAttribute(name, value) { this.attrs.set(name, value); } });
+  for (const id of ["jog-link", "jog-pad", "jog-deadman", "jog-arm", "tap-feed-mm-min", "z-step-distance", "workarea-plot"]) nodes.set(id, node());
+  const state = {
+    activeTab: "jog",
+    ui: { machine: { tap_feed_mm_min: 100 } },
+    jog: { link: "online", pad: "Surface", deadman: false, armed: true, caps: { enabled: true }, armPending: 0, armQueuedAction: "", zProbePending: false, zStepPending: 0, tapFeedback: "", tapFeedbackKind: "" },
+  };
+  nodes.get("tap-feed-mm-min").value = "100";
+  const view = createJogView({
+    stateFacade: state,
+    documentRef: { getElementById: (id) => nodes.get(id) || null, querySelectorAll: () => [] },
+    jogPanelMessage: () => ({ text: "Jog session active.", kind: "ok" }),
+    movementArmLabel: () => "Disarm Movement",
+    movementArmAvailable: () => true,
+    hasPendingOriginOperation: () => false,
+    feedBoundsFor: () => ({ min: 50, max: 500 }),
+    setTextIfChanged: (target, value) => { target.textContent = value; },
+    renderWorkMoveControls: () => {},
+    renderOriginButtons: () => {},
+  });
+  view.renderJog();
+  assert.equal(nodes.get("jog-link").textContent, "online");
+  assert.equal(nodes.get("jog-arm").textContent, "Disarm Movement");
+  assert.equal(nodes.get("jog-arm").attrs.get("aria-pressed"), "true");
+  assert.equal(nodes.get("tap-feed-mm-min").value, "100");
+  assert.match(jogViewModuleSource, /data-feed-step/);
 });
 
 test("active job metadata stays operator-focused and mobile shows the preview first", () => {

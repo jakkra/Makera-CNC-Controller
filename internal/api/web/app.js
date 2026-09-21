@@ -22,6 +22,7 @@ import { apiFileURL, basename, cleanRelPath, dirname, joinRelPath, parentRelPath
 import { fmtActiveTool, toolDisplayName, validToolID } from "./modules/tooling.js";
 import { createMachineStatusFeature } from "./modules/machine-status.js";
 import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive, syncJogAvailabilityFromMachine as syncJogAvailabilityState } from "./modules/jog.js";
+import { createJogView } from "./modules/jog-view.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
 import { createSurfaceJogFeature, loadSurfaceViewPreferences, saveSurfaceViewPreferences as persistSurfaceViewPreferences, isSurfaceKiosk } from "./modules/surface-jog.js";
 import { createOutlineFeature, workPointToMachinePoint } from "./modules/outline.js";
@@ -275,6 +276,7 @@ let saveUISettings = async () => false;
 let loadUISettings = async () => {};
 let loadAPICapabilities = async () => {};
 let outlineView;
+let jogView;
 
 const {
   clearConnectivityIssue,
@@ -985,6 +987,29 @@ outlineView = createOutlineView({
   selectedFieldProbeResult,
   outlineSummaryText,
 });
+jogView = createJogView({
+  stateFacade: state,
+  documentRef: document,
+  jogPanelMessage,
+  setStatusMessage,
+  clearNotice,
+  setTextIfChanged,
+  movementArmLabel,
+  hasPendingOriginOperation,
+  movementArmAvailable,
+  normalizeMachineSettings,
+  feedBoundsFor,
+  finiteOr,
+  clampNumber,
+  controlLocallyOwned,
+  tapMoveTargetBusy,
+  renderWorkMoveControls,
+  renderOriginButtons,
+  consumeJogAlertFeedback,
+  renderWorkArea,
+  renderSurfaceJog,
+  setSoftDisabled,
+});
 const fieldProbeMoveCandidate = (local) => outlineFeature.fieldProbeMoveCandidate(
   local, workAreaToMachinePoint, workAreaLocalToContentPoint, cloneOutlineOrigin, currentWorkOrigin,
 );
@@ -1077,52 +1102,7 @@ function movementOwnedElsewhere(j = state.jog) {
 }
 
 function renderJog() {
-  const j = state.jog;
-  document.getElementById("jog-link").textContent = j.link;
-  document.getElementById("jog-pad").textContent = j.pad || "-";
-  const dead = document.getElementById("jog-deadman");
-  dead.textContent = j.deadman ? "on" : "off";
-  dead.className = j.deadman ? "on" : "";
-  const msg = jogPanelMessage();
-  if (state.activeTab === "control" || state.activeTab === "jog") setStatusMessage("jog-availability", msg.text, msg.kind);
-  else clearNotice("jog-availability");
-  const arm = document.getElementById("jog-arm");
-  setTextIfChanged(arm, movementArmLabel(j));
-  arm.classList.toggle("armed", j.armed);
-  arm.setAttribute("aria-pressed", j.armed ? "true" : "false");
-  const armBusy = !!j.armPending || !!j.armQueuedAction;
-  const originBusy = hasPendingOriginOperation();
-  const tapOperationBusy = originBusy || !!j.zProbePending;
-  arm.disabled = armBusy || tapOperationBusy || !movementArmAvailable();
-  const feed = document.getElementById("tap-feed-mm-min");
-  const machine = normalizeMachineSettings(state.ui.machine);
-  const feedBounds = feedBoundsFor(machine);
-  const feedValue = clampNumber(finiteOr(feed?.value, machine.tap_feed_mm_min), feedBounds.min, feedBounds.max);
-  if (feed) {
-    feed.min = String(Math.round(feedBounds.min));
-    feed.max = String(Math.round(feedBounds.max));
-    if (!controlLocallyOwned(feed)) feed.value = String(feedValue);
-    feed.disabled = tapMoveTargetBusy() || !!j.zStepPending || tapOperationBusy;
-  }
-  for (const btn of document.querySelectorAll("[data-feed-step]")) {
-    const step = Number(btn.dataset.feedStep) || 0;
-    btn.disabled = !!feed?.disabled || (step < 0 && feedValue <= feedBounds.min) || (step > 0 && feedValue >= feedBounds.max);
-  }
-  renderWorkMoveControls(tapOperationBusy);
-  renderOriginButtons();
-  const zStepDistance = document.getElementById("z-step-distance");
-  if (zStepDistance) zStepDistance.disabled = !!j.zStepPending || tapMoveTargetBusy() || tapOperationBusy;
-  const zStepReady = !!j.caps?.enabled && j.link === "online" && j.armed && !j.zStepPending && !tapMoveTargetBusy() && !tapOperationBusy;
-  const zStepBusy = !!j.zStepPending || tapMoveTargetBusy() || tapOperationBusy;
-  for (const btn of document.querySelectorAll("[data-z-step-dir]")) {
-    btn.disabled = zStepBusy;
-    setSoftDisabled(btn, !zStepBusy && !zStepReady);
-  }
-  consumeJogAlertFeedback("tap-move", j, "tapFeedback", "tapFeedbackKind");
-  const plot = document.getElementById("workarea-plot");
-  if (plot) plot.classList.toggle("not-armed", !j.armed);
-  renderWorkArea();
-  renderSurfaceJog();
+  return jogView?.renderJog();
 }
 
 function movementArmAvailable() {
