@@ -944,7 +944,7 @@ const outlineFeature = createOutlineFeature({
 });
 const {
   fieldProbeSpotGap, fieldProbeCenterSpacing, outlineWorkPoints,
-  fieldProbePlanPointMatchesResult, selectedFieldProbePoint,
+  fieldProbePlanPointMatchesResult, selectedFieldProbePoint, unprobedFieldProbePoints,
   selectedFieldProbeResult, selectFieldProbePoint, outlinePointLabel,
   outlineSummaryText, setOutlineFeedback, isProbeToolActive,
   is3DProbeToolActive,
@@ -1796,10 +1796,6 @@ function scheduleOutlineFieldSpacingUpdate() {
   return true;
 }
 
-function buildFieldProbePreview(points, spotGap = fieldProbeSpotGap(), outlinePoints = points) {
-  return computeFieldProbePreview(points, spotGap, outlinePoints);
-}
-
 async function resetSelectedFieldProbeValue() {
   const o = state.outline;
   const point = selectedFieldProbePoint(o);
@@ -1950,13 +1946,6 @@ function moveSelectedFieldProbePointBy(dx, dy) {
   finishSelectedFieldProbeMove(original);
 }
 
-function unprobedFieldProbePoints(plan, results) {
-  const samples = Array.isArray(results) ? results : [];
-  return (Array.isArray(plan) ? plan : [])
-    .map((point, index) => ({ point, index }))
-    .filter(({ point }) => !samples.some((sample) => fieldProbePlanPointMatchesResult(point, sample)));
-}
-
 function updateFieldProbePreview() {
   const o = state.outline;
   markGcodeContextOverlayDirty();
@@ -1975,7 +1964,7 @@ function updateFieldProbePreview() {
     o.fieldProbeIssue = "curve fit generated too many outline points";
     return;
   }
-  const built = buildFieldProbePreview(geometry.points, fieldProbeSpotGap(), outlineWorkPoints());
+  const built = computeFieldProbePreview(geometry.points, fieldProbeSpotGap(), outlineWorkPoints());
   o.fieldProbePreview = built.points;
   if (!selectedFieldProbePoint(o)) o.fieldProbeSelectedID = "";
   o.fieldProbeTooDense = built.tooDense;

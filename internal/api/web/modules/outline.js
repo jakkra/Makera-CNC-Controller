@@ -59,6 +59,13 @@ export function createOutlineFeature({
       : null;
   }
 
+  function unprobedFieldProbePoints(plan, results) {
+    const samples = Array.isArray(results) ? results : [];
+    return (Array.isArray(plan) ? plan : [])
+      .map((point, index) => ({ point, index }))
+      .filter(({ point }) => !samples.some((sample) => fieldProbePlanPointMatchesResult(point, sample)));
+  }
+
   function selectFieldProbePoint(id) {
     const o = state.outline;
     const point = (o.fieldProbePreview || []).find((candidate) => candidate.id === id);
@@ -117,7 +124,7 @@ export function createOutlineFeature({
   return {
     fieldProbeSpotGap, fieldProbeCenterSpacing, outlineWorkPoints,
     fieldProbePlanPointMatchesResult, selectedFieldProbePoint,
-    selectedFieldProbeResult, selectFieldProbePoint, outlinePointLabel,
+    selectedFieldProbeResult, unprobedFieldProbePoints, selectFieldProbePoint, outlinePointLabel,
     outlineSummaryText, setOutlineFeedback, isProbeToolActive,
     is3DProbeToolActive, fieldProbeMoveCandidate,
   };
