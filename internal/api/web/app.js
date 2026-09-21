@@ -68,6 +68,7 @@ import {
   safeZForTapMove,
   finiteOr,
   clampNumber,
+  gamepadLabel,
 } from "./modules/settings.js";
 
 const GCODE_MAX_LINES = 500;
@@ -1067,41 +1068,6 @@ function defaultWorkAreaView() {
     mobileJogAxes: { x: 0, y: 0, z: 0 },
     mobileJogActive: false,
   };
-}
-
-// The server repeats this policy authoritatively for every proxy-managed safe
-// move. Keeping the browser mirror here makes the configured target visible
-// before a command is sent, without trusting the browser for enforcement.
-function gamepadLabel(gp) {
-  if (!gp) return "";
-  const raw = String(gp.id || "").trim();
-  const index = Number.isInteger(gp.index) ? gp.index + 1 : 0;
-  const suffix = index > 0 ? " #" + index : "";
-  if (raw && isXboxGamepadID(raw) && !isGenericGamepadID(raw)) return raw;
-  if (isXboxGamepad(gp)) return "Xbox-compatible gamepad" + suffix;
-  if (raw && !isGenericGamepadID(raw)) return raw;
-  if (gp.mapping === "standard") return "Standard gamepad" + suffix;
-  const axes = gp.axes?.length || 0;
-  const buttons = gp.buttons?.length || 0;
-  if (axes || buttons) return `Gamepad${suffix} (${axes} axes, ${buttons} buttons)`;
-  return "Gamepad" + suffix;
-}
-
-function isGenericGamepadID(id) {
-  const s = String(id || "").trim().toLowerCase();
-  return !s || s === "gamepad" || s === "unknown" || s === "standard" || s === "standard gamepad" || s.includes("unknown gamepad");
-}
-
-function isXboxGamepad(gp) {
-  if (isXboxGamepadID(gp?.id)) return true;
-  const axes = gp?.axes?.length || 0;
-  const buttons = gp?.buttons?.length || 0;
-  return gp?.mapping === "standard" && axes >= 4 && buttons >= 12 && buttons <= 24;
-}
-
-function isXboxGamepadID(id) {
-  const s = String(id || "").toLowerCase();
-  return /\bxbox\b/.test(s) || /\bxinput\b/.test(s) || s.includes("x-input") || s.includes("vendor: 045e") || s.includes("vid_045e");
 }
 
 async function loadUISettings() {

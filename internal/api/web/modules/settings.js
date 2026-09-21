@@ -28,6 +28,38 @@ export function clampNumber(n, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
+export function gamepadLabel(gp) {
+  if (!gp) return "";
+  const raw = String(gp.id || "").trim();
+  const index = Number.isInteger(gp.index) ? gp.index + 1 : 0;
+  const suffix = index > 0 ? " #" + index : "";
+  if (raw && isXboxGamepadID(raw) && !isGenericGamepadID(raw)) return raw;
+  if (isXboxGamepad(gp)) return "Xbox-compatible gamepad" + suffix;
+  if (raw && !isGenericGamepadID(raw)) return raw;
+  if (gp.mapping === "standard") return "Standard gamepad" + suffix;
+  const axes = gp.axes?.length || 0;
+  const buttons = gp.buttons?.length || 0;
+  if (axes || buttons) return `Gamepad${suffix} (${axes} axes, ${buttons} buttons)`;
+  return "Gamepad" + suffix;
+}
+
+export function isGenericGamepadID(id) {
+  const s = String(id || "").trim().toLowerCase();
+  return !s || s === "gamepad" || s === "unknown" || s === "standard" || s === "standard gamepad" || s.includes("unknown gamepad");
+}
+
+export function isXboxGamepad(gp) {
+  if (isXboxGamepadID(gp?.id)) return true;
+  const axes = gp?.axes?.length || 0;
+  const buttons = gp?.buttons?.length || 0;
+  return gp?.mapping === "standard" && axes >= 4 && buttons >= 12 && buttons <= 24;
+}
+
+export function isXboxGamepadID(id) {
+  const s = String(id || "").toLowerCase();
+  return /\bxbox\b/.test(s) || /\bxinput\b/.test(s) || s.includes("x-input") || s.includes("vendor: 045e") || s.includes("vid_045e");
+}
+
 function fallbackID(prefix) {
   if (globalThis.crypto?.randomUUID) return `${prefix}-${globalThis.crypto.randomUUID()}`;
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
