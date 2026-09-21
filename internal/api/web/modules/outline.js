@@ -27,8 +27,8 @@ export function createOutlineFeature({
     get workarea() { return getWorkarea?.() || {}; },
   };
 
-  function fieldProbeSpotGap() {
-    const v = Number(state.outline.fieldSpotGapMM);
+  function fieldProbeSpotGap(outline = state.outline) {
+    const v = Number(outline?.fieldSpotGapMM);
     return Number.isFinite(v) ? Math.max(0, Math.min(250, v)) : DEFAULT_FIELD_SPOT_GAP_MM;
   }
 

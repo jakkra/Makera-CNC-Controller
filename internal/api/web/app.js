@@ -27,6 +27,7 @@ import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./m
 import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dxf.js";
 import { createOutlineFilesFeature } from "./modules/outline-files.js";
 import { createCommandUI } from "./modules/command-ui.js";
+import { buildHeightPGM as buildHeightPGMDocument, buildInterpolatedHeightGrid as buildInterpolatedHeightGridDocument, interpolateZ as interpolateZDocument } from "./modules/height-export.js";
 import {
   addOutlinePolylineDXF,
   boundedOutlineNumber as boundOutlineNumber,
@@ -3059,7 +3060,8 @@ function exportWorkOrigin() {
 }
 
 function requireHeightExportOutline() {
-  if (!state.outline.closed || state.outline.points.length < 3) {
+  const outline = arguments.length ? arguments[0] : state.outline;
+  if (!outline.closed || outline.points.length < 3) {
     throw new Error("closed outline needs at least three points");
   }
 }
@@ -3107,11 +3109,11 @@ function outlineEffectiveExportPoints(origin, outlineState = state.outline) {
   return geometry.points;
 }
 
-function fieldProbeExportPoints(origin) {
+function fieldProbeExportPoints(origin, outlineState = state.outline) {
   const ox = axisValue(origin, "x");
   const oy = axisValue(origin, "y");
-  const reference = fieldProbeHeightReference(origin);
-  return state.outline.fieldProbeResults.map((p) => {
+  const reference = fieldProbeHeightReference(origin, outlineState);
+  return outlineState.fieldProbeResults.map((p) => {
     const mx = Number(p.machine_x);
     const my = Number(p.machine_y);
     const mz = Number(p.machine_z);
@@ -3125,8 +3127,8 @@ function fieldProbeExportPoints(origin) {
   });
 }
 
-function fieldProbeHeightReference(origin) {
-  const o = state.outline;
+function fieldProbeHeightReference(origin, outlineState = state.outline) {
+  const o = outlineState;
   const floorZ = finiteOr(o.floorMachineZ, NaN);
   if (Number.isFinite(floorZ)) return { machineZ: floorZ, kind: "floor", label: "probed floor" };
   const storedZ = finiteOr(o.fieldReferenceMachineZ, NaN);
@@ -3512,108 +3514,39 @@ function exportHeightImage() {
 }
 
 function buildHeightPGM() {
-  requireHeightExportOutline();
-  const origin = exportWorkOrigin();
-  const mesh = buildInterpolatedHeightGrid(origin);
-  const values = [];
-  for (const row of mesh.points) {
-    for (const p of row) if (p) values.push(p.z);
-  }
-  if (!values.length) throw new Error("field probe has no samples inside the outline");
-  const minZ = Math.min(...values);
-  const maxZ = Math.max(...values);
-  const span = maxZ - minZ || 1;
-  const reference = fieldProbeHeightReference(origin);
-  const originX = axisValue(origin, "x") ?? 0;
-  const originY = axisValue(origin, "y") ?? 0;
-  const rows = [
-    "P2",
-    "# CNC Proxy outline height image",
-    "# units: mm",
-    "# xy coordinates: CNC work coordinates",
-    "# cnc_xy_origin_machine_mm: " + pathNum(originX) + " " + pathNum(originY),
-    "# z coordinates: " + reference.label,
-    "# z_reference_machine_mm: " + pathNum(reference.machineZ),
-    "# x_min_mm: " + pathNum(mesh.xMin),
-    "# x_max_mm: " + pathNum(mesh.xMax),
-    "# y_min_mm: " + pathNum(mesh.yMin),
-    "# y_max_mm: " + pathNum(mesh.yMax),
-    "# x_spacing_mm: " + pathNum(mesh.xSpacing),
-    "# y_spacing_mm: " + pathNum(mesh.ySpacing),
-    "# raster_columns: X min to X max",
-    "# raster_rows: Y max to Y min",
-    "# probe_diameter_mm: " + pathNum(PROBE_SPOT_DIAMETER_MM),
-    "# spot_gap_mm: " + pathNum(fieldProbeSpotGap()),
-    "# z_min_mm: " + pathNum(minZ),
-    "# z_max_mm: " + pathNum(maxZ),
-    mesh.cols + " " + mesh.rows,
-    "65535",
-  ];
-  for (let r = mesh.rows - 1; r >= 0; r--) {
-    const row = [];
-    for (let c = 0; c < mesh.cols; c++) {
-      const p = mesh.points[r][c];
-      row.push(p ? String(Math.round(((p.z - minZ) / span) * 65535)) : "0");
-    }
-    rows.push(row.join(" "));
-  }
-  return rows.join("\n") + "\n";
+  return buildHeightPGMDocument({
+    getOutline: () => state.outline,
+    requireHeightExportOutline,
+    exportWorkOrigin,
+    buildInterpolatedHeightGrid,
+    fieldProbeHeightReference,
+    axisValue,
+    pathNum,
+    fieldProbeSpotGap,
+    PROBE_SPOT_DIAMETER_MM,
+  });
 }
 
-function buildInterpolatedHeightGrid(origin) {
-  requireHeightExportOutline();
-  const rawOutline = outlineExportPoints(origin);
-  const outline = outlineEffectiveExportPoints(origin);
-  const samples = fieldProbeExportPoints(origin);
-  if (rawOutline.length < 3 || outline.length < 3) throw new Error("closed outline needs at least three valid points");
-  if (samples.length < 3) throw new Error("field probe needs at least three samples");
-  const ext = exportExtents({ x_min: Infinity, x_max: -Infinity, y_min: Infinity, y_max: -Infinity }, outline);
-  const spacing = fieldProbeCenterSpacing();
-  const cols = Math.max(2, Math.min(512, Math.floor(ext.width / spacing) + 1));
-  const rows = Math.max(2, Math.min(512, Math.floor(ext.height / spacing) + 1));
-  const actualX = ext.width / Math.max(1, cols - 1);
-  const actualY = ext.height / Math.max(1, rows - 1);
-  const grid = [];
-  for (let r = 0; r < rows; r++) {
-    const y = ext.y_min + r * actualY;
-    const row = [];
-    for (let c = 0; c < cols; c++) {
-      const x = ext.x_min + c * actualX;
-      if (!pointInPolygonOrBoundary({ x, y }, outline)) {
-        row.push(null);
-        continue;
-      }
-      row.push({ x, y, z: interpolateZ(x, y, samples) });
-    }
-    grid.push(row);
-  }
-  return {
-    points: grid,
-    rows,
-    cols,
-    xMin: ext.x_min,
-    xMax: ext.x_max,
-    yMin: ext.y_min,
-    yMax: ext.y_max,
-    xSpacing: actualX,
-    ySpacing: actualY,
-  };
+function buildInterpolatedHeightGrid(origin, outlineState = state.outline) {
+  return buildInterpolatedHeightGridDocument({
+    origin,
+    getOutline: () => outlineState,
+    requireHeightExportOutline,
+    outlineExportPoints,
+    outlineEffectiveExportPoints,
+    fieldProbeExportPoints,
+    exportExtents,
+    fieldProbeSpotGap,
+    fieldProbeCenterSpacing,
+    pointInPolygonOrBoundary,
+    interpolateZ: interpolateZDocument,
+  });
 }
 
 function interpolateZ(x, y, samples) {
-  let num = 0;
-  let den = 0;
-  for (const s of samples) {
-    const dx = x - s.x;
-    const dy = y - s.y;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < 1e-9) return s.z;
-    const w = 1 / d2;
-    num += s.z * w;
-    den += w;
-  }
-  return den ? num / den : 0;
+  return interpolateZDocument(x, y, samples);
 }
+
 
 function renderActiveGcode(...args) {
   return activeJobView?.renderActiveGcode(...args);

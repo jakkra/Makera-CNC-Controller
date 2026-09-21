@@ -26,6 +26,7 @@ import { createSettingsFeature, defaultMachineSettings } from "./modules/setting
 import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
 import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dxf.js";
 import { createOutlineFilesFeature } from "./modules/outline-files.js";
+import { buildHeightPGM as buildHeightPGMDocument, buildInterpolatedHeightGrid as buildInterpolatedHeightGridDocument, interpolateZ as interpolateZDocument } from "./modules/height-export.js";
 import { closeCommandPopout, commandPanelPlacement, commandPopoutSummary, createCommandUI } from "./modules/command-ui.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
@@ -56,6 +57,7 @@ const navigationModuleSource = readFileSync(join(dirname(fileURLToPath(import.me
 const outlineCaptureModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-capture.js"), "utf8");
 const outlineDXFModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-dxf.js"), "utf8");
 const outlineFilesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-files.js"), "utf8");
+const heightExportModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/height-export.js"), "utf8");
 const commandUIModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/command-ui.js"), "utf8");
 const surfaceJogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-jog.js"), "utf8");
 // Transitional VM tests retain their assertions against these exact production helpers.
@@ -150,6 +152,13 @@ test("shared helpers are imported as production ES modules", async () => {
   assert.equal(typeof createCommandUI, "function");
   assert.match(source, /import \{ createCommandUI \} from "\.\/modules\/command-ui\.js";/);
   assert.match(commandUIModuleSource, /export function createCommandUI/);
+  assert.equal(typeof buildHeightPGMDocument, "function");
+  assert.equal(typeof buildInterpolatedHeightGridDocument, "function");
+  assert.equal(typeof interpolateZDocument, "function");
+  assert.match(source, /from "\.\/modules\/height-export\.js";/);
+  assert.match(heightExportModuleSource, /export function buildHeightPGM/);
+  assert.match(heightExportModuleSource, /export function buildInterpolatedHeightGrid/);
+  assert.match(heightExportModuleSource, /export function interpolateZ/);
   assert.doesNotMatch(source, /function fmtCoord\(/);
   assert.doesNotMatch(source, /function fmtPos\(/);
   assert.doesNotMatch(source, /function fmtDuration\(/);
@@ -326,6 +335,9 @@ function buildContext(functionNames, constNames = [], globals = {}) {
     computeMobileWorkAreaJogAxes,
     isMobileWorkAreaJogEnabled,
     computeMobileWorkAreaJogRadius,
+    buildHeightPGMDocument,
+    buildInterpolatedHeightGridDocument,
+    interpolateZDocument,
     ...globals,
   });
   const code = constNames.map(extractConst).concat(functionNames.map(extractFunction)).join("\n");
@@ -4006,11 +4018,14 @@ test("height exports reject an open outline even when probe samples were loaded"
   };
   const ctx = buildContext(["buildHeightOBJ", "buildHeightPGM", "requireHeightExportOutline"], [], { state });
   for (const exporter of ["buildHeightOBJ", "buildHeightPGM"]) {
-    assert.throws(
-      () => vm.runInContext(exporter + "()", ctx),
-      /closed outline needs at least three points/,
-      exporter + " must reject an open outline before generating output",
-    );
+    const run = exporter === "buildHeightPGM"
+      ? () => buildHeightPGMDocument({
+        getOutline: () => state.outline,
+        requireHeightExportOutline: ctx.requireHeightExportOutline,
+        exportWorkOrigin: () => { throw new Error("must validate outline first"); },
+      })
+      : () => vm.runInContext(exporter + "()", ctx);
+    assert.throws(run, /closed outline needs at least three points/, exporter + " must reject an open outline before generating output");
   }
 });
 
