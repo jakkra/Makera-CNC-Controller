@@ -8,6 +8,7 @@ import {
   outlineJSONDocument,
   outlineStateFromJSON,
 } from "./modules/outline-io.js";
+import { createOutlineFilesFeature } from "./modules/outline-files.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const outlineModuleSource = readFileSync(
@@ -167,9 +168,10 @@ test("outline file load reports transient completion only through the bottom sta
     feedbackKind: "",
   };
   let previewUpdates = 0;
-  const ctx = vm.createContext({
-    state,
-    confirm: () => true,
+  const feature = createOutlineFilesFeature({
+    getOutline: () => state.outline,
+    setOutline: (value) => { state.outline = value; },
+    confirmRef: () => true,
     outlineStateFromJSON: () => loaded,
     cancelOutlineCaptureIntents: () => {},
     markGcodeContextOverlayDirty: () => {},
@@ -178,11 +180,7 @@ test("outline file load reports transient completion only through the bottom sta
     renderWorkArea: () => {},
     setStatusMessage: (...args) => messages.push(args),
   });
-  vm.runInContext([
-    extractFunction("installLoadedOutlineState"),
-    extractFunction("loadOutlineFile"),
-  ].join("\n"), ctx);
-  await vm.runInContext(`loadOutlineFile({text: async () => "{}"})`, ctx);
+  await feature.loadOutlineFile({text: async () => "{}"});
 
   assert.equal(state.outline, loaded);
   assert.equal(previewUpdates, 1, "a loaded closed outline always regenerates the current probe plan");

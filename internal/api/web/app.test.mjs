@@ -25,6 +25,7 @@ import { beginFileAction, createFileCatalog, createFileHelpers, endFileAction, f
 import { createSettingsFeature, defaultMachineSettings } from "./modules/settings.js";
 import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
 import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dxf.js";
+import { createOutlineFilesFeature } from "./modules/outline-files.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
@@ -53,6 +54,7 @@ const workareaModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta
 const navigationModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/navigation.js"), "utf8");
 const outlineCaptureModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-capture.js"), "utf8");
 const outlineDXFModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-dxf.js"), "utf8");
+const outlineFilesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-files.js"), "utf8");
 const surfaceJogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-jog.js"), "utf8");
 // Transitional VM tests retain their assertions against these exact production helpers.
 const feedbackHelpers = new Set(["setNotice", "noticeTimeoutMs", "statusMessageSignature", "setStatusMessage", "consumeStatusFeedback", "clearNotice", "setConnectivityIssue", "clearConnectivityIssue", "renderConnectivityNotice", "noticeItemRects", "animateNoticeReflow", "dismissNotice", "renderNoticeBar"]);
@@ -140,6 +142,9 @@ test("shared helpers are imported as production ES modules", async () => {
   assert.equal(typeof buildOutlineDXFDocument, "function");
   assert.match(source, /import \{ buildOutlineDXF as buildOutlineDXFDocument \} from "\.\/modules\/outline-dxf\.js";/);
   assert.match(outlineDXFModuleSource, /export function buildOutlineDXF/);
+  assert.equal(typeof createOutlineFilesFeature, "function");
+  assert.match(source, /import \{ createOutlineFilesFeature \} from "\.\/modules\/outline-files\.js";/);
+  assert.match(outlineFilesModuleSource, /export function createOutlineFilesFeature/);
   assert.doesNotMatch(source, /function fmtCoord\(/);
   assert.doesNotMatch(source, /function fmtPos\(/);
   assert.doesNotMatch(source, /function fmtDuration\(/);
@@ -3227,6 +3232,11 @@ test("loading measured outline data still installs a freshly generated probe pla
   const ctx = buildContext(["installLoadedOutlineState"], [], {
     state,
     next,
+    installLoadedOutlineStateFeature: (value) => {
+      state.outline = value;
+      previewUpdates++;
+      state.outline.fieldProbePreview = [{ id: "field-probe-0001", x: 20, y: 20 }];
+    },
     updateFieldProbePreview: () => {
       previewUpdates++;
       state.outline.fieldProbePreview = [{ id: "field-probe-0001", x: 20, y: 20 }];

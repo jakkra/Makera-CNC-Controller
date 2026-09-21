@@ -25,6 +25,7 @@ import { createSurfaceJogFeature, loadSurfaceViewPreferences, saveSurfaceViewPre
 import { createOutlineFeature } from "./modules/outline.js";
 import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
 import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dxf.js";
+import { createOutlineFilesFeature } from "./modules/outline-files.js";
 import {
   addOutlinePolylineDXF,
   boundedOutlineNumber as boundOutlineNumber,
@@ -895,6 +896,28 @@ const {
 const fieldProbeMoveCandidate = (local) => outlineFeature.fieldProbeMoveCandidate(
   local, workAreaToMachinePoint, workAreaLocalToContentPoint, cloneOutlineOrigin, currentWorkOrigin,
 );
+
+const outlineFilesFeature = createOutlineFilesFeature({
+  documentRef: document,
+  getOutline: () => state.outline,
+  setOutline: (value) => { state.outline = value; },
+  outlineJSONDocument: () => outlineJSONDocument(),
+  outlineStateFromJSON: (doc) => outlineStateFromJSON(doc),
+  cancelOutlineCaptureIntents,
+  markGcodeContextOverlayDirty,
+  updateFieldProbePreview,
+  renderOutlineCapture: (...args) => renderOutlineCapture(...args),
+  renderWorkArea: (...args) => renderWorkArea(...args),
+  setOutlineFeedback,
+  setStatusMessage,
+  confirmRef: (message) => confirm(message),
+});
+const {
+  downloadBlob: downloadOutlineBlob,
+  saveOutlineJSON: saveOutlineJSONFeature,
+  loadOutlineFile: loadOutlineFileFeature,
+  installLoadedOutlineState: installLoadedOutlineStateFeature,
+} = outlineFilesFeature;
 
 
 const dashboardProfileState = {
@@ -3029,40 +3052,15 @@ function outlineJSONDocument() {
 }
 
 function saveOutlineJSON() {
-  try {
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    downloadBlob("cnc-outline-" + stamp + ".json", JSON.stringify(outlineJSONDocument(), null, 2) + "\n", "application/json");
-    setOutlineFeedback("Outline JSON export started.", "ok");
-  } catch (e) {
-    setOutlineFeedback("Save outline failed: " + e.message, "error");
-  }
+  return saveOutlineJSONFeature();
 }
 
 async function loadOutlineFile(file) {
-  if (!file) return;
-  const current = state.outline;
-  if (current.points.length && !confirm("Load this outline and replace the current captured outline?")) return;
-  current.filePending = true;
-  setStatusMessage("outline", "Loading outline...", "", { force: true });
-  renderOutlineCapture();
-  try {
-    const next = outlineStateFromJSON(JSON.parse(await file.text()));
-    installLoadedOutlineState(next);
-    renderOutlineCapture();
-    renderWorkArea();
-    setStatusMessage("outline", "Loaded outline with " + next.points.length + " points.", "ok", { force: true });
-  } catch (e) {
-    current.filePending = false;
-    renderOutlineCapture();
-    setStatusMessage("outline", "Load outline failed: " + e.message, "error", { force: true });
-  }
+  return loadOutlineFileFeature(file);
 }
 
 function installLoadedOutlineState(next) {
-  cancelOutlineCaptureIntents(state.outline);
-  state.outline = next;
-  markGcodeContextOverlayDirty();
-  if (next.closed) updateFieldProbePreview();
+  return installLoadedOutlineStateFeature(next);
 }
 
 function outlineStateFromJSON(doc) {
@@ -3094,14 +3092,7 @@ function outlinePointFromJSON(raw, index) {
 }
 
 function downloadBlob(filename, content, type) {
-  const blob = content instanceof Blob ? content : new Blob([content], { type });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  return downloadOutlineBlob(filename, content, type);
 }
 
 function exportWorkOrigin() {
