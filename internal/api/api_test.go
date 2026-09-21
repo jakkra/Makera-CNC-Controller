@@ -1296,7 +1296,25 @@ func TestWebUIServed(t *testing.T) {
 	gcodeModule := get(t, srv.URL+"/modules/gcode-viewer.js")
 	gcodeModuleBody, _ := io.ReadAll(gcodeModule.Body)
 	gcodeModule.Body.Close()
-	webSource := string(jsBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody)
+	machineStatusModule := get(t, srv.URL+"/modules/machine-status.js")
+	machineStatusBody, _ := io.ReadAll(machineStatusModule.Body)
+	machineStatusModule.Body.Close()
+	navigationModule := get(t, srv.URL+"/modules/navigation.js")
+	navigationBody, _ := io.ReadAll(navigationModule.Body)
+	navigationModule.Body.Close()
+	settingsModule := get(t, srv.URL+"/modules/settings.js")
+	settingsBody, _ := io.ReadAll(settingsModule.Body)
+	settingsModule.Body.Close()
+	workareaModule := get(t, srv.URL+"/modules/workarea-outline.js")
+	workareaBody, _ := io.ReadAll(workareaModule.Body)
+	workareaModule.Body.Close()
+	outlineModule := get(t, srv.URL+"/modules/outline.js")
+	outlineBody, _ := io.ReadAll(outlineModule.Body)
+	outlineModule.Body.Close()
+	outlineIOModule := get(t, srv.URL+"/modules/outline-io.js")
+	outlineIOBody, _ := io.ReadAll(outlineIOModule.Body)
+	outlineIOModule.Body.Close()
+	webSource := string(jsBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(navigationBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody)
 	for _, want := range []string{"export function mountFilesCommands", "export function mountFilesTransitions", "export function mountFilesJobRefresh"} {
 		if filesModule.StatusCode != http.StatusOK || !strings.Contains(string(filesModuleBody), want) {
 			t.Errorf("modules/files.js missing %s (status=%d)", want, filesModule.StatusCode)
@@ -1331,6 +1349,12 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/tool-actions.js", "export function createToolActions"},
 		{"/modules/origin-probing.js", "export function createOriginProbing"},
 		{"/modules/dashboard-profiles.js", "export function createDashboardProfiles"},
+		{"/modules/machine-status.js", "export function createMachineStatusFeature"},
+		{"/modules/navigation.js", "export function createNavigationFeature"},
+		{"/modules/settings.js", "export function createSettingsFeature"},
+		{"/modules/workarea-outline.js", "export function mountWorkareaOutline"},
+		{"/modules/outline.js", "export function createOutlineFeature"},
+		{"/modules/outline-io.js", "export function outlineJSONDocument"},
 	} {
 		module := get(t, srv.URL+asset.path)
 		moduleBody, _ := io.ReadAll(module.Body)
@@ -1351,15 +1375,15 @@ func TestWebUIServed(t *testing.T) {
 		t.Errorf("unknown module status=%d, want 404", missingModule.StatusCode)
 	}
 	for _, want := range []string{`function machineReadoutModel`, `function renderMachineReadouts`, `data-machine-space="work"`, `data-machine-space="machine"`} {
-		if !strings.Contains(string(jsBody), want) {
+		if !strings.Contains(webSource, want) && !strings.Contains(bodyText, want) {
 			t.Errorf("app.js missing dashboard position hierarchy marker %s", want)
 		}
 	}
 	if !strings.Contains(string(liveBody), "/api/events?scope=control") || !strings.Contains(string(liveBody), "/api/events?scope=files") {
 		t.Errorf("app.js missing scoped event streams")
 	}
-	for _, want := range []string{`setAttribute("aria-selected", String(active))`, `if (e.key === "ArrowRight")`, `else if (e.key === "Home")`, `window.addEventListener("popstate"`, `showTab(viewTabFromURL(), "replace")`} {
-		if !strings.Contains(string(jsBody), want) {
+	for _, want := range []string{`setAttribute("aria-selected", String(active))`, `if (e.key === "ArrowRight")`, `else if (e.key === "Home")`, `window.addEventListener("popstate"`, `showTab(viewTabFromURL(window.location`} {
+		if !strings.Contains(webSource, want) {
 			t.Errorf("app.js missing accessible tab behavior %s", want)
 		}
 	}
@@ -1370,7 +1394,7 @@ func TestWebUIServed(t *testing.T) {
 		t.Errorf("app.js missing machine status notice lifecycle")
 	}
 	for _, want := range []string{`function attentionResumeAction`, `return "resume_job"`, `return "resume"`, `id="mobile-actions-toggle"`, `class="surface-jog-panel attention-surface"`, `state.readOnly || !resumeAction`, `Disarm other controller`, `classList.add("mobile-menu-open")`} {
-		if !strings.Contains(string(jsBody), want) && !strings.Contains(bodyText, want) {
+		if !strings.Contains(webSource, want) && !strings.Contains(bodyText, want) {
 			t.Errorf("Surface controller shell missing marker %s", want)
 		}
 	}
@@ -1385,8 +1409,8 @@ func TestWebUIServed(t *testing.T) {
 			t.Errorf("feedback.js missing overlay notification stack behavior %s", want)
 		}
 	}
-	for _, want := range []string{"function mobileWorkAreaJogEnabled", "function mobileWorkAreaJogAxes", "function startMobileWorkAreaJog", "function updateMobileWorkAreaJog", "function stopMobileWorkAreaJog", `if (state.workarea?.mobileJogActive)`, `sendJog({ type: "input", deadman: false`} {
-		if !strings.Contains(string(jsBody), want) {
+	for _, want := range []string{"function mobileWorkAreaJogEnabled", "function mobileWorkAreaJogAxes", "function startMobileWorkAreaJog", "function updateMobileWorkAreaJog", "function stopMobileWorkAreaJog", `state.workarea?.mobileJogActive`, `sendJog({ type: "input", deadman: false`} {
+		if !strings.Contains(webSource, want) {
 			t.Errorf("app.js missing mobile work-area jog behavior %s", want)
 		}
 	}
@@ -1407,7 +1431,7 @@ func TestWebUIServed(t *testing.T) {
 		}
 	}
 	for _, want := range []string{`function requestMovementDisarm`, `function disarmMovementOnControlExit`, `disarmMovementOnControlExit(name);`, `disarmAfterPendingArm`} {
-		if !strings.Contains(string(jsBody), want) {
+		if !strings.Contains(webSource, want) {
 			t.Errorf("app.js missing automatic Movement disarm behavior %s", want)
 		}
 	}
@@ -1418,12 +1442,12 @@ func TestWebUIServed(t *testing.T) {
 		t.Errorf("app.js missing work area, tap move, jog status messaging, or cache-only status polling")
 	}
 	for _, want := range []string{"defaultOutlineState", "startOutlineCapture", "endOutlineCapture", "addOutlinePoint", "undoOutline", "redoOutline", "closeOutline", "toggleOutlineCurveFit", "traceOutline", "traceOutlineMachinePoints", "/api/outline/trace", "probeFloor", "rebaseOutlineToFloor", "/api/probe/floor", "floor_machine_z", "runFieldProbe", "probeZAtWorkPoint", "currentOutlineCapturePosition", "retractZMM: startZMM", "/api/probe/z", "PROBE_SPOT_DIAMETER_MM", "OUTLINE_CURVE_TOLERANCE_MM", "MAX_EFFECTIVE_OUTLINE_POINTS", "effectiveOutlineGeometry", "outlineEffectiveExportPoints", "buildBoundaryProbePoints", "buildRelaxedProbePoints", "relaxProbeDistribution", "probeSpotFitsPolygon", "renderWorkAreaOutline", "renderWorkAreaFieldProbePreview", "outlinePathD", "outlineCubicSegments", "buildOutlineDXF", "outlineJSONDocument", "saveOutlineJSON", "loadOutlineFile", "outlineStateFromJSON", "application/json", "application/dxf", "$INSUNITS", "AC1009", "POLYLINE", "VERTEX", "SEQEND", "buildHeightMeshVertices", "exportHeightOBJ", "exportHeightImage", "safe_z_enabled", "safe_z_disabled"} {
-		if !strings.Contains(string(jsBody), want) && !strings.Contains(string(geometryBody), want) {
+		if !strings.Contains(webSource, want) && !strings.Contains(string(geometryBody), want) {
 			t.Errorf("app.js missing outline capture behavior %s", want)
 		}
 	}
 	for _, want := range []string{"confirmProbeAction", "floor_probe", "field_reference_machine_z", "fieldProbeHeightReference", "exportWorkOrigin", "requireHeightExportOutline", "buildHeightOBJ", "buildHeightPGM", "constrainedOutlineTriangles", "improveConstrainedDelaunay"} {
-		if !strings.Contains(string(jsBody), want) && !strings.Contains(originSource, want) {
+		if !strings.Contains(webSource, want) && !strings.Contains(originSource, want) {
 			t.Errorf("app.js missing probe confirmation, persistence, or mesh behavior %s", want)
 		}
 	}
@@ -1491,17 +1515,17 @@ func TestWebUIServed(t *testing.T) {
 		}
 	}
 	for _, want := range []string{"loadUISettings", "saveUISettings", "renderMacroButtons", "runMacro", "/api/ui/settings"} {
-		if !strings.Contains(string(jsBody), want) {
+		if !strings.Contains(webSource, want) {
 			t.Errorf("app.js missing %s", want)
 		}
 	}
 	for _, want := range []string{"defaultGamepadSettings", "renderGamepadSettings", "mappedAxis", "handleGamepadMacroButtons", "addGamepadMacroBinding", "gamepadLabel", "Xbox-compatible gamepad", "standard gamepad", "defaultMachineSettings", "normalizeMachineLearned", "renderMachineSettings", "machineLearnedSummaryLines", "learnMachineParameters", "renderOriginSetChange", "learned_profiles", "openMachineSettings", "closeMachineSettings", "showModal", "connection-status", "Machine connection outage", "/api/machine/learn", "updateWorkAreaHoverPosition", "handleWorkAreaTap", "bindWorkAreaInteractions", "zoomWorkArea"} {
-		if !strings.Contains(string(jsBody), want) {
+		if !strings.Contains(webSource, want) && !strings.Contains(bodyText, want) {
 			t.Errorf("app.js missing %s", want)
 		}
 	}
 	for _, want := range []string{"scheduleJogReconnect", "clearJogReconnect", "preferredPadIndex", "visibilitychange", "armQueuedAction", "flushQueuedTapMoveArm", "tapMoveArmFailureText", "setSoftDisabled"} {
-		if !strings.Contains(string(jsBody), want) {
+		if !strings.Contains(webSource, want) {
 			t.Errorf("app.js missing jog reconnect behavior %s", want)
 		}
 	}

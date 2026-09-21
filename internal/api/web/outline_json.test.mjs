@@ -4,26 +4,17 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import {
+  outlineJSONDocument,
+  outlineStateFromJSON,
+} from "./modules/outline-io.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const outlineModuleSource = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "modules/outline.js"),
   "utf8",
 );
-const outlineHelpers = new Set([
-  "fieldProbeSpotGap",
-  "fieldProbeCenterSpacing",
-  "outlineWorkPoints",
-  "fieldProbePlanPointMatchesResult",
-  "selectedFieldProbePoint",
-  "selectedFieldProbeResult",
-  "selectFieldProbePoint",
-  "outlinePointLabel",
-  "outlineSummaryText",
-  "setOutlineFeedback",
-  "isProbeToolActive",
-  "is3DProbeToolActive",
-]);
+const outlineHelpers = new Set(["fieldProbePlanPointMatchesResult"]);
 
 function extractFunction(name) {
   const functionSource = outlineHelpers.has(name)
@@ -41,35 +32,47 @@ function extractFunction(name) {
   throw new Error("unbalanced function body: " + name);
 }
 
-function extractConst(name) {
-  const match = source.match(new RegExp("^const " + name + " = .*;$", "m"));
-  if (!match) throw new Error("constant not found in app.js: " + name);
-  return match[0];
-}
-
-function outlineJSONContext(state) {
-  const ctx = vm.createContext({ state });
-  const constants = [
-    "DEFAULT_FIELD_SPOT_GAP_MM",
-    "MAX_FIELD_PROBE_POINTS",
-    "MAX_EFFECTIVE_OUTLINE_POINTS",
-  ];
-  const functions = [
-    "axisValue",
-    "cloneOutlinePoint",
-    "cloneOutlineOrigin",
-    "cloneFloorProbe",
-    "defaultOutlineState",
-    "fieldProbeSpotGap",
-    "outlineJSONDocument",
-    "outlineStateFromJSON",
-    "floorProbeFromJSON",
-    "outlineOriginFromJSON",
-    "boundedOutlineNumber",
-    "outlinePointFromJSON",
-  ];
-  vm.runInContext(constants.map(extractConst).concat(functions.map(extractFunction)).join("\n"), ctx);
-  return ctx;
+function outlineJSONDependencies() {
+  const cloneOutlinePoint = (p) => ({
+    id: p.id,
+    x: p.x,
+    y: p.y,
+    z: p.z,
+    machine_x: p.machine_x,
+    machine_y: p.machine_y,
+    machine_z: p.machine_z,
+    captured_at: p.captured_at,
+    probed: !!p.probed,
+    probe_output: p.probe_output || "",
+    ...(p.probe_kind ? { probe_kind: p.probe_kind } : {}),
+  });
+  const cloneOutlineOrigin = (origin) => origin ? Object.fromEntries(
+    ["x", "y", "z"].filter((axis) => Number.isFinite(Number(origin[axis]))).map((axis) => [axis, Number(origin[axis])]),
+  ) : null;
+  const cloneFloorProbe = (probe) => probe && Number.isFinite(Number(probe.machine_x)) && Number.isFinite(Number(probe.machine_y)) && Number.isFinite(Number(probe.machine_z))
+    ? {
+      machine_x: Number(probe.machine_x), machine_y: Number(probe.machine_y), machine_z: Number(probe.machine_z),
+      captured_at: typeof probe.captured_at === "string" ? probe.captured_at : "",
+      probe_output: typeof probe.probe_output === "string" ? probe.probe_output : "",
+      verified: probe.verified !== false,
+    }
+    : null;
+  return {
+    cloneOutlinePoint,
+    cloneOutlineOrigin,
+    cloneFloorProbe,
+    fieldProbeSpotGap: () => 4.5,
+    defaultOutlineState: () => ({
+      active: false, points: [], closed: false, curveFit: false, origin: null,
+      fieldSpotGapMM: 8, floorMachineZ: null, floorProbe: null,
+      fieldReferenceMachineZ: null, fieldReferenceKind: "", fieldProbeResults: [],
+    }),
+    newID: (prefix) => prefix + "-generated",
+    axisValue: (values, axis) => Number.isFinite(Number(values?.[axis])) ? Number(values[axis]) : null,
+    maxEffectiveOutlinePoints: 4000,
+    maxFieldProbePoints: 1500,
+    defaultFieldSpotGapMM: 8,
+  };
 }
 
 test("outline JSON save and load preserves the captured outline and samples", () => {
@@ -106,9 +109,9 @@ test("outline JSON save and load preserves the captured outline and samples", ()
       fieldProbeResults: [point("sample", 20, 30, 2.5)],
     },
   };
-  const ctx = outlineJSONContext(state);
-  const document = vm.runInContext("outlineJSONDocument()", ctx);
-  const restored = JSON.parse(vm.runInContext("JSON.stringify(outlineStateFromJSON(" + JSON.stringify(document) + "))", ctx));
+  const dependencies = outlineJSONDependencies();
+  const document = outlineJSONDocument(state.outline, dependencies);
+  const restored = outlineStateFromJSON(document, dependencies);
 
   assert.equal(document.kind, "capture-outline");
   assert.equal(document.version, 1);
@@ -135,13 +138,13 @@ test("outline JSON save and load preserves the captured outline and samples", ()
 });
 
 test("outline JSON load rejects malformed geometry", () => {
-  const ctx = outlineJSONContext({ outline: {} });
+  const dependencies = outlineJSONDependencies();
   assert.throws(
-    () => vm.runInContext(`outlineStateFromJSON({app: "cnc-proxy", kind: "capture-outline", version: 1, units: "mm", outline: {points: [{x: 0, y: 0}]}})`, ctx),
+    () => outlineStateFromJSON({app: "cnc-proxy", kind: "capture-outline", version: 1, units: "mm", outline: {points: [{x: 0, y: 0}]}}, dependencies),
     /between 2 and/,
   );
   assert.throws(
-    () => vm.runInContext(`outlineStateFromJSON({app: "cnc-proxy", kind: "capture-outline", version: 1, units: "mm", outline: {points: [{id: "a", x: 0, y: 0, z: 0, machine_x: 0, machine_y: 0, machine_z: 0}, {id: "b", x: "bad", y: 0, z: 0, machine_x: 0, machine_y: 0, machine_z: 0}]}})`, ctx),
+    () => outlineStateFromJSON({app: "cnc-proxy", kind: "capture-outline", version: 1, units: "mm", outline: {points: [{id: "a", x: 0, y: 0, z: 0, machine_x: 0, machine_y: 0, machine_z: 0}, {id: "b", x: "bad", y: 0, z: 0, machine_x: 0, machine_y: 0, machine_z: 0}]}}, dependencies),
     /missing x/,
   );
 });
