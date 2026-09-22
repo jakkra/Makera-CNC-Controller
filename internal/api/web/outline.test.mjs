@@ -52,3 +52,83 @@ test("outline feature follows replaced outline state and tool state", () => {
   assert.equal(fixtureState.feature.isProbeToolActive(), true);
   assert.equal(fixtureState.feature.is3DProbeToolActive(), false);
 });
+
+function historyFeature(outline, calls) {
+  return createOutlineFeature({
+    getOutline: () => outline,
+    renderOutlineCapture: () => calls.push(["outline-render", outline.feedback]),
+    renderWorkArea: () => calls.push(["workarea-render", outline.feedback]),
+    pushOutlineUndo: () => calls.push(["push-undo", outline.closed, outline.points.length]),
+    outlineSnapshot: () => {
+      calls.push(["snapshot", outline.points[0]?.x]);
+      return { active: outline.active, closed: outline.closed, points: outline.points.map((point) => ({ ...point })) };
+    },
+    restoreOutlineSnapshot: (snapshot) => {
+      calls.push(["restore", snapshot.points[0]?.x]);
+      outline.active = snapshot.active;
+      outline.closed = snapshot.closed;
+      outline.points = snapshot.points.map((point) => ({ ...point }));
+    },
+    updateFieldProbePreview: () => calls.push(["preview", outline.closed]),
+  });
+}
+
+test("closing an outline keeps its validation, undo, preview, and render order", () => {
+  const outline = { points: [{}], closed: false, active: false, feedback: "", feedbackKind: "" };
+  const calls = [];
+  const feature = historyFeature(outline, calls);
+  feature.closeOutline();
+  assert.equal(outline.feedback, "Close outline needs at least two points.");
+  assert.equal(outline.feedbackKind, "error");
+  assert.deepEqual(calls, [["outline-render", "Close outline needs at least two points."]]);
+
+  calls.length = 0;
+  outline.points = [{ x: 0, y: 0 }, { x: 5, y: 0 }];
+  outline.closed = true;
+  feature.closeOutline();
+  assert.equal(outline.feedback, "Outline is already closed.");
+  assert.equal(outline.feedbackKind, "error");
+  assert.deepEqual(calls, [["outline-render", "Outline is already closed."]]);
+
+  calls.length = 0;
+  outline.closed = false;
+  outline.points = [{ x: 0, y: 0 }, { x: 5, y: 0 }];
+  feature.closeOutline();
+  assert.equal(outline.active, true);
+  assert.equal(outline.closed, true);
+  assert.equal(outline.feedback, "Outline closed.");
+  assert.equal(outline.feedbackKind, "ok");
+  assert.deepEqual(calls, [
+    ["push-undo", false, 2],
+    ["preview", true],
+    ["outline-render", "Outline closed."],
+    ["workarea-render", "Outline closed."],
+  ]);
+});
+
+test("outline undo and redo preserve snapshot stack ordering and render lifecycle", () => {
+  const previous = { active: false, closed: false, points: [{ x: 1, y: 1 }] };
+  const outline = {
+    active: true, closed: true, points: [{ x: 2, y: 2 }], undo: [previous], redo: [],
+    feedback: "", feedbackKind: "",
+  };
+  const calls = [];
+  const feature = historyFeature(outline, calls);
+  feature.undoOutline();
+  assert.deepEqual(outline.points, [{ x: 1, y: 1 }]);
+  assert.deepEqual(outline.undo, []);
+  assert.deepEqual(outline.redo, [{ active: true, closed: true, points: [{ x: 2, y: 2 }] }]);
+  assert.equal(outline.feedback, "Undo.");
+  assert.deepEqual(calls.splice(0), [
+    ["snapshot", 2], ["restore", 1], ["outline-render", "Undo."], ["workarea-render", "Undo."],
+  ]);
+
+  feature.redoOutline();
+  assert.deepEqual(outline.points, [{ x: 2, y: 2 }]);
+  assert.deepEqual(outline.undo, [{ active: false, closed: false, points: [{ x: 1, y: 1 }] }]);
+  assert.deepEqual(outline.redo, []);
+  assert.equal(outline.feedback, "Redo.");
+  assert.deepEqual(calls, [
+    ["snapshot", 1], ["restore", 2], ["outline-render", "Redo."], ["workarea-render", "Redo."],
+  ]);
+});

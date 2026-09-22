@@ -909,6 +909,10 @@ const outlineFeature = createOutlineFeature({
   getWorkarea: () => state.workarea,
   renderOutlineCapture,
   renderWorkArea: (...args) => renderWorkArea(...args),
+  pushOutlineUndo,
+  outlineSnapshot,
+  restoreOutlineSnapshot,
+  updateFieldProbePreview,
   setTapFeedback,
   fmtCoord,
   axisValue,
@@ -924,7 +928,8 @@ const {
   fieldProbePlanPointMatchesResult, selectedFieldProbePoint, unprobedFieldProbePoints,
   selectedFieldProbeResult, selectFieldProbePoint, outlinePointLabel,
   outlineSummaryText, setOutlineFeedback, isProbeToolActive,
-  is3DProbeToolActive,
+  is3DProbeToolActive, closeOutline: closeOutlineFeature,
+  undoOutline: undoOutlineFeature, redoOutline: redoOutlineFeature,
 } = outlineFeature;
 workareaRender = createWorkareaRenderers({
   stateFacade: state,
@@ -1402,51 +1407,9 @@ function failOutlineCaptureIntents(message) { return outlineCaptureOperations.fa
 function requestOutlinePositionCapture(o) { return outlineCaptureOperations.requestOutlinePositionCapture(o); }
 function addOutlinePoint() { return outlineCaptureOperations.addOutlinePoint(); }
 
-function closeOutline() {
-  const o = state.outline;
-  if (o.points.length < 2) {
-    setOutlineFeedback("Close outline needs at least two points.", "error");
-    return;
-  }
-  if (o.closed) {
-    setOutlineFeedback("Outline is already closed.", "error");
-    return;
-  }
-  pushOutlineUndo();
-  o.active = true;
-  o.closed = true;
-  updateFieldProbePreview();
-  o.feedback = "Outline closed.";
-  o.feedbackKind = "ok";
-  renderOutlineCapture();
-  renderWorkArea();
-}
-
-function undoOutline() {
-  const o = state.outline;
-  if (!o.undo.length) return;
-  const current = outlineSnapshot();
-  const prev = o.undo.pop();
-  o.redo.push(current);
-  restoreOutlineSnapshot(prev);
-  o.feedback = "Undo.";
-  o.feedbackKind = "ok";
-  renderOutlineCapture();
-  renderWorkArea();
-}
-
-function redoOutline() {
-  const o = state.outline;
-  if (!o.redo.length) return;
-  const current = outlineSnapshot();
-  const next = o.redo.pop();
-  o.undo.push(current);
-  restoreOutlineSnapshot(next);
-  o.feedback = "Redo.";
-  o.feedbackKind = "ok";
-  renderOutlineCapture();
-  renderWorkArea();
-}
+function closeOutline() { return closeOutlineFeature(); }
+function undoOutline() { return undoOutlineFeature(); }
+function redoOutline() { return redoOutlineFeature(); }
 
 function renderOutlineCapture() {
   return outlineView?.renderOutlineCapture();

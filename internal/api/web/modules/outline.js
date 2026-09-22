@@ -27,6 +27,7 @@ export function createOutlineFeature({
   pushOutlineUndo = () => {},
   outlineSnapshot = () => null,
   restoreOutlineSnapshot = () => {},
+  updateFieldProbePreview = () => {},
   confirmRef = async () => false,
   fmtCoord = (value) => Number.isFinite(Number(value)) ? Number(value).toFixed(3) : "-",
   axisValue = (values, axis) => values?.[axis] ?? null,
@@ -135,7 +136,54 @@ export function createOutlineFeature({
     return polygon.length >= 3 && pointInPolygonOrBoundary(candidate, polygon) ? candidate : null;
   }
 
+  function closeOutline() {
+    const o = state.outline;
+    if (o.points.length < 2) {
+      setOutlineFeedback("Close outline needs at least two points.", "error");
+      return;
+    }
+    if (o.closed) {
+      setOutlineFeedback("Outline is already closed.", "error");
+      return;
+    }
+    pushOutlineUndo();
+    o.active = true;
+    o.closed = true;
+    updateFieldProbePreview();
+    o.feedback = "Outline closed.";
+    o.feedbackKind = "ok";
+    renderOutlineCapture();
+    renderWorkArea();
+  }
+
+  function undoOutline() {
+    const o = state.outline;
+    if (!o.undo.length) return;
+    const current = outlineSnapshot();
+    const prev = o.undo.pop();
+    o.redo.push(current);
+    restoreOutlineSnapshot(prev);
+    o.feedback = "Undo.";
+    o.feedbackKind = "ok";
+    renderOutlineCapture();
+    renderWorkArea();
+  }
+
+  function redoOutline() {
+    const o = state.outline;
+    if (!o.redo.length) return;
+    const current = outlineSnapshot();
+    const next = o.redo.pop();
+    o.undo.push(current);
+    restoreOutlineSnapshot(next);
+    o.feedback = "Redo.";
+    o.feedbackKind = "ok";
+    renderOutlineCapture();
+    renderWorkArea();
+  }
+
   return {
+    closeOutline, undoOutline, redoOutline,
     fieldProbeSpotGap, fieldProbeCenterSpacing, outlineWorkPoints,
     fieldProbePlanPointMatchesResult, selectedFieldProbePoint,
     selectedFieldProbeResult, unprobedFieldProbePoints, selectFieldProbePoint, outlinePointLabel,
