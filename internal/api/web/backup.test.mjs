@@ -99,3 +99,38 @@ test("backup import reports file or request failures through the notice channel"
   await readFailure.feature.importBackupFile({ text: async () => { throw new Error("read failed"); } });
   assert.deepEqual(readFailure.notices, [["Backup import failed: read failed", "error", "backup"]]);
 });
+
+test("backup interactions preserve click routing, file handoff, and input reset", () => {
+  const nodes = new Map();
+  let fileClicks = 0;
+  nodes.set("backup-export", {});
+  nodes.set("backup-import", {});
+  nodes.set("backup-file", {
+    click() { fileClicks++; },
+  });
+  const feature = createBackupFeature({
+    documentRef: { getElementById: (id) => nodes.get(id) },
+    request: async () => ({ blob: async () => "blob" }),
+    URLRef: { createObjectURL: () => "blob:url", revokeObjectURL: () => {} },
+    BlobCtor: class {},
+    setTimeoutRef: () => {},
+    locationRef: { reload: () => {} },
+    confirmRef: () => true,
+    setStatusMessage: () => {},
+    setNotice: () => {},
+  });
+  const calls = [];
+  const exportBackup = () => calls.push(["export"]);
+  const importBackupFile = (file) => calls.push(["import", file]);
+  feature.bindInteractions({ exportBackup, importBackupFile });
+
+  nodes.get("backup-export").onclick();
+  nodes.get("backup-import").onclick();
+  const file = { name: "backup.json" };
+  const event = { target: { files: [file], value: "backup.json" } };
+  nodes.get("backup-file").onchange(event);
+
+  assert.deepEqual(calls, [["export"], ["import", file]]);
+  assert.equal(fileClicks, 1);
+  assert.equal(event.target.value, "");
+});

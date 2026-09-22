@@ -43,5 +43,14 @@ export function createBackupFeature({
     }
   }
 
-  return { exportBackup, importBackupFile };
+  function bindInteractions({ exportBackup: exportBackupHandler = exportBackup, importBackupFile: importBackupFileHandler = importBackupFile } = {}) {
+    documentRef.getElementById("backup-export").onclick = exportBackupHandler;
+    documentRef.getElementById("backup-import").onclick = () => documentRef.getElementById("backup-file").click();
+    documentRef.getElementById("backup-file").onchange = (e) => {
+      importBackupFileHandler(e.target.files[0]);
+      e.target.value = "";
+    };
+  }
+
+  return { bindInteractions, exportBackup, importBackupFile };
 }

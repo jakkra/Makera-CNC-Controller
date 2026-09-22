@@ -188,11 +188,13 @@ test("G-code log actions are wired to the production feature module", () => {
 test("backup actions are wired to the production feature module", () => {
   assert.match(source, /import \{ createBackupFeature \} from "\.\/modules\/backup\.js";/);
   assert.match(backupModuleSource, /export function createBackupFeature/);
+  assert.match(backupModuleSource, /function bindInteractions\(/);
+  assert.match(source, /backupFeature\.bindInteractions\(\{ exportBackup, importBackupFile \}\)/);
   assert.match(source, /exportBackup\(\) \{ return exportBackupOperation\(\); \}/);
   assert.match(source, /importBackupFile\(file\) \{ return importBackupFileOperation\(file\); \}/);
-  assert.match(source, /document\.getElementById\("backup-export"\)\.onclick = exportBackup/);
-  assert.match(source, /document\.getElementById\("backup-import"\)\.onclick = \(\) => document\.getElementById\("backup-file"\)\.click\(\)/);
-  assert.match(source, /document\.getElementById\("backup-file"\)\.onchange/);
+  assert.doesNotMatch(source, /document\.getElementById\("backup-export"\)\.onclick = exportBackup/);
+  assert.doesNotMatch(source, /document\.getElementById\("backup-import"\)\.onclick =/);
+  assert.doesNotMatch(source, /document\.getElementById\("backup-file"\)\.onchange/);
 });
 test("shared helpers are imported as production ES modules", async () => {
   assert.match(source, /import \{ createGamepadControls \} from "\.\/modules\/gamepad-controls\.js";/);

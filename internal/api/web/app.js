@@ -2992,12 +2992,7 @@ function init() {
   document.getElementById("log-copy").onclick = copyVisibleLog;
   document.getElementById("log-export").onclick = exportVisibleLog;
   document.getElementById("log-clear").onclick = clearGcodeLog;
-  document.getElementById("backup-export").onclick = exportBackup;
-  document.getElementById("backup-import").onclick = () => document.getElementById("backup-file").click();
-  document.getElementById("backup-file").onchange = (e) => {
-    importBackupFile(e.target.files[0]);
-    e.target.value = "";
-  };
+  backupFeature.bindInteractions({ exportBackup, importBackupFile });
   document.getElementById("macro-new").onclick = newMacro;
   document.getElementById("macro-save").onclick = saveMacroFromForm;
   bindButtonAction(document.getElementById("macro-run"), () => runMacro(macroByID(state.selectedMacroId)));
