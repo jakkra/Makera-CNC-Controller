@@ -313,6 +313,7 @@ const {
   setCheckedIfIdle,
   bindDirtyDraftControls,
   bindMachineSettingsInteractions,
+  bindFeedStepInteractions,
 } = settingsFeature;
 
 const mdiMacros = createMdiMacros({
@@ -2973,9 +2974,7 @@ function init() {
   bindDirtyDraftControls(MACRO_EDITOR_IDS);
   bindGamepadInteractions();
   bindMachineSettingsInteractions();
-  for (const btn of document.querySelectorAll("[data-feed-step]")) {
-    btn.onclick = () => stepTapFeed(Number(btn.dataset.feedStep) || 0);
-  }
+  bindFeedStepInteractions();
   for (const axis of ["x", "y", "z"]) {
     const input = workMoveInput(axis);
     input.oninput = () => {

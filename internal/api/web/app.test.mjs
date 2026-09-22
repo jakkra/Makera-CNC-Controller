@@ -227,6 +227,13 @@ test("machine settings interactions are wired through the settings feature binde
   assert.doesNotMatch(source, /bindDirtyDraftControls\(MACHINE_SETTING_IDS\)/);
   assert.doesNotMatch(source, /document\.getElementById\(id\)\.onchange = updateMachineSettings/);
 });
+
+test("feed step interactions are wired through the settings feature binder", () => {
+  assert.match(settingsModuleSource, /function bindFeedStepInteractions\(/);
+  assert.match(settingsModuleSource, /Number\(btn\.dataset\.feedStep\) \|\| 0/);
+  assert.match(source, /bindFeedStepInteractions\(\)/);
+  assert.doesNotMatch(source, /querySelectorAll\("\[data-feed-step\]"\)/);
+});
 test("shared helpers are imported as production ES modules", async () => {
   assert.match(source, /import \{ createGamepadControls \} from "\.\/modules\/gamepad-controls\.js";/);
   assert.match(gamepadControlsModuleSource, /export function createGamepadControls/);

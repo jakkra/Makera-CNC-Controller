@@ -140,6 +140,23 @@ test("machine settings binder installs dirty drafts and shared onchange handler"
   assert.equal(updates.length, MACHINE_SETTING_IDS.length);
 });
 
+test("feed step binder preserves button values and zero fallback", () => {
+  const buttons = [element(), element(), element()];
+  buttons[0].dataset.feedStep = "500";
+  buttons[1].dataset.feedStep = "-500";
+  buttons[2].dataset.feedStep = "invalid";
+  const documentRef = { querySelectorAll: (selector) => {
+    assert.equal(selector, "[data-feed-step]");
+    return buttons;
+  }, getElementById: () => null };
+  const feature = createSettingsFeature({ documentRef });
+  const deltas = [];
+  feature.bindFeedStepInteractions({ stepTapFeed: (delta) => deltas.push(delta) });
+  assert.equal(buttons.every((button) => typeof button.onclick === "function"), true);
+  buttons.forEach((button) => button.onclick());
+  assert.deepEqual(deltas, [500, -500, 0]);
+});
+
 test("learned summary remains concise and data-derived", () => {
   const lines = machineLearnedSummaryLines({
     identity: { model: "Z1", version: "1.2", file_type: "gcode" },
