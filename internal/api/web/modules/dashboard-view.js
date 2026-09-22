@@ -18,6 +18,18 @@ export function createDashboardView({
 } = {}) {
   const document = documentRef;
 
+  function bindInteractions({ showTab = () => {} } = {}) {
+    const preview = document.getElementById("dashboard-toolpath-fallback");
+    if (!preview) return;
+    const open = () => showTab("active-job");
+    preview.addEventListener("click", open);
+    preview.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      open();
+    });
+  }
+
   function renderDashboard() {
     const machine = getMachine() || {};
     const active = getActiveGcode() || {};
@@ -53,5 +65,5 @@ export function createDashboardView({
     drawDashboardGcodePreview(dashboardPreview, live);
   }
 
-  return { renderDashboard };
+  return { renderDashboard, bindInteractions };
 }

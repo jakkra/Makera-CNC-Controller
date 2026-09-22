@@ -975,6 +975,9 @@ test("dashboard layout controls are hidden and expose their expanded state", () 
 test("dashboard presentation is owned by its feature module", () => {
   assert.match(source, /import \{ createDashboardView \} from "\.\/modules\/dashboard-view\.js";/);
   assert.match(dashboardViewModuleSource, /export function createDashboardView/);
+  assert.match(dashboardViewModuleSource, /function bindInteractions\(\{ showTab = \(\) => \{\} \} = \{\}\)/);
+  assert.match(source, /dashboardView\.bindInteractions\(\{ showTab \}\)/);
+  assert.doesNotMatch(source, /function bindDashboardToolpathShortcut\(\)/);
   const render = extractFunction("renderDashboard");
   assert.match(render, /renderDashboardGcodeStream\(live\)/);
   assert.match(render, /drawDashboardGcodePreview\(dashboardPreview, live\)/);

@@ -1426,6 +1426,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/camera.js", "export function mountDashboardCamera"},
 		{"/modules/dashboard-telemetry.js", "export function createDashboardTelemetry"},
 		{"/modules/dashboard-view.js", "export function createDashboardView"},
+		{"/modules/dashboard-view.js", "function bindInteractions"},
 		{"/modules/gcode-log.js", "export function createGcodeLogFeature"},
 		{"/modules/gcode-log.js", "appendGcodeLine"},
 		{"/modules/gcode-log.js", "async function copyVisibleLog"},

@@ -1803,19 +1803,6 @@ function stopDashboardExternalCamera() {
   return dashboardCamera.stopDashboardExternalCamera();
 }
 
-
-function bindDashboardToolpathShortcut() {
-  const preview = document.getElementById("dashboard-toolpath-fallback");
-  if (!preview) return;
-  const open = () => showTab("active-job");
-  preview.addEventListener("click", open);
-  preview.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    open();
-  });
-}
-
 function renderDashboard() {
   return dashboardView?.renderDashboard();
 }
@@ -2968,7 +2955,7 @@ function init() {
     },
   });
   bindDashboardCameraSwitches();
-  bindDashboardToolpathShortcut();
+  dashboardView.bindInteractions({ showTab });
   bindAttentionInteractions({ bindButtonAction, showTab, runActiveJobControl, sendControl });
 
   loadUISettings();

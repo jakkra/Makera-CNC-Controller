@@ -81,3 +81,25 @@ test("dashboard view preserves external-job and empty preview presentation", () 
   assert.equal(dom.dashboardJob.classList.values.get("is-empty"), true);
   assert.equal(dom.fallback.classList.values.get("has-toolpath"), false);
 });
+
+test("dashboard toolpath fallback opens Active Job from click and keyboard", () => {
+  const dom = dashboardDocument();
+  const listeners = new Map();
+  dom.fallback.addEventListener = (type, handler) => listeners.set(type, handler);
+  const tabs = [];
+  const view = createDashboardView({ documentRef: dom.documentRef });
+
+  view.bindInteractions({ showTab: (tab) => tabs.push(tab) });
+  listeners.get("click")();
+  const ignored = { key: "Escape", prevented: false, preventDefault() { this.prevented = true; } };
+  listeners.get("keydown")(ignored);
+  const enter = { key: "Enter", prevented: false, preventDefault() { this.prevented = true; } };
+  listeners.get("keydown")(enter);
+  const space = { key: " ", prevented: false, preventDefault() { this.prevented = true; } };
+  listeners.get("keydown")(space);
+
+  assert.deepEqual(tabs, ["active-job", "active-job", "active-job"]);
+  assert.equal(ignored.prevented, false);
+  assert.equal(enter.prevented, true);
+  assert.equal(space.prevented, true);
+});
