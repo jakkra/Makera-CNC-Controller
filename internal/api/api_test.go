@@ -1425,6 +1425,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/gcode-log.js", "function exportVisibleLog"},
 		{"/modules/backup.js", "export function createBackupFeature"},
 		{"/modules/backup.js", "Backup imported; reloading..."},
+		{"/modules/mdi-macros.js", "function bindCommandInteractions"},
 		{"/modules/gcode-viewer.js", "export function mountGcodeViewer"},
 		{"/modules/gcode-viewer.js", "function drawGcodePreview(preview, live = null)"},
 		{"/modules/feedback.js", "export function createFeedback"},

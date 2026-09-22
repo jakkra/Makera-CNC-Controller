@@ -196,6 +196,14 @@ test("backup actions are wired to the production feature module", () => {
   assert.doesNotMatch(source, /document\.getElementById\("backup-import"\)\.onclick =/);
   assert.doesNotMatch(source, /document\.getElementById\("backup-file"\)\.onchange/);
 });
+
+test("manual G-code interactions are wired through the MDI feature binder", () => {
+  assert.match(source, /const mdiMacros = createMdiMacros\(/);
+  assert.match(mdiModuleSource, /function bindCommandInteractions\(/);
+  assert.match(source, /bindCommandInteractions\(\{ submitGcode, navigateCommandHistory \}\)/);
+  assert.doesNotMatch(source, /const form = document\.getElementById\("gcode-form"\);/);
+  assert.doesNotMatch(source, /gcodeInput\.onkeydown =/);
+});
 test("shared helpers are imported as production ES modules", async () => {
   assert.match(source, /import \{ createGamepadControls \} from "\.\/modules\/gamepad-controls\.js";/);
   assert.match(gamepadControlsModuleSource, /export function createGamepadControls/);

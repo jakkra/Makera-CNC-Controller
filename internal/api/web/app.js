@@ -338,7 +338,7 @@ const mdiMacros = createMdiMacros({
 });
 const {
   macroByID, slotForMacro, sortedSlots, setMacroPlacement, normalizeSlotOrder,
-  renderGcodeCommandState, submitGcode, navigateCommandHistory, renderMacroButtons,
+  bindCommandInteractions, renderGcodeCommandState, submitGcode, navigateCommandHistory, renderMacroButtons,
   renderMacroRegion, renderMacroEditor, currentMacroFromForm, saveMacroFromForm,
   newMacro, macroEditorDirty, confirmDiscardMacroDraft, deleteSelectedMacro,
   moveSelectedMacro, runMacro,
@@ -2951,26 +2951,7 @@ function init() {
   filesFeature.bind();
   filesFeature.mount();
 
-  const form = document.getElementById("gcode-form");
-  const gcodeInput = document.getElementById("gcode-input");
-  form.onsubmit = (e) => {
-    e.preventDefault();
-    const line = gcodeInput.value.trim();
-    if (!line) return;
-    gcodeInput.value = "";
-    submitGcode(line);
-  };
-  gcodeInput.onkeydown = (e) => {
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      navigateCommandHistory(gcodeInput, -1);
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      navigateCommandHistory(gcodeInput, 1);
-    } else if (e.key.length === 1) {
-      state.historyIndex = -1;
-    }
-  };
+  bindCommandInteractions({ submitGcode, navigateCommandHistory });
   document.getElementById("log-filter").onchange = (e) => {
     state.logFilter = e.target.value;
     state.ui.log.filter = state.logFilter;
