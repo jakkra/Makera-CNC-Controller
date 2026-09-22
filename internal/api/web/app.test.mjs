@@ -21,6 +21,7 @@ import { runHistoryEvents } from "./modules/maintenance.js";
 import { dashboardExternalCameraIsSnapshot, normalizeDashboardExternalCameraView } from "./modules/camera.js";
 import { dashboardATCText, dashboardAlarmText, dashboardControllerText, dashboardLaserText, dashboardOnOff, dashboardOptionalNumber, dashboardRotaryText, createDashboardTelemetry } from "./modules/dashboard-telemetry.js";
 import { createDashboardView } from "./modules/dashboard-view.js";
+import { createMachineStatusFeature } from "./modules/machine-status.js";
 import { createGcodeLogFeature, formatLogLine, lineMatchesFilter, visibleGcodeLines } from "./modules/gcode-log.js";
 import { beginFileAction, createFileCatalog, createFileHelpers, endFileAction, fileRowLocallyOwned, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
 import { createSettingsFeature, defaultMachineSettings } from "./modules/settings.js";
@@ -251,6 +252,23 @@ test("settings dialog interactions are wired through the settings feature", () =
   assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("machine-settings-open"\)/);
   assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("machine-settings-close"\)/);
   assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("machine-learn"\)/);
+});
+test("machine control interactions route hold, resume, and halt in order", () => {
+  assert.match(machineStatusModuleSource, /function bindMachineControlInteractions\(/);
+  assert.match(source, /bindMachineControlInteractions\(\{ bindButtonAction, sendControl \}\)/);
+  assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("ctl-hold"\)/);
+  assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("ctl-resume"\)/);
+  assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("ctl-halt"\)/);
+  const buttons = new Map(["ctl-hold", "ctl-resume", "ctl-halt"].map((id) => [id, { id }]));
+  const feature = createMachineStatusFeature({ documentRef: { getElementById: (id) => buttons.get(id) || null } });
+  const bound = [];
+  feature.bindMachineControlInteractions({
+    bindButtonAction: (button, action) => bound.push([button, action]),
+    sendControl: (action) => bound.push(["send", action]),
+  });
+  assert.deepEqual(bound.slice(0, 3).map(([button]) => button.id), ["ctl-hold", "ctl-resume", "ctl-halt"]);
+  bound.slice(0, 3).forEach(([, action]) => action());
+  assert.deepEqual(bound.slice(3), [["send", "hold"], ["send", "resume"], ["send", "halt"]]);
 });
 test("work-coordinate move binder preserves dirty, Enter, reset, and send behavior", () => {
   const inputs = new Map(["x", "y", "z"].map((axis) => [axis, { dataset: {}, oninput: null, onkeydown: null }]));

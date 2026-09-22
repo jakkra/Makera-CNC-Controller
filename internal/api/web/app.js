@@ -784,7 +784,7 @@ const {
   toolChangeAttentionDetail, machineReadoutModel, renderMachineReadouts, mountMachineReadouts, haltReason,
   recoveryText, machineActionState, jobControlModel, jobControlLabel, renderJobControls,
   renderMachine, renderAttention, attentionResumeAction, renderToolStatus,
-  renderAlarmPanel, recoveryButtonText,
+  renderAlarmPanel, recoveryButtonText, bindMachineControlInteractions,
 } = machineStatus;
 
 const gcodeViewer = mountGcodeViewer({
@@ -2996,9 +2996,7 @@ function init() {
     exportHeightImage,
   });
   bindProbeConfirmationInteractions({ bindButtonAction });
-  bindButtonAction(document.getElementById("ctl-hold"), () => sendControl("hold"));
-  bindButtonAction(document.getElementById("ctl-resume"), () => sendControl("resume"));
-  bindButtonAction(document.getElementById("ctl-halt"), () => sendControl("halt"));
+  bindMachineControlInteractions({ bindButtonAction, sendControl });
   bindButtonAction(document.getElementById("tool-set"), () => setCurrentTool());
   bindButtonAction(document.getElementById("tool-change-set"), () => changeTool());
   bindButtonAction(document.getElementById("tool-continue"), continueToolChange);

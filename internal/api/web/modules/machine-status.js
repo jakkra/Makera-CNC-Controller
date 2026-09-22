@@ -481,10 +481,16 @@ function recoveryButtonText(recovery, reason = null) {
   }
 }
 
+function bindMachineControlInteractions({ bindButtonAction, sendControl } = {}) {
+  bindButtonAction(document.getElementById("ctl-hold"), () => sendControl("hold"));
+  bindButtonAction(document.getElementById("ctl-resume"), () => sendControl("resume"));
+  bindButtonAction(document.getElementById("ctl-halt"), () => sendControl("halt"));
+}
+
   return {
     gcodeToolMetadata, gcodeToolLabel, programToolListModel, renderProgramToolLists, toolChangeTargetLabel, toolChangeAttentionDetail,
     machineReadoutModel, renderMachineReadouts, mountMachineReadouts, haltReason, recoveryText, machineActionState, jobControlModel,
     jobControlLabel, renderJobControls, renderMachine, renderAttention, attentionResumeAction, renderToolStatus,
-    renderAlarmPanel, recoveryButtonText, machineFeedOverrideControlModel,
+    renderAlarmPanel, recoveryButtonText, machineFeedOverrideControlModel, bindMachineControlInteractions,
   };
 }
