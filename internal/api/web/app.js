@@ -3014,16 +3014,17 @@ function init() {
   bindButtonAction(document.getElementById("jog-arm"), toggleTapMoveArm);
   surfaceControls.init();
   surfaceShell.bindInteractions({ bindButtonAction });
-  bindButtonAction(document.getElementById("surface-footer-hold"), () => sendControl("hold"));
-  bindButtonAction(document.getElementById("surface-footer-resume"), () => {
-    resumeActiveJob();
+  surfaceControls.bindFooterInteractions({
+    bindButtonAction,
+    sendControl,
+    resumeActiveJob,
+    onVacuum: () => {
+      const current = dashboardOptionalNumber(state.machine?.spindle?.vacuum_mode);
+      if (current !== null) setAutoVacuum(current === 0);
+    },
   });
   bindDashboardCameraSwitches();
   bindDashboardToolpathShortcut();
-  bindButtonAction(document.getElementById("surface-footer-vacuum"), () => {
-    const current = dashboardOptionalNumber(state.machine?.spindle?.vacuum_mode);
-    if (current !== null) setAutoVacuum(current === 0);
-  });
   document.getElementById("attention-open-active-job").onclick = () => showTab("active-job");
   bindButtonAction(document.getElementById("attention-resume"), () => {
     const action = attentionResumeAction(String(state.machine?.state || ""));

@@ -2512,6 +2512,30 @@ test("Surface movement takeover requires confirmation before disarming another c
   assert.ok(surfaceControlsModuleSource.includes('bindButtonAction(documentRef.getElementById("surface-jog-arm"), toggleSurfaceMovementArm)'), "the guarded takeover helper is bound to the shipped Surface arm button");
   assert.ok(source.includes("surfaceControls.init();"), "the production module is mounted during app initialization");
 });
+test("Surface footer binder routes hold, resume, and vacuum callbacks in order", () => {
+  assert.match(surfaceControlsModuleSource, /function bindFooterInteractions\(/);
+  assert.match(source, /surfaceControls\.bindFooterInteractions\(/);
+  assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("surface-footer-hold"\)/);
+  assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("surface-footer-resume"\)/);
+  assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("surface-footer-vacuum"\)/);
+  const nodes = new Map(["surface-footer-hold", "surface-footer-resume", "surface-footer-vacuum"].map((id) => [id, { id }]));
+  const bound = [];
+  const calls = [];
+  const controls = createSurfaceControls({
+    state: { surface: {} },
+    documentRef: { getElementById: (id) => nodes.get(id) || null },
+    callbacks: {},
+  });
+  controls.bindFooterInteractions({
+    bindButtonAction: (button, action) => bound.push([button.id, action]),
+    sendControl: (action) => calls.push(["control", action]),
+    resumeActiveJob: () => calls.push(["resume"]),
+    onVacuum: () => calls.push(["vacuum"]),
+  });
+  assert.deepEqual(bound.map(([id]) => id), ["surface-footer-hold", "surface-footer-resume", "surface-footer-vacuum"]);
+  for (const [, action] of bound) action();
+  assert.deepEqual(calls, [["control", "hold"], ["resume"], ["vacuum"]]);
+});
 
 test("top-level tabs resolve from canonical and legacy URLs", () => {
   const viewTabs = ["dashboard", "active-job", "jog", "control", "files", "maintenance", "attention"];

@@ -79,6 +79,17 @@ export function createSurfaceControls({ state, documentRef = document, callbacks
     });
   }
 
+  function bindFooterInteractions({
+    bindButtonAction: bind = bindButtonAction,
+    sendControl,
+    resumeActiveJob,
+    onVacuum,
+  } = {}) {
+    bind(documentRef.getElementById("surface-footer-hold"), () => sendControl("hold"));
+    bind(documentRef.getElementById("surface-footer-resume"), () => resumeActiveJob());
+    bind(documentRef.getElementById("surface-footer-vacuum"), onVacuum);
+  }
+
   function init() {
     bindButtonAction(documentRef.getElementById("surface-jog-arm"), toggleSurfaceMovementArm);
     documentRef.getElementById("surface-jog-directional").onclick = () => selectSurfaceJogMethod("directional");
@@ -135,5 +146,5 @@ export function createSurfaceControls({ state, documentRef = document, callbacks
     documentRef.getElementById("surface-settings-close").onclick = () => documentRef.getElementById("surface-settings-modal")?.close();
   }
 
-  return { init, bindSurfaceStepButton, bindSurfaceHoldButton, bindSurfaceXYMap };
+  return { init, bindFooterInteractions, bindSurfaceStepButton, bindSurfaceHoldButton, bindSurfaceXYMap };
 }

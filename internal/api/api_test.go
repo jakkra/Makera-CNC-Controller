@@ -1478,6 +1478,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/jog-events.js", "export function createJogEventHandler"},
 		{"/modules/gamepad-controls.js", "export function createGamepadControls"},
 		{"/modules/surface-controls.js", "export function createSurfaceControls"},
+		{"/modules/surface-controls.js", "function bindFooterInteractions"},
 		{"/modules/workarea-interactions.js", "export function createWorkAreaInteractions"},
 		{"/modules/workarea-interactions.js", "bindZoomInteractions"},
 		{"/modules/work-move.js", "export function createWorkMoveInteractions"},
