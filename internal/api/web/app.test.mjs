@@ -48,11 +48,13 @@ import { movementArmAvailable as movementArmAvailableState, movementArmLabel as 
 import { createJogView } from "./modules/jog-view.js";
 import { createJogEventHandler } from "./modules/jog-events.js";
 import { createGamepadControls } from "./modules/gamepad-controls.js";
+import { createSurfaceControls } from "./modules/surface-controls.js";
 import { createWorkareaRenderers, displayedFieldProbePoints } from "./modules/workarea-render.js";
 import { cloneFloorProbe, cloneOutlineOrigin, cloneOutlinePoint, defaultOutlineState, defaultWorkAreaView } from "./modules/state-defaults.js";
 import { createAppState } from "./modules/state.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
+const surfaceControlsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-controls.js"), "utf8");
 const jogEventsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/jog-events.js"), "utf8");
 const gamepadControlsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/gamepad-controls.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
@@ -1842,13 +1844,47 @@ test("virtual MPG presents a visible detent ring and relative step readout", () 
   assert.match(htmlSource, /id="surface-mpg-feedback"><option value="confirmed">Confirmed step<\/option><option value="detent">Every wheel click<\/option>/);
 });
 
-test("Surface hold buttons reserve a long touch for continuous jogging", () => {
+test("Surface hold buttons preserve pointer capture, release, keyboard, and click behavior", () => {
   assert.match(htmlSource, /\.surface-hold-controls button \{[^}]*touch-action: none;[^}]*-webkit-touch-callout: none;/);
-  const binding = extractFunction("bindSurfaceHoldButton");
-  assert.match(binding, /e\.preventDefault\(\);/);
-  assert.match(binding, /addEventListener\("contextmenu", \(e\) => e\.preventDefault\(\)\)/);
-});
+  const listeners = {};
+  const button = {
+    addEventListener: (type, handler) => { listeners[type] = handler; },
+    setPointerCapture: (id) => { button.captured = id; },
+  };
+  const state = { surface: { motion: "hold", mpg_axis: "a" } };
+  const calls = [];
+  const controls = createSurfaceControls({ state, documentRef: {}, callbacks: {
+    beginSurfaceHoldJog: (...args) => calls.push(["begin", ...args]),
+    stopSurfaceHoldJog: () => calls.push(["stop"]),
+    sendSurfaceStep: (...args) => calls.push(["step", ...args]),
+  } });
+  controls.bindSurfaceHoldButton(button, "x", 1);
+  let prevented = 0;
+  listeners.pointerdown({ button: 2, pointerId: 3, preventDefault: () => prevented++ });
+  assert.equal(prevented, 0, "non-primary pointer input is ignored");
+  listeners.pointerdown({ button: 0, pointerId: 7, preventDefault: () => prevented++ });
+  assert.equal(prevented, 1);
+  assert.equal(button.captured, 7);
+  assert.deepEqual(calls, [["begin", "x", 1]]);
+  listeners.pointerup({ pointerId: 8 });
+  assert.equal(calls.length, 1, "an unrelated pointer cannot release this hold");
+  listeners.pointerup({ pointerId: 7 });
+  assert.deepEqual(calls.at(-1), ["stop"]);
+  listeners.pointercancel({});
+  listeners.lostpointercapture({});
+  assert.deepEqual(calls.slice(-2), [["stop"], ["stop"]]);
+  let clickPrevented = false;
+  listeners.click({ preventDefault: () => { clickPrevented = true; } });
+  assert.equal(clickPrevented, true, "the synthesized click does not dispatch a second action");
 
+  state.surface.motion = "step";
+  listeners.keydown({ key: "Enter", repeat: true, preventDefault() {} });
+  listeners.keydown({ key: "Enter", repeat: false, preventDefault() {} });
+  assert.deepEqual(calls.at(-1), ["step", "x", 1]);
+  assert.equal(calls.filter(([kind]) => kind === "step").length, 1);
+  listeners.keyup({ key: "Enter" });
+  assert.deepEqual(calls.at(-1), ["stop"]);
+});
 test("Surface MPG feedback preference defaults to confirmed steps and permits every wheel detent", () => {
   const ctx = buildContext(["defaultSurfaceViewPreferences", "loadSurfaceViewPreferences"], ["SURFACE_VIEW_PREFERENCES_KEY"], {
     localStorage: { getItem: () => JSON.stringify({ mpg_feedback: "detent" }) },
@@ -2102,7 +2138,8 @@ test("Surface movement takeover requires confirmation before disarming another c
   confirmed = true;
   assert.equal(vm.runInContext(`toggleSurfaceMovementArm()`, ctx), true);
   assert.equal(toggled, 1);
-  assert.ok(source.includes('bindButtonAction(document.getElementById("surface-jog-arm"), toggleSurfaceMovementArm)'), "the guarded takeover helper is bound to the shipped Surface arm button");
+  assert.ok(surfaceControlsModuleSource.includes('bindButtonAction(documentRef.getElementById("surface-jog-arm"), toggleSurfaceMovementArm)'), "the guarded takeover helper is bound to the shipped Surface arm button");
+  assert.ok(source.includes("surfaceControls.init();"), "the production module is mounted during app initialization");
 });
 
 test("top-level tabs resolve from canonical and legacy URLs", () => {
@@ -7009,7 +7046,31 @@ test("Surface footer ignores transient Run while an armed MPG gesture is held", 
   assert.match(binding, /window\.addEventListener\("pointerup", release\)/);
 });
 
-test("Surface map remains a preview until the server supports a held target move", () => {
-  const mapBinding = extractFunction("bindSurfaceXYMap");
-  assert.doesNotMatch(mapBinding, /sendTapMove|sendJog\(/);
+test("Surface XY map remains a local preview and never issues machine motion", () => {
+  const listeners = {};
+  const modal = { addEventListener: (type, fn) => { listeners["modal:" + type] = fn; }, close() {} };
+  const plot = {
+    addEventListener: (type, fn) => { listeners["plot:" + type] = fn; },
+    getBoundingClientRect: () => ({ left: 10, top: 20, width: 100, height: 200 }),
+  };
+  const target = { textContent: "" };
+  const elements = {
+    "surface-xy-map-modal": modal,
+    "surface-xy-map-plot": plot,
+    "surface-xy-map-target": target,
+    "surface-map-open": { addEventListener: (type, fn) => { listeners.open = fn; } },
+    "surface-map-close": { addEventListener: (type, fn) => { listeners.close = fn; } },
+    "surface-map-close-bottom": { addEventListener: (type, fn) => { listeners.closeBottom = fn; } },
+  };
+  const state = { ui: { machine: {} } };
+  const controls = createSurfaceControls({ state, documentRef: { getElementById: (id) => elements[id] }, callbacks: {
+    normalizeMachineSettings: () => ({ work_area: { x_min: 0, x_max: 300, y_min: -100, y_max: 100 } }),
+    clampNumber: (n, min, max) => Math.max(min, Math.min(max, n)),
+  } });
+  controls.bindSurfaceXYMap();
+  listeners["plot:pointerdown"]({ clientX: 60, clientY: 70 });
+  assert.equal(target.textContent, "X 150.0  Y 50.0 mm");
+  let cancelled = false;
+  listeners["modal:cancel"]({ preventDefault: () => { cancelled = true; } });
+  assert.equal(cancelled, true);
 });

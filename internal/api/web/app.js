@@ -25,6 +25,7 @@ import { createMachineStatusFeature } from "./modules/machine-status.js";
 import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive, movementArmAvailable as movementArmAvailableState, movementArmLabel as movementArmLabelState, syncJogAvailabilityFromMachine as syncJogAvailabilityState } from "./modules/jog.js";
 import { createJogView } from "./modules/jog-view.js";
 import { createGamepadControls } from "./modules/gamepad-controls.js";
+import { createSurfaceControls } from "./modules/surface-controls.js";
 import { createJogEventHandler } from "./modules/jog-events.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
 import { createSurfaceJogFeature, loadSurfaceViewPreferences, saveSurfaceViewPreferences as persistSurfaceViewPreferences, isSurfaceKiosk } from "./modules/surface-jog.js";
@@ -429,6 +430,28 @@ const {
   connectJog, disableJogConnection, scheduleJogReconnect, sendJogInput, sendJog,
   sampleJog, releaseJogInput, scheduleJogSample, bindSurfaceMPGWheel,
 } = jogFeature;
+const surfaceControls = createSurfaceControls({
+  state,
+  documentRef: document,
+  callbacks: {
+    bindButtonAction,
+    toggleSurfaceMovementArm,
+    selectSurfaceJogMethod,
+    stopSurfaceHoldJog,
+    saveSurfaceViewPreferences,
+    renderSurfaceJog,
+    selectSurfaceStep,
+    selectSurfaceMotion,
+    selectSurfaceMPGAxis,
+    bindSurfaceMPGWheel,
+    beginSurfaceHoldJog,
+    stopSurfaceHoldJog,
+    sendSurfaceStep,
+    normalizeMachineSettings,
+    clampNumber,
+    applySurfaceAutomaticView,
+  },
+});
 const originProbing = createOriginProbing({
   documentRef: document,
   getMachine: () => state.machine,
@@ -1111,10 +1134,6 @@ function sendSurfaceStep(axis, sign, source = "button", explicitDistance = 0) {
     renderJog();
   }
   return true;
-}
-
-function bindSurfaceStepButton(button, axis, sign) {
-  bindButtonAction(button, () => sendSurfaceStep(axis, sign));
 }
 
 function beginSurfaceHoldJog(axis, sign) {
@@ -4018,64 +4037,6 @@ function initializeResponsiveControlSections(isMobile = window.matchMedia?.("(ma
   }
 }
 
-function bindSurfaceHoldButton(button, axis, sign, useSelectedAxis = false) {
-  if (!button) return;
-  let pointerId = null;
-  const targetAxis = () => useSelectedAxis ? state.surface.mpg_axis : axis;
-  const start = () => {
-    if (state.surface.motion === "step" && !useSelectedAxis) return;
-    beginSurfaceHoldJog(targetAxis(), sign);
-  };
-  const stop = () => stopSurfaceHoldJog();
-  button.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0) return;
-    // A hold-to-move control owns the touch for its full duration. Prevent the
-    // browser from turning a deliberate hold into text selection or a context
-    // menu while preserving the button's keyboard path below.
-    e.preventDefault();
-    pointerId = e.pointerId;
-    button.setPointerCapture?.(pointerId);
-    if (state.surface.motion === "hold" || useSelectedAxis) start();
-  });
-  button.addEventListener("pointerup", (e) => {
-    if (pointerId !== e.pointerId) return;
-    if (state.surface.motion === "hold" || useSelectedAxis) stop();
-    else sendSurfaceStep(targetAxis(), sign);
-    pointerId = null;
-  });
-  button.addEventListener("pointercancel", stop);
-  button.addEventListener("lostpointercapture", stop);
-  button.addEventListener("contextmenu", (e) => e.preventDefault());
-  button.addEventListener("keydown", (e) => {
-    if (e.repeat || (e.key !== "Enter" && e.key !== " ")) return;
-    e.preventDefault();
-    if (state.surface.motion === "hold" || useSelectedAxis) start();
-    else sendSurfaceStep(targetAxis(), sign);
-  });
-  button.addEventListener("keyup", (e) => {
-    if (e.key === "Enter" || e.key === " ") stop();
-  });
-  button.addEventListener("click", (e) => e.preventDefault());
-}
-
-function bindSurfaceXYMap() {
-  const modal = document.getElementById("surface-xy-map-modal");
-  const plot = document.getElementById("surface-xy-map-plot");
-  const target = document.getElementById("surface-xy-map-target");
-  const close = () => modal?.close();
-  document.getElementById("surface-map-open")?.addEventListener("click", () => modal?.showModal());
-  document.getElementById("surface-map-close")?.addEventListener("click", close);
-  document.getElementById("surface-map-close-bottom")?.addEventListener("click", close);
-  modal?.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
-  plot?.addEventListener("pointerdown", (e) => {
-    const rect = plot.getBoundingClientRect();
-    const work = normalizeMachineSettings(state.ui.machine).work_area;
-    const x = work.x_min + clampNumber((e.clientX - rect.left) / Math.max(1, rect.width), 0, 1) * (work.x_max - work.x_min);
-    const y = work.y_max - clampNumber((e.clientY - rect.top) / Math.max(1, rect.height), 0, 1) * (work.y_max - work.y_min);
-    target.textContent = `X ${x.toFixed(1)}  Y ${y.toFixed(1)} mm`;
-  });
-}
-
 function init() {
   const gcodeView = gcodeViewer.getGcodeView();
   const activeGcodeSource = gcodeViewer.getActiveGcodeSource();
@@ -4417,24 +4378,7 @@ function init() {
   window.matchMedia?.("(max-width: 600px)")?.addEventListener?.("change", (e) => initializeSurfaceMobileOptions(e.matches));
   window.matchMedia?.("(min-width: 1320px)")?.addEventListener?.("change", () => applyDashboardProfile(currentDashboardProfile()));
   bindButtonAction(document.getElementById("jog-arm"), toggleTapMoveArm);
-  bindButtonAction(document.getElementById("surface-jog-arm"), toggleSurfaceMovementArm);
-  document.getElementById("surface-jog-directional").onclick = () => selectSurfaceJogMethod("directional");
-  document.getElementById("surface-jog-mpg").onclick = () => selectSurfaceJogMethod("mpg");
-  document.getElementById("surface-jog-motion").onchange = (e) => {
-    stopSurfaceHoldJog();
-    state.surface.motion = e.target.value === "hold" ? "hold" : "step";
-    saveSurfaceViewPreferences();
-    renderSurfaceJog();
-  };
-  document.getElementById("surface-jog-step").onchange = (e) => {
-    selectSurfaceStep(e.target.value);
-  };
-  for (const button of document.querySelectorAll("[data-surface-step]")) {
-    button.onclick = () => selectSurfaceStep(button.dataset.surfaceStep);
-  }
-  for (const button of document.querySelectorAll("[data-surface-motion]")) {
-    button.onclick = () => selectSurfaceMotion(button.dataset.surfaceMotion);
-  }
+  surfaceControls.init();
   for (const button of document.querySelectorAll("[data-surface-view]")) {
     button.onclick = () => showTab(button.dataset.surfaceView);
   }
@@ -4452,41 +4396,6 @@ function init() {
     const current = dashboardOptionalNumber(state.machine?.spindle?.vacuum_mode);
     if (current !== null) setAutoVacuum(current === 0);
   });
-  document.getElementById("surface-auto-switch").onchange = (e) => {
-    state.surface.auto_switch = !!e.target.checked;
-    saveSurfaceViewPreferences();
-    applySurfaceAutomaticView();
-  };
-  document.getElementById("surface-start-view").onchange = (e) => {
-    state.surface.start_view = ["jog", "active-job", "dashboard"].includes(e.target.value) ? e.target.value : "jog";
-    saveSurfaceViewPreferences();
-  };
-  document.getElementById("surface-mpg-feedback").onchange = (e) => {
-    state.surface.mpg_feedback = e.target.value === "detent" ? "detent" : "confirmed";
-    saveSurfaceViewPreferences();
-  };
-  for (const button of document.querySelectorAll("[data-surface-axis]")) {
-    bindSurfaceHoldButton(button, button.dataset.surfaceAxis, Number(button.dataset.surfaceSign), false);
-  }
-  for (const button of document.querySelectorAll("[data-surface-z-sign]")) {
-    bindSurfaceHoldButton(button, "z", Number(button.dataset.surfaceZSign), false);
-  }
-  for (const button of document.querySelectorAll("[data-surface-a-sign]")) {
-    bindSurfaceStepButton(button, "a", Number(button.dataset.surfaceASign));
-  }
-  for (const button of document.querySelectorAll("[data-surface-a-turn]")) {
-    bindButtonAction(button, () => sendSurfaceStep("a", 1, "button", Number(button.dataset.surfaceATurn)));
-  }
-  for (const button of document.querySelectorAll("[data-surface-hold-sign]")) {
-    bindSurfaceHoldButton(button, "", Number(button.dataset.surfaceHoldSign), true);
-  }
-  for (const button of document.querySelectorAll(".surface-mpg-axis")) {
-    button.onclick = () => selectSurfaceMPGAxis(button.dataset.surfaceMpgAxis);
-  }
-  bindSurfaceMPGWheel();
-  bindSurfaceXYMap();
-  document.getElementById("surface-jog-settings-open").onclick = () => document.getElementById("surface-settings-modal")?.showModal();
-  document.getElementById("surface-settings-close").onclick = () => document.getElementById("surface-settings-modal")?.close();
   document.getElementById("surface-open-active-job").onclick = () => showTab("active-job");
   document.getElementById("attention-open-active-job").onclick = () => showTab("active-job");
   bindButtonAction(document.getElementById("attention-resume"), () => {
