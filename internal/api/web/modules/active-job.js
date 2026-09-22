@@ -267,3 +267,48 @@ export function mountActiveJobPreview({ cursorForPlayedLine }) {
 
   return { activeJobPreviewState };
 }
+
+export function mountFeedOverride({
+  request,
+  getActiveGcodePending,
+  setActiveGcodePending,
+  getMachine,
+  setFeedOverridePendingPercent,
+  setActiveFeedback,
+  renderActiveGcode,
+  pollMachine,
+}) {
+  async function setFeedOverride(percent) {
+    if (getActiveGcodePending()) return;
+    percent = Math.max(50, Math.min(200, Math.round(Number(percent) / 10) * 10));
+    if (!Number.isFinite(percent)) return;
+    setActiveGcodePending("feed_override");
+    setFeedOverridePendingPercent(percent);
+    setActiveFeedback("Setting feed override to " + percent + "%...", "");
+    renderActiveGcode();
+    try {
+      const response = await request("/api/feed-override", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ percent }),
+      });
+      const result = await response.json();
+      setActiveFeedback(result.message, result.verified ? "ok" : "error");
+      await pollMachine();
+    } catch (error) {
+      setActiveFeedback("Feed override failed: " + error.message, "error");
+    } finally {
+      setActiveGcodePending("");
+      setFeedOverridePendingPercent(null);
+      renderActiveGcode();
+    }
+  }
+
+  function adjustFeedOverride(delta) {
+    const current = Number(getMachine()?.feed?.override);
+    if (!Number.isFinite(current)) return;
+    return setFeedOverride(current + delta);
+  }
+
+  return { setFeedOverride, adjustFeedOverride };
+}

@@ -12,7 +12,7 @@ import vm from "node:vm";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { request } from "./modules/api.js";
-import { gcodeCursorForPlayedLine, mountActiveJobControl, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountActiveJobSelection, mountPausedJobCommand, previewBoundsText } from "./modules/active-job.js";
+import { gcodeCursorForPlayedLine, mountActiveJobControl, mountFeedOverride, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountActiveJobSelection, mountPausedJobCommand, previewBoundsText } from "./modules/active-job.js";
 import { createActiveJobView } from "./modules/active-job-view.js";
 import { activeJobSplitBounds, createActiveJobLayout } from "./modules/active-job-layout.js";
 import { escapeHtml, setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
@@ -63,6 +63,7 @@ const jogEventsModuleSource = readFileSync(join(dirname(fileURLToPath(import.met
 const gamepadControlsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/gamepad-controls.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
 const activeJobViewModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/active-job-view.js"), "utf8");
+const activeJobModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/active-job.js"), "utf8");
 const cameraModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/camera.js"), "utf8");
 const dashboardTelemetryModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/dashboard-telemetry.js"), "utf8");
 const dashboardViewModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/dashboard-view.js"), "utf8");
@@ -239,6 +240,10 @@ test("shared helpers are imported as production ES modules", async () => {
   assert.equal(parentRelPath("jobs/nested"), "jobs");
   assert.equal(remotePathFromRel("jobs/example.nc"), "/sd/gcodes/jobs/example.nc");
   assert.equal(apiFileURL("/sd/gcodes/jobs/example.nc"), "/api/files/jobs/example.nc");
+  assert.equal(typeof mountFeedOverride, "function");
+  assert.match(activeJobModuleSource, /export function mountFeedOverride/);
+  assert.match(source, /mountFeedOverride\(/);
+  assert.match(source, /function setFeedOverride\(percent\) \{ return setFeedOverrideOperationFn\(percent\); \}/);
   assert.equal(typeof buildOutlineDXFDocument, "function");
   assert.match(source, /import \{ buildOutlineDXF as buildOutlineDXFDocument \} from "\.\/modules\/outline-dxf\.js";/);
   assert.match(outlineDXFModuleSource, /export function buildOutlineDXF/);

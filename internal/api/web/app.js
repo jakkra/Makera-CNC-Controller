@@ -3,7 +3,7 @@ import { createLiveUpdates } from "./modules/live-updates.js";
 import { pointInPolygonOrBoundary, effectiveOutlineGeometry, normalizedClosedPolygon, buildFieldProbePreview as computeFieldProbePreview, DEFAULT_FIELD_SPOT_GAP_MM } from "./modules/outline-geometry.js";
 import * as THREE from "./three.module.min.js";
 import { request } from "./modules/api.js";
-import { gcodeCursorForPlayedLine, mountActiveJobControl, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection } from "./modules/active-job.js";
+import { gcodeCursorForPlayedLine, mountActiveJobControl, mountFeedOverride, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection } from "./modules/active-job.js";
 import { ACTIVE_JOB_SPLIT_MIN_LEFT_PX, ACTIVE_JOB_SPLIT_MIN_PREVIEW_PX, ACTIVE_JOB_SPLIT_STEP_PERCENT, ACTIVE_JOB_SPLITTER_PX, DEFAULT_ACTIVE_JOB_SPLIT_PERCENT, activeJobSplitBounds as calculateActiveJobSplitBounds, createActiveJobLayout } from "./modules/active-job-layout.js";
 import { createActiveJobView } from "./modules/active-job-view.js";
 import { escapeHtml, setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
@@ -568,6 +568,18 @@ const activeJobControl = mountActiveJobControl({
   renderMachine: (...args) => machineStatus.renderMachine(...args),
   pollMachine,
 });
+
+const feedOverrideOperation = mountFeedOverride({
+  request,
+  getActiveGcodePending: () => state.activeGcodePending,
+  setActiveGcodePending: (value) => { state.activeGcodePending = value; },
+  getMachine: () => state.machine,
+  setFeedOverridePendingPercent: (value) => { state.feedOverridePendingPercent = value; },
+  setActiveFeedback,
+  renderActiveGcode: (...args) => renderActiveGcode(...args),
+  pollMachine,
+});
+const { setFeedOverride: setFeedOverrideOperationFn, adjustFeedOverride: adjustFeedOverrideOperationFn } = feedOverrideOperation;
 
 const pausedJobCommand = mountPausedJobCommand({
   request,
@@ -2083,37 +2095,9 @@ async function runPausedJobCommand(action, options = {}) {
   return pausedJobCommand.runPausedJobCommand(action, options);
 }
 
-async function setFeedOverride(percent) {
-  if (state.activeGcodePending) return;
-  percent = Math.max(50, Math.min(200, Math.round(Number(percent) / 10) * 10));
-  if (!Number.isFinite(percent)) return;
-  state.activeGcodePending = "feed_override";
-  state.feedOverridePendingPercent = percent;
-  setActiveFeedback("Setting feed override to " + percent + "%...", "");
-  renderActiveGcode();
-  try {
-    const response = await request("/api/feed-override", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ percent }),
-    });
-    const result = await response.json();
-    setActiveFeedback(result.message, result.verified ? "ok" : "error");
-    await pollMachine();
-  } catch (error) {
-    setActiveFeedback("Feed override failed: " + error.message, "error");
-  } finally {
-    state.activeGcodePending = "";
-    state.feedOverridePendingPercent = null;
-    renderActiveGcode();
-  }
-}
+async function setFeedOverride(percent) { return setFeedOverrideOperationFn(percent); }
 
-function adjustFeedOverride(delta) {
-  const current = Number(state.machine?.feed?.override);
-  if (!Number.isFinite(current)) return;
-  return setFeedOverride(current + delta);
-}
+function adjustFeedOverride(delta) { return adjustFeedOverrideOperationFn(delta); }
 
 function setActiveFeedback(text, kind) {
   setStatusMessage("active-gcode", text, kind, { force: true });
