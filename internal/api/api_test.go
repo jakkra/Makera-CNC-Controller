@@ -1437,6 +1437,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/settings.js", "bindMachineSettingsInteractions"},
 		{"/modules/settings.js", "bindFeedStepInteractions"},
 		{"/modules/settings.js", "bindSettingsInteractions"},
+		{"/modules/settings.js", "export function initializeResponsiveControlSections"},
 		{"/modules/backup.js", "export function createBackupFeature"},
 		{"/modules/backup.js", "Backup imported; reloading..."},
 		{"/modules/mdi-macros.js", "function bindCommandInteractions"},

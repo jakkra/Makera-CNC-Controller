@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createSettingsFeature,
+  initializeResponsiveControlSections,
   MACHINE_SETTING_IDS,
   defaultGamepadSettings,
   defaultMachineSettings,
@@ -25,6 +26,19 @@ function documentFixture() {
   const get = (id) => { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); };
   return { activeElement: null, getElementById: get, createElement: () => element(), nodes };
 }
+
+test("responsive control sections preserve mobile collapse and desktop defaults", () => {
+  const ids = ["jog-settings-section", "move-to-work-section", "work-zero-section", "gamepad-section"];
+  const nodes = new Map(ids.map((id) => [id, { open: false }]));
+  const documentRef = { getElementById: (id) => nodes.get(id) || null };
+  const windowRef = { matchMedia: (query) => ({ matches: query === "(max-width: 600px)" }) };
+
+  initializeResponsiveControlSections({ documentRef, windowRef });
+  assert.deepEqual(ids.map((id) => nodes.get(id).open), [false, false, false, false]);
+
+  initializeResponsiveControlSections({ documentRef, windowRef: { matchMedia: () => ({ matches: false }) } });
+  assert.deepEqual(ids.map((id) => nodes.get(id).open), [true, true, true, false]);
+});
 
 test("machine normalization preserves firmware learned bounds and clamps tap feed", () => {
   const machine = normalizeMachineSettings({

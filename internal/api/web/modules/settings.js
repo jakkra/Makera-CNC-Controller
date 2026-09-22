@@ -335,6 +335,23 @@ export function machineLearnedSummaryLines(learned, { normalizeLearned = normali
   return lines;
 }
 
+export function initializeResponsiveControlSections({
+  documentRef = globalThis.document,
+  windowRef = globalThis.window,
+  isMobile = windowRef?.matchMedia?.("(max-width: 600px)")?.matches === true,
+} = {}) {
+  const sections = [
+    ["jog-settings-section", true],
+    ["move-to-work-section", true],
+    ["work-zero-section", true],
+    ["gamepad-section", false],
+  ];
+  for (const [id, desktopOpen] of sections) {
+    const section = documentRef.getElementById(id);
+    if (section) section.open = !isMobile && desktopOpen;
+  }
+}
+
 export function createSettingsFeature({
   documentRef = globalThis.document,
   getUI = () => ({}), setUI = () => {},

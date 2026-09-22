@@ -88,6 +88,7 @@ import {
   finiteOr,
   clampNumber,
   gamepadLabel,
+  initializeResponsiveControlSections,
 } from "./modules/settings.js";
 
 const GCODE_MAX_LINES = 500;
@@ -2858,23 +2859,10 @@ function mergeMachineStatusForDisplay(...args) { return machineReconciliation.me
 function shouldPreserveJogPrediction(...args) { return machineReconciliation.shouldPreserveJogPrediction(...args); }
 function reconcileObservedMachineStatus(...args) { return machineReconciliation.reconcileObservedMachineStatus(...args); }
 
-function initializeResponsiveControlSections(isMobile = window.matchMedia?.("(max-width: 600px)")?.matches === true) {
-  const sections = [
-    ["jog-settings-section", true],
-    ["move-to-work-section", true],
-    ["work-zero-section", true],
-    ["gamepad-section", false],
-  ];
-  for (const [id, desktopOpen] of sections) {
-    const section = document.getElementById(id);
-    if (section) section.open = !isMobile && desktopOpen;
-  }
-}
-
 function init() {
   maintenance.mount();
   mountMachineReadouts();
-  initializeResponsiveControlSections();
+  initializeResponsiveControlSections({ documentRef: document, windowRef: window });
   bindNavigationInteractions({ showTab, setHeaderCollapsed, reloadPage, applyDashboardURLState, viewTabFromURL });
   installPullToRefresh();
   initDashboardControlsMenu();

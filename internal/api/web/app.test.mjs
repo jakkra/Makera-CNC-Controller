@@ -27,7 +27,7 @@ import { createMachineStatusFeature } from "./modules/machine-status.js";
 import { createToolActions } from "./modules/tool-actions.js";
 import { createGcodeLogFeature, formatLogLine, lineMatchesFilter, visibleGcodeLines } from "./modules/gcode-log.js";
 import { beginFileAction, createFileCatalog, createFileHelpers, endFileAction, fileRowLocallyOwned, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
-import { createSettingsFeature, defaultMachineSettings } from "./modules/settings.js";
+import { createSettingsFeature, defaultMachineSettings, initializeResponsiveControlSections } from "./modules/settings.js";
 import { apiFileURL, basename, cleanRelPath, dirname as fileDirname, joinRelPath, parentRelPath, relPath, remotePathFromRel } from "./modules/file-paths.js";
 import { fmtActiveTool, toolDisplayName, validToolID } from "./modules/tooling.js";
 import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
@@ -988,6 +988,12 @@ test("camera interactions are mounted directly by the camera feature", () => {
   assert.match(source, /dashboardCamera\.bindDashboardCameraSwitches\(\);/);
   assert.doesNotMatch(source, /function bindDashboardCameraSwitches\(\)/);
   assert.equal((source.match(/dashboardCamera\.bindDashboardCameraSwitches\(\);/g) || []).length, 1);
+});
+
+test("responsive control sections are applied by the settings feature", () => {
+  assert.match(source, /import \{[\s\S]*initializeResponsiveControlSections,[\s\S]*\} from "\.\/modules\/settings\.js";/);
+  assert.match(source, /initializeResponsiveControlSections\(\{ documentRef: document, windowRef: window \}\)/);
+  assert.doesNotMatch(source, /function initializeResponsiveControlSections\(/);
 });
 
 function extractFunction(name) {
@@ -2255,15 +2261,11 @@ test("active job splitter clamps both panes and updates its accessible value", (
 test("control sections start collapsed on mobile and retain desktop defaults", () => {
   const ids = ["jog-settings-section", "move-to-work-section", "work-zero-section", "gamepad-section"];
   const elements = Object.fromEntries(ids.map((id) => [id, { open: true }]));
-  const ctx = buildContext(["initializeResponsiveControlSections"], [], {
-    document: { getElementById: (id) => elements[id] || null },
-    window: { matchMedia: () => ({ matches: true }) },
-  });
-
-  vm.runInContext("initializeResponsiveControlSections()", ctx);
+  const documentRef = { getElementById: (id) => elements[id] || null };
+  initializeResponsiveControlSections({ documentRef, windowRef: { matchMedia: () => ({ matches: true }) } });
   for (const id of ids) assert.equal(elements[id].open, false, `${id} starts collapsed on mobile`);
 
-  vm.runInContext("initializeResponsiveControlSections(false)", ctx);
+  initializeResponsiveControlSections({ documentRef, isMobile: false });
   assert.equal(elements["jog-settings-section"].open, true);
   assert.equal(elements["move-to-work-section"].open, true);
   assert.equal(elements["work-zero-section"].open, true);
