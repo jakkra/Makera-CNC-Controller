@@ -113,5 +113,25 @@ export function createActiveJobLayout({
     setActiveJobSplitPercent(state.activeJobSplitPercent);
   }
 
-  return { showActiveJobLeftTab, activeJobSplitBounds: boundsFor, setActiveJobSplitPercent, bindActiveJobSplitter };
+  function bindActiveJobLeftTabs({ showActiveJobLeftTab: showTabHandler = showActiveJobLeftTab } = {}) {
+    const tabs = ["source", "console"];
+    for (const [index, name] of tabs.entries()) {
+      const tab = document.getElementById("active-job-left-tab-" + name);
+      tab.onclick = () => showTabHandler(name);
+      tab.onkeydown = (event) => {
+        let next = index;
+        if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+        else if (event.key === "ArrowLeft") next = (index - 1 + tabs.length) % tabs.length;
+        else if (event.key === "Home") next = 0;
+        else if (event.key === "End") next = tabs.length - 1;
+        else return;
+        event.preventDefault();
+        const nextTab = document.getElementById("active-job-left-tab-" + tabs[next]);
+        showTabHandler(tabs[next]);
+        nextTab.focus();
+      };
+    }
+  }
+
+  return { showActiveJobLeftTab, activeJobSplitBounds: boundsFor, setActiveJobSplitPercent, bindActiveJobSplitter, bindActiveJobLeftTabs };
 }

@@ -2869,6 +2869,7 @@ function showActiveJobLeftTab(...args) { return activeJobLayout?.showActiveJobLe
 function activeJobSplitBounds(...args) { return activeJobLayout?.activeJobSplitBounds(...args) || calculateActiveJobSplitBounds(...args); }
 function setActiveJobSplitPercent(...args) { return activeJobLayout?.setActiveJobSplitPercent(...args); }
 function bindActiveJobSplitter(...args) { return activeJobLayout?.bindActiveJobSplitter(...args); }
+function bindActiveJobLeftTabs(...args) { return activeJobLayout?.bindActiveJobLeftTabs(...args); }
 
 
 function mergeMachineStatusForDisplay(...args) { return machineReconciliation.mergeMachineStatusForDisplay(...args); }
@@ -2940,23 +2941,7 @@ function init() {
     e.preventDefault();
     closeDashboardSettings();
   });
-  const activeJobLeftTabs = ["source", "console"];
-  for (const [index, name] of activeJobLeftTabs.entries()) {
-    const tab = document.getElementById("active-job-left-tab-" + name);
-    tab.onclick = () => showActiveJobLeftTab(name);
-    tab.onkeydown = (e) => {
-      let next = index;
-      if (e.key === "ArrowRight") next = (index + 1) % activeJobLeftTabs.length;
-      else if (e.key === "ArrowLeft") next = (index - 1 + activeJobLeftTabs.length) % activeJobLeftTabs.length;
-      else if (e.key === "Home") next = 0;
-      else if (e.key === "End") next = activeJobLeftTabs.length - 1;
-      else return;
-      e.preventDefault();
-      const nextTab = document.getElementById("active-job-left-tab-" + activeJobLeftTabs[next]);
-      showActiveJobLeftTab(activeJobLeftTabs[next]);
-      nextTab.focus();
-    };
-  }
+  bindActiveJobLeftTabs();
   showActiveJobLeftTab(state.activeJobLeftTab);
   bindActiveJobSplitter();
   filesFeature.bind();

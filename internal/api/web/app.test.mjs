@@ -64,6 +64,7 @@ const gamepadControlsModuleSource = readFileSync(join(dirname(fileURLToPath(impo
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
 const activeJobViewModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/active-job-view.js"), "utf8");
 const activeJobModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/active-job.js"), "utf8");
+const activeJobLayoutModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/active-job-layout.js"), "utf8");
 const cameraModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/camera.js"), "utf8");
 const dashboardTelemetryModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/dashboard-telemetry.js"), "utf8");
 const dashboardViewModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/dashboard-view.js"), "utf8");
@@ -1759,6 +1760,37 @@ test("active job left tabs preserve both panels and expose the selected panel", 
   assert.equal(elements["active-gcode-left"].consoleClass, false);
   assert.equal(elements["active-gcode-source-position"].hiddenClass, false);
   assert.equal(sourceRenders, 1, "showing the source refreshes its virtualized rows");
+});
+
+test("active job left tab binder preserves keyboard navigation and focus order", () => {
+  const calls = [];
+  const focused = [];
+  const tabs = {
+    "active-job-left-tab-source": { focus: () => focused.push("source") },
+    "active-job-left-tab-console": { focus: () => focused.push("console") },
+  };
+  const layout = createActiveJobLayout({
+    getState: () => ({ activeJobLeftTab: "source" }),
+    documentRef: { getElementById: (id) => tabs[id] || null },
+  });
+  layout.bindActiveJobLeftTabs({ showActiveJobLeftTab: (name) => calls.push(name) });
+  tabs["active-job-left-tab-source"].onclick();
+  const event = { key: "ArrowRight", prevented: false, preventDefault() { this.prevented = true; } };
+  tabs["active-job-left-tab-source"].onkeydown(event);
+  assert.equal(event.prevented, true);
+  assert.deepEqual(calls, ["source", "console"]);
+  assert.deepEqual(focused, ["console"]);
+
+  const end = { key: "End", prevented: false, preventDefault() { this.prevented = true; } };
+  tabs["active-job-left-tab-console"].onkeydown(end);
+  assert.equal(end.prevented, true);
+  assert.deepEqual(calls, ["source", "console", "console"]);
+});
+
+test("active job left tab wiring is owned by the layout feature", () => {
+  assert.match(activeJobLayoutModuleSource, /function bindActiveJobLeftTabs\(/);
+  assert.match(source, /bindActiveJobLeftTabs\(\)/);
+  assert.doesNotMatch(source, /const activeJobLeftTabs = \["source", "console"\]/);
 });
 
 test("active job splitter clamps both panes and updates its accessible value", () => {
