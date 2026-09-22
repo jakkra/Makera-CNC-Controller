@@ -313,6 +313,31 @@ export function mountFeedOverride({
   return { setFeedOverride, adjustFeedOverride };
 }
 
+export function bindActiveJobInteractions({
+  documentRef,
+  bindButtonAction,
+  runActiveGcode,
+  runJobControl,
+  adjustFeedOverride,
+  setFeedOverride,
+  runPausedJobCommand,
+}) {
+  bindButtonAction(documentRef.getElementById("active-gcode-run"), runActiveGcode);
+  for (const button of documentRef.querySelectorAll("[data-job-control]")) {
+    bindButtonAction(button, () => runJobControl(button.dataset.jobControl));
+  }
+  bindButtonAction(documentRef.getElementById("feed-override-decrease"), () => adjustFeedOverride(-10));
+  bindButtonAction(documentRef.getElementById("feed-override-increase"), () => adjustFeedOverride(10));
+  bindButtonAction(documentRef.getElementById("feed-override-reset"), () => setFeedOverride(100));
+  for (const button of documentRef.querySelectorAll("[data-machine-feed-delta]")) {
+    bindButtonAction(button, () => adjustFeedOverride(Number(button.dataset.machineFeedDelta)));
+  }
+  for (const button of documentRef.querySelectorAll("[data-machine-feed-reset]")) {
+    bindButtonAction(button, () => setFeedOverride(100));
+  }
+  bindButtonAction(documentRef.getElementById("paused-job-raise"), () => runPausedJobCommand("raise_z"));
+}
+
 export function mountActiveJobDispatch({
   documentRef,
   machineActionState,

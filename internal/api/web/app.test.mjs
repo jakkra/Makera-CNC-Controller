@@ -12,7 +12,7 @@ import vm from "node:vm";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { request } from "./modules/api.js";
-import { gcodeCursorForPlayedLine, mountActiveJobControl, mountActiveJobDispatch, mountFeedOverride, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountActiveJobSelection, mountPausedJobCommand, previewBoundsText } from "./modules/active-job.js";
+import { bindActiveJobInteractions, gcodeCursorForPlayedLine, mountActiveJobControl, mountActiveJobDispatch, mountFeedOverride, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountActiveJobSelection, mountPausedJobCommand, previewBoundsText } from "./modules/active-job.js";
 import { createActiveJobView } from "./modules/active-job-view.js";
 import { activeJobSplitBounds, createActiveJobLayout } from "./modules/active-job-layout.js";
 import { escapeHtml, setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
@@ -318,6 +318,49 @@ test("tool interactions route actions and tool selection through the production 
   await bound[3][1]();
   assert.deepEqual(requests, ["/api/tool/current", "/api/tool/change", "/api/tool/continue", "/api/tool/calibrate"]);
 });
+test("Active Job interactions preserve action order, deltas, and reset values", () => {
+  const nodes = new Map([
+    ["active-gcode-run", { id: "active-gcode-run" }],
+    ["feed-override-decrease", { id: "feed-override-decrease" }],
+    ["feed-override-increase", { id: "feed-override-increase" }],
+    ["feed-override-reset", { id: "feed-override-reset" }],
+    ["paused-job-raise", { id: "paused-job-raise" }],
+  ]);
+  const jobControls = [
+    { id: "job-pause", dataset: { jobControl: "pause" } },
+    { id: "job-resume", dataset: { jobControl: "resume" } },
+  ];
+  const feedDeltas = [
+    { id: "feed-minus-5", dataset: { machineFeedDelta: "-5" } },
+    { id: "feed-plus-25", dataset: { machineFeedDelta: "25" } },
+  ];
+  const feedResets = [{ id: "feed-reset-data", dataset: { machineFeedReset: "1" } }];
+  const documentRef = {
+    getElementById: (id) => nodes.get(id) || null,
+    querySelectorAll: (selector) => selector === "[data-job-control]" ? jobControls : selector === "[data-machine-feed-delta]" ? feedDeltas : feedResets,
+  };
+  const calls = [];
+  bindActiveJobInteractions({
+    documentRef,
+    bindButtonAction: (button, action) => calls.push([button.id, action]),
+    runActiveGcode: () => calls.push(["runActiveGcode"]),
+    runJobControl: (action) => calls.push(["runJobControl", action]),
+    adjustFeedOverride: (delta) => calls.push(["adjustFeedOverride", delta]),
+    setFeedOverride: (value) => calls.push(["setFeedOverride", value]),
+    runPausedJobCommand: (action) => calls.push(["runPausedJobCommand", action]),
+  });
+  assert.deepEqual(calls.map(([id]) => id), [
+    "active-gcode-run", "job-pause", "job-resume", "feed-override-decrease", "feed-override-increase",
+    "feed-override-reset", "feed-minus-5", "feed-plus-25", "feed-reset-data", "paused-job-raise",
+  ]);
+  for (const [, action] of calls.slice()) action?.();
+  assert.deepEqual(calls.slice(10), [
+    ["runActiveGcode"], ["runJobControl", "pause"], ["runJobControl", "resume"],
+    ["adjustFeedOverride", -10], ["adjustFeedOverride", 10], ["setFeedOverride", 100],
+    ["adjustFeedOverride", -5], ["adjustFeedOverride", 25], ["setFeedOverride", 100],
+    ["runPausedJobCommand", "raise_z"],
+  ]);
+});
 test("work-coordinate move binder preserves dirty, Enter, reset, and send behavior", () => {
   const inputs = new Map(["x", "y", "z"].map((axis) => [axis, { dataset: {}, oninput: null, onkeydown: null }]));
   const resets = [{ dataset: { workMoveReset: "x" } }, { dataset: { workMoveReset: "z" } }];
@@ -429,7 +472,9 @@ test("shared helpers are imported as production ES modules", async () => {
   assert.match(activeJobModuleSource, /export function mountActiveJobDispatch/);
   assert.match(source, /mountActiveJobDispatch\(/);
   assert.match(source, /function runJobControl\(action\) \{ return runJobControlOperation\(action\); \}/);
-  assert.match(source, /bindButtonAction\(document\.getElementById\("paused-job-raise"\), \(\) => runPausedJobCommand\("raise_z"\)\);/);
+  assert.equal(typeof bindActiveJobInteractions, "function");
+  assert.match(activeJobModuleSource, /export function bindActiveJobInteractions/);
+  assert.match(source, /bindActiveJobInteractions\(\{ documentRef: document, bindButtonAction, runActiveGcode, runJobControl, adjustFeedOverride, setFeedOverride, runPausedJobCommand \}\)/);
   assert.equal(typeof mountFeedOverride, "function");
   assert.match(activeJobModuleSource, /export function mountFeedOverride/);
   assert.match(source, /mountFeedOverride\(/);

@@ -3,7 +3,7 @@ import { createLiveUpdates } from "./modules/live-updates.js";
 import { pointInPolygonOrBoundary, effectiveOutlineGeometry, normalizedClosedPolygon, buildFieldProbePreview as computeFieldProbePreview, DEFAULT_FIELD_SPOT_GAP_MM } from "./modules/outline-geometry.js";
 import * as THREE from "./three.module.min.js";
 import { request } from "./modules/api.js";
-import { gcodeCursorForPlayedLine, mountActiveJobControl, mountActiveJobDispatch, mountFeedOverride, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection } from "./modules/active-job.js";
+import { bindActiveJobInteractions, gcodeCursorForPlayedLine, mountActiveJobControl, mountActiveJobDispatch, mountFeedOverride, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection } from "./modules/active-job.js";
 import { ACTIVE_JOB_SPLIT_MIN_LEFT_PX, ACTIVE_JOB_SPLIT_MIN_PREVIEW_PX, ACTIVE_JOB_SPLIT_STEP_PERCENT, ACTIVE_JOB_SPLITTER_PX, DEFAULT_ACTIVE_JOB_SPLIT_PERCENT, activeJobSplitBounds as calculateActiveJobSplitBounds, createActiveJobLayout } from "./modules/active-job-layout.js";
 import { createActiveJobView } from "./modules/active-job-view.js";
 import { escapeHtml, setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
@@ -2999,20 +2999,7 @@ function init() {
   bindProbeConfirmationInteractions({ bindButtonAction });
   bindMachineControlInteractions({ bindButtonAction, sendControl });
   bindToolInteractions({ bindButtonAction });
-  bindButtonAction(document.getElementById("active-gcode-run"), runActiveGcode);
-  for (const button of document.querySelectorAll("[data-job-control]")) {
-    bindButtonAction(button, () => runJobControl(button.dataset.jobControl));
-  }
-  bindButtonAction(document.getElementById("feed-override-decrease"), () => adjustFeedOverride(-10));
-  bindButtonAction(document.getElementById("feed-override-increase"), () => adjustFeedOverride(10));
-  bindButtonAction(document.getElementById("feed-override-reset"), () => setFeedOverride(100));
-  for (const button of document.querySelectorAll("[data-machine-feed-delta]")) {
-    bindButtonAction(button, () => adjustFeedOverride(Number(button.dataset.machineFeedDelta)));
-  }
-  for (const button of document.querySelectorAll("[data-machine-feed-reset]")) {
-    bindButtonAction(button, () => setFeedOverride(100));
-  }
-  bindButtonAction(document.getElementById("paused-job-raise"), () => runPausedJobCommand("raise_z"));
+  bindActiveJobInteractions({ documentRef: document, bindButtonAction, runActiveGcode, runJobControl, adjustFeedOverride, setFeedOverride, runPausedJobCommand });
   const gcodeSourceScroll = document.getElementById("active-gcode-source-scroll");
   const markGcodeSourceInteraction = () => {
     activeGcodeSource.userScrollingUntil = Date.now() + 2000;
