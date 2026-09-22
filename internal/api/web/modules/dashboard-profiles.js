@@ -387,5 +387,35 @@ export function createDashboardProfiles({
     }
   }
 
-  return { dashboardURLState, dashboardProfileByID, currentDashboardProfile, isWideSurfaceOverview, dashboardPanelVisible, resolveDashboardProfile, applyDashboardURLState, syncDashboardProfileURL, selectDashboardProfile, renderDashboardProfileControls, applyDashboardProfile, dashboardProfileSlug, renderDashboardPanelOrder, refreshDashboardPanelOrderButtons, openDashboardSettings, closeDashboardSettings, dashboardProfileFromForm, saveDashboardProfile, deleteDashboardProfile, copyDashboardURL };
+  function bindInteractions({
+    setDashboardControlsOpen: setControlsOpen = setDashboardControlsOpen,
+    openDashboardSettings: openSettings = openDashboardSettings,
+    copyDashboardURL: copyURL = copyDashboardURL,
+    closeDashboardSettings: closeSettings = closeDashboardSettings,
+    saveDashboardProfile: saveProfile = saveDashboardProfile,
+    deleteDashboardProfile: deleteProfile = deleteDashboardProfile,
+    selectDashboardProfile: selectProfile = selectDashboardProfile,
+  } = {}) {
+    document.getElementById("dashboard-profile").onchange = (e) => selectProfile(e.target.value);
+    document.getElementById("dashboard-new").onclick = () => {
+      setControlsOpen(false);
+      openSettings(true);
+    };
+    document.getElementById("dashboard-configure").onclick = () => {
+      setControlsOpen(false);
+      openSettings(false);
+    };
+    document.getElementById("dashboard-copy-link").onclick = () => copyURL(false);
+    document.getElementById("dashboard-copy-obs").onclick = () => copyURL(true);
+    document.getElementById("dashboard-settings-close").onclick = closeSettings;
+    document.getElementById("dashboard-settings-cancel").onclick = closeSettings;
+    document.getElementById("dashboard-save").onclick = saveProfile;
+    document.getElementById("dashboard-delete").onclick = deleteProfile;
+    document.getElementById("dashboard-settings-modal").addEventListener("cancel", (e) => {
+      e.preventDefault();
+      closeSettings();
+    });
+  }
+
+  return { dashboardURLState, dashboardProfileByID, currentDashboardProfile, isWideSurfaceOverview, dashboardPanelVisible, resolveDashboardProfile, applyDashboardURLState, syncDashboardProfileURL, selectDashboardProfile, renderDashboardProfileControls, applyDashboardProfile, dashboardProfileSlug, renderDashboardPanelOrder, refreshDashboardPanelOrderButtons, openDashboardSettings, closeDashboardSettings, dashboardProfileFromForm, saveDashboardProfile, deleteDashboardProfile, copyDashboardURL, bindInteractions };
 }

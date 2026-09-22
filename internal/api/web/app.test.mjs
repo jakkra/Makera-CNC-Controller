@@ -21,6 +21,7 @@ import { runHistoryEvents } from "./modules/maintenance.js";
 import { dashboardExternalCameraIsSnapshot, normalizeDashboardExternalCameraView } from "./modules/camera.js";
 import { dashboardATCText, dashboardAlarmText, dashboardControllerText, dashboardLaserText, dashboardOnOff, dashboardOptionalNumber, dashboardRotaryText, createDashboardTelemetry } from "./modules/dashboard-telemetry.js";
 import { createDashboardView } from "./modules/dashboard-view.js";
+import { createDashboardProfiles } from "./modules/dashboard-profiles.js";
 import { createMachineStatusFeature } from "./modules/machine-status.js";
 import { createToolActions } from "./modules/tool-actions.js";
 import { createGcodeLogFeature, formatLogLine, lineMatchesFilter, visibleGcodeLines } from "./modules/gcode-log.js";
@@ -1821,6 +1822,54 @@ test("dashboard profiles normalize durable organization and bounded gcode lines"
     }],
     default_profile_id: "camera",
   });
+});
+
+test("dashboard profile interactions preserve event order and callback routing", () => {
+  assert.match(dashboardProfilesModuleSource, /function bindInteractions\(/);
+  assert.match(source, /bindDashboardInteractions\(\{ setDashboardControlsOpen, openDashboardSettings, copyDashboardURL, closeDashboardSettings, saveDashboardProfile, deleteDashboardProfile, selectDashboardProfile \}\)/);
+  for (const id of ["dashboard-profile", "dashboard-new", "dashboard-configure", "dashboard-copy-link", "dashboard-copy-obs", "dashboard-settings-close", "dashboard-settings-cancel", "dashboard-save", "dashboard-delete"]) {
+    assert.doesNotMatch(source, new RegExp(`document\\.getElementById\\("${id}"\\)\\.(onclick|onchange)`));
+  }
+  assert.doesNotMatch(source, /dashboard-settings-modal"\)\.addEventListener\("cancel"/);
+  const calls = [];
+  const nodes = new Map();
+  for (const id of ["dashboard-profile", "dashboard-new", "dashboard-configure", "dashboard-copy-link", "dashboard-copy-obs", "dashboard-settings-close", "dashboard-settings-cancel", "dashboard-save", "dashboard-delete"]) {
+    nodes.set(id, { onchange: null, onclick: null });
+  }
+  const modalListeners = [];
+  nodes.set("dashboard-settings-modal", { addEventListener: (...args) => modalListeners.push(args) });
+  const feature = createDashboardProfiles({
+    dashboardState: {},
+    documentRef: { getElementById: (id) => nodes.get(id) || null },
+    windowRef: {}, navigatorRef: {}, confirmRef: () => true,
+    normalizeDashboardSettings: () => ({}), viewTabFromURL: () => "dashboard",
+    setDashboardControlsOpen: () => {}, renderDashboard: () => {}, newID: () => "id",
+    saveUISettings: async () => true, setNotice: () => {}, getDashboardGcodeView: () => null,
+    scheduleDashboardGcodeRender: () => {},
+  });
+  feature.bindInteractions({
+    setDashboardControlsOpen: (open) => calls.push(["controls", open]),
+    openDashboardSettings: (createNew) => calls.push(["open", createNew]),
+    copyDashboardURL: (embed) => calls.push(["copy", embed]),
+    closeDashboardSettings: () => calls.push(["close"]),
+    saveDashboardProfile: () => calls.push(["save"]),
+    deleteDashboardProfile: () => calls.push(["delete"]),
+    selectDashboardProfile: (id) => calls.push(["select", id]),
+  });
+  nodes.get("dashboard-profile").onchange({ target: { value: "camera" } });
+  nodes.get("dashboard-new").onclick();
+  nodes.get("dashboard-configure").onclick();
+  nodes.get("dashboard-copy-link").onclick();
+  nodes.get("dashboard-copy-obs").onclick();
+  nodes.get("dashboard-settings-close").onclick();
+  nodes.get("dashboard-settings-cancel").onclick();
+  nodes.get("dashboard-save").onclick();
+  nodes.get("dashboard-delete").onclick();
+  modalListeners[0][1]({ preventDefault: () => calls.push(["prevent"]) });
+  assert.deepEqual(calls, [
+    ["select", "camera"], ["controls", false], ["open", true], ["controls", false], ["open", false],
+    ["copy", false], ["copy", true], ["close"], ["close"], ["save"], ["delete"], ["prevent"], ["close"],
+  ]);
 });
 
 test("dashboard URLs select named profiles and expose an OBS embed mode", () => {

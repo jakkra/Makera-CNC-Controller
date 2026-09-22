@@ -1102,7 +1102,7 @@ const dashboardProfiles = createDashboardProfiles({
   getDashboardGcodeView: () => gcodeViewer.getDashboardGcodeView(),
   scheduleDashboardGcodeRender: () => gcodeViewer.scheduleDashboardGcodeRender(),
 });
-const { dashboardURLState, dashboardProfileByID, currentDashboardProfile, isWideSurfaceOverview, dashboardPanelVisible, resolveDashboardProfile, applyDashboardURLState, syncDashboardProfileURL, selectDashboardProfile, renderDashboardProfileControls, applyDashboardProfile, dashboardProfileSlug, renderDashboardPanelOrder, refreshDashboardPanelOrderButtons, openDashboardSettings, closeDashboardSettings, dashboardProfileFromForm, saveDashboardProfile, deleteDashboardProfile, copyDashboardURL } = dashboardProfiles;
+const { dashboardURLState, dashboardProfileByID, currentDashboardProfile, isWideSurfaceOverview, dashboardPanelVisible, resolveDashboardProfile, applyDashboardURLState, syncDashboardProfileURL, selectDashboardProfile, renderDashboardProfileControls, applyDashboardProfile, dashboardProfileSlug, renderDashboardPanelOrder, refreshDashboardPanelOrderButtons, openDashboardSettings, closeDashboardSettings, dashboardProfileFromForm, saveDashboardProfile, deleteDashboardProfile, copyDashboardURL, bindInteractions: bindDashboardInteractions } = dashboardProfiles;
 
 workAreaInteractions = createWorkAreaInteractions({
   state,
@@ -2895,25 +2895,7 @@ function init() {
   installPullToRefresh();
   initDashboardControlsMenu();
   initWorkAreaActionsMenu();
-  document.getElementById("dashboard-profile").onchange = (e) => selectDashboardProfile(e.target.value);
-  document.getElementById("dashboard-new").onclick = () => {
-    setDashboardControlsOpen(false);
-    openDashboardSettings(true);
-  };
-  document.getElementById("dashboard-configure").onclick = () => {
-    setDashboardControlsOpen(false);
-    openDashboardSettings(false);
-  };
-  document.getElementById("dashboard-copy-link").onclick = () => copyDashboardURL(false);
-  document.getElementById("dashboard-copy-obs").onclick = () => copyDashboardURL(true);
-  document.getElementById("dashboard-settings-close").onclick = closeDashboardSettings;
-  document.getElementById("dashboard-settings-cancel").onclick = closeDashboardSettings;
-  document.getElementById("dashboard-save").onclick = saveDashboardProfile;
-  document.getElementById("dashboard-delete").onclick = deleteDashboardProfile;
-  document.getElementById("dashboard-settings-modal").addEventListener("cancel", (e) => {
-    e.preventDefault();
-    closeDashboardSettings();
-  });
+  bindDashboardInteractions({ setDashboardControlsOpen, openDashboardSettings, copyDashboardURL, closeDashboardSettings, saveDashboardProfile, deleteDashboardProfile, selectDashboardProfile });
   bindActiveJobLeftTabs();
   showActiveJobLeftTab(state.activeJobLeftTab);
   bindActiveJobSplitter();
