@@ -998,6 +998,7 @@ const outlineFilesFeature = createOutlineFilesFeature({
   getOutline: () => state.outline,
   setOutline: (value) => { state.outline = value; },
   outlineJSONDocument: () => outlineJSONDocument(),
+  buildOutlineDXF: () => buildOutlineDXF(),
   outlineStateFromJSON: (doc) => outlineStateFromJSON(doc),
   cancelOutlineCaptureIntents,
   markGcodeContextOverlayDirty,
@@ -1011,6 +1012,7 @@ const outlineFilesFeature = createOutlineFilesFeature({
 const {
   downloadBlob: downloadOutlineBlob,
   saveOutlineJSON: saveOutlineJSONFeature,
+  exportOutline: exportOutlineFeature,
   loadOutlineFile: loadOutlineFileFeature,
   installLoadedOutlineState: installLoadedOutlineStateFeature,
 } = outlineFilesFeature;
@@ -1507,17 +1509,7 @@ async function runFieldProbe() { return fieldProbing.runFieldProbe(); }
 function traceOutlineMachinePoints(origin) { return fieldProbing.traceOutlineMachinePoints(origin); }
 async function traceOutline() { return fieldProbing.traceOutline(); }
 
-function exportOutline() {
-  try {
-    if (state.outline.points.length < 2) throw new Error("outline needs at least two points");
-    const dxf = buildOutlineDXF();
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    downloadBlob("cnc-outline-" + stamp + ".dxf", dxf, "application/dxf");
-    setOutlineFeedback("DXF export started.", "ok");
-  } catch (e) {
-    setOutlineFeedback("Export failed: " + e.message, "error");
-  }
-}
+function exportOutline() { return exportOutlineFeature(); }
 
 function outlineJSONDocument() {
   return buildOutlineJSONDocument(state.outline, {

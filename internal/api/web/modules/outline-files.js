@@ -9,6 +9,7 @@ export function createOutlineFilesFeature({
   getOutline = () => null,
   setOutline = () => {},
   outlineJSONDocument = () => { throw new Error("outline JSON serializer is unavailable"); },
+  buildOutlineDXF = () => { throw new Error("outline DXF builder is unavailable"); },
   outlineStateFromJSON = () => { throw new Error("outline JSON parser is unavailable"); },
   cancelOutlineCaptureIntents = () => {},
   markGcodeContextOverlayDirty = () => {},
@@ -38,6 +39,18 @@ export function createOutlineFilesFeature({
       setOutlineFeedback("Outline JSON export started.", "ok");
     } catch (e) {
       setOutlineFeedback("Save outline failed: " + e.message, "error");
+    }
+  }
+
+  function exportOutline() {
+    try {
+      if (getOutline().points.length < 2) throw new Error("outline needs at least two points");
+      const dxf = buildOutlineDXF();
+      const stamp = now().toISOString().replace(/[:.]/g, "-");
+      downloadBlob("cnc-outline-" + stamp + ".dxf", dxf, "application/dxf");
+      setOutlineFeedback("DXF export started.", "ok");
+    } catch (e) {
+      setOutlineFeedback("Export failed: " + e.message, "error");
     }
   }
 
@@ -72,6 +85,7 @@ export function createOutlineFilesFeature({
   return {
     downloadBlob,
     saveOutlineJSON,
+    exportOutline,
     loadOutlineFile,
     installLoadedOutlineState,
   };

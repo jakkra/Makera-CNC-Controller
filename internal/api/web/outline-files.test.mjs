@@ -43,6 +43,7 @@ function makeFeature(overrides = {}) {
     getOutline: () => outline,
     setOutline: (value) => { outline = value; },
     outlineJSONDocument: () => ({ app: "cnc-proxy" }),
+    buildOutlineDXF: () => { events.push(["build-dxf"]); return "DXF CONTENT"; },
     outlineStateFromJSON: (doc) => ({ points: doc.points, closed: !!doc.closed, filePending: false }),
     cancelOutlineCaptureIntents: (value) => events.push(["cancel", value]),
     markGcodeContextOverlayDirty: () => events.push(["dirty"]),
@@ -117,4 +118,33 @@ test("loadOutlineFile clears pending and reports parser failures", async () => {
     ["render-outline"],
     ["status", "outline", "Load outline failed: file is invalid", "error", { force: true }],
   ]);
+});
+
+test("exportOutline downloads a timestamped DXF and reports success", () => {
+  const { feature, documentRef, events } = makeFeature({ outline: { points: [{ x: 1 }, { x: 2 }] } });
+  feature.exportOutline();
+  assert.equal(documentRef.links.length, 1);
+  assert.equal(documentRef.links[0].download, "cnc-outline-2026-01-02T03-04-05-000Z.dxf");
+  assert.equal(documentRef.links[0].clicked, true);
+  const blob = events.find((event) => event[0] === "create")[1];
+  assert.equal(blob.type, "application/dxf");
+  assert.equal(blob.parts[0], "DXF CONTENT");
+  assert.deepEqual(events.filter((event) => event[0] === "build-dxf").length, 1);
+  assert.deepEqual(events.at(-1), ["feedback", "DXF export started.", "ok"]);
+});
+
+test("exportOutline preserves point guard and reports builder failures", () => {
+  const short = makeFeature({ outline: { points: [{ x: 1 }] } });
+  short.feature.exportOutline();
+  assert.equal(short.documentRef.links.length, 0);
+  assert.deepEqual(short.events, [["feedback", "Export failed: outline needs at least two points", "error"]]);
+
+  const failureEvents = [];
+  const broken = createOutlineFilesFeature({
+    getOutline: () => ({ points: [{ x: 1 }, { x: 2 }] }),
+    buildOutlineDXF: () => { throw new Error("invalid geometry"); },
+    setOutlineFeedback: (...args) => failureEvents.push(["feedback", ...args]),
+  });
+  broken.exportOutline();
+  assert.deepEqual(failureEvents, [["feedback", "Export failed: invalid geometry", "error"]]);
 });
