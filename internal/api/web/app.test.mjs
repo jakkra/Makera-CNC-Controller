@@ -220,6 +220,13 @@ test("gamepad settings interactions are wired through the gamepad feature binder
   assert.doesNotMatch(source, /document\.getElementById\("gamepad-axis-" \+ axis\)\.onchange/);
   assert.doesNotMatch(source, /document\.getElementById\("gamepad-add-macro"\)\.onclick/);
 });
+
+test("machine settings interactions are wired through the settings feature binder", () => {
+  assert.match(settingsModuleSource, /function bindMachineSettingsInteractions\(/);
+  assert.match(source, /bindMachineSettingsInteractions\(\)/);
+  assert.doesNotMatch(source, /bindDirtyDraftControls\(MACHINE_SETTING_IDS\)/);
+  assert.doesNotMatch(source, /document\.getElementById\(id\)\.onchange = updateMachineSettings/);
+});
 test("shared helpers are imported as production ES modules", async () => {
   assert.match(source, /import \{ createGamepadControls \} from "\.\/modules\/gamepad-controls\.js";/);
   assert.match(gamepadControlsModuleSource, /export function createGamepadControls/);

@@ -73,7 +73,6 @@ import { cloneFloorProbe, cloneOutlineOrigin, cloneOutlinePoint, defaultOutlineS
 import { createNavigationFeature, createLifecycleFeature, viewTabFromURL } from "./modules/navigation.js";
 import {
   createSettingsFeature,
-  MACHINE_SETTING_IDS,
   DEFAULT_MACHINE_FEED_MIN_MM_MIN,
   DEFAULT_MACHINE_FEED_MAX_MM_MIN,
   MAX_MACHINE_FEED_MM_MIN,
@@ -313,6 +312,7 @@ const {
   setControlValueIfIdle,
   setCheckedIfIdle,
   bindDirtyDraftControls,
+  bindMachineSettingsInteractions,
 } = settingsFeature;
 
 const mdiMacros = createMdiMacros({
@@ -2972,10 +2972,7 @@ function init() {
   document.getElementById("macro-delete").onclick = deleteSelectedMacro;
   bindDirtyDraftControls(MACRO_EDITOR_IDS);
   bindGamepadInteractions();
-  bindDirtyDraftControls(MACHINE_SETTING_IDS);
-  for (const id of MACHINE_SETTING_IDS) {
-    document.getElementById(id).onchange = updateMachineSettings;
-  }
+  bindMachineSettingsInteractions();
   for (const btn of document.querySelectorAll("[data-feed-step]")) {
     btn.onclick = () => stepTapFeed(Number(btn.dataset.feedStep) || 0);
   }

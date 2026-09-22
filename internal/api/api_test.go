@@ -1425,6 +1425,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/gcode-log.js", "function exportVisibleLog"},
 		{"/modules/gcode-log.js", "function bindInteractions"},
 		{"/modules/gamepad-controls.js", "function bindInteractions"},
+		{"/modules/settings.js", "bindMachineSettingsInteractions"},
 		{"/modules/backup.js", "export function createBackupFeature"},
 		{"/modules/backup.js", "Backup imported; reloading..."},
 		{"/modules/mdi-macros.js", "function bindCommandInteractions"},

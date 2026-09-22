@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createSettingsFeature,
+  MACHINE_SETTING_IDS,
   defaultGamepadSettings,
   defaultMachineSettings,
   normalizeGamepadSettings,
@@ -114,6 +115,29 @@ test("gamepad settings handler updates durable mapping through the save callback
   feature.addGamepadMacroBinding();
   assert.deepEqual(ui.gamepad.macro_buttons, [{ id: "gamepad-macro-new", button: 1, macro_id: "m1" }]);
   assert.equal(saves, 2);
+});
+
+test("machine settings binder installs dirty drafts and shared onchange handler", () => {
+  const nodes = new Map();
+  for (const id of MACHINE_SETTING_IDS) {
+    const node = element();
+    node.listeners = [];
+    node.addEventListener = (type, handler) => node.listeners.push([type, handler]);
+    nodes.set(id, node);
+  }
+  const documentRef = { getElementById: (id) => nodes.get(id) || null };
+  const feature = createSettingsFeature({ documentRef, getUI: () => ({ machine: defaultMachineSettings() }) });
+  const updates = [];
+  feature.bindMachineSettingsInteractions({ updateMachineSettings: () => updates.push("update") });
+
+  for (const id of MACHINE_SETTING_IDS) {
+    const node = nodes.get(id);
+    assert.deepEqual(node.listeners.map(([type]) => type), ["input", "change"]);
+    assert.equal(typeof node.listeners[0][1], "function");
+    assert.equal(node.onchange instanceof Function, true);
+    node.onchange();
+  }
+  assert.equal(updates.length, MACHINE_SETTING_IDS.length);
 });
 
 test("learned summary remains concise and data-derived", () => {
