@@ -27,6 +27,7 @@ import { createJogView } from "./modules/jog-view.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
 import { createSurfaceJogFeature, loadSurfaceViewPreferences, saveSurfaceViewPreferences as persistSurfaceViewPreferences, isSurfaceKiosk } from "./modules/surface-jog.js";
 import { createSurfaceRouting } from "./modules/surface-routing.js";
+import { createSurfaceShell } from "./modules/surface-shell.js";
 import { createMachineReconciliation } from "./modules/machine-reconciliation.js";
 import { createOutlineFeature, workPointToMachinePoint } from "./modules/outline.js";
 import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
@@ -190,6 +191,7 @@ const surfaceRouting = createSurfaceRouting({
   showTab: (...args) => showTab(...args),
   fmtDuration,
 });
+const surfaceShell = createSurfaceShell({ documentRef: document, showTab: (...args) => showTab(...args) });
 
 const {
   clearConnectivityIssue,
@@ -4309,43 +4311,7 @@ function applyChange(ev) {
 
 
 
-function runSurfaceShellAction(action) {
-  switch (action) {
-  case "home":
-    document.getElementById("ctl-home-main")?.click();
-    break;
-  case "probe-z":
-    document.getElementById("origin-probe-z")?.click();
-    break;
-  case "work-zero": {
-    showTab("control");
-    const section = document.getElementById("work-zero-section");
-    if (section) {
-      section.open = true;
-      section.scrollIntoView?.({ block: "start", behavior: "smooth" });
-    }
-    break;
-  }
-  case "files":
-    showTab("files");
-    break;
-  case "camera":
-    showTab("dashboard");
-    document.querySelector(".dashboard-camera-stage")?.scrollIntoView?.({ block: "center", behavior: "smooth" });
-    break;
-  case "maintenance":
-    showTab("maintenance");
-    break;
-  case "actions": {
-    const actions = document.getElementById("command-actions");
-    const toggle = document.getElementById("mobile-actions-toggle");
-    const open = !actions?.classList.contains("mobile-menu-open");
-    actions?.classList.toggle("mobile-menu-open", open);
-    toggle?.setAttribute("aria-expanded", String(open));
-    break;
-  }
-  }
-}
+function runSurfaceShellAction(...args) { return surfaceShell.runSurfaceShellAction(...args); }
 
 function applySurfaceAutomaticView(...args) { return surfaceRouting.applySurfaceAutomaticView(...args); }
 

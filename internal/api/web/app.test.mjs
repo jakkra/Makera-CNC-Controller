@@ -41,6 +41,7 @@ import { createProbeConfirmation } from "./modules/probe-confirm.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
 import { createSurfaceRouting, externalJobState } from "./modules/surface-routing.js";
+import { createSurfaceShell } from "./modules/surface-shell.js";
 import { createMachineReconciliation } from "./modules/machine-reconciliation.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
 import { movementArmAvailable as movementArmAvailableState, movementArmLabel as movementArmLabelState, syncJogAvailabilityFromMachine as syncJogAvailabilityState } from "./modules/jog.js";
@@ -6774,6 +6775,57 @@ test("3D probe action does not submit a predicted soft-limit conflict", async ()
   assert.equal(state.jog.targetLabel, "X -250.0 Y -160.0");
 });
 
+test("Surface shell actions keep their navigation and DOM behavior", () => {
+  const calls = [];
+  let homeClicks = 0;
+  let probeClicks = 0;
+  let cameraScroll = null;
+  let actionsOpen = false;
+  let expanded = "";
+  const nodes = new Map([
+    ["ctl-home-main", { click: () => { homeClicks++; } }],
+    ["origin-probe-z", { click: () => { probeClicks++; } }],
+    ["work-zero-section", { open: false, scrollIntoView: (options) => calls.push(["work-zero-scroll", options]) }],
+    ["command-actions", { classList: {
+      contains: (name) => name === "mobile-menu-open" && actionsOpen,
+      toggle: (name, value) => { if (name === "mobile-menu-open") actionsOpen = value; },
+    } }],
+    ["mobile-actions-toggle", { setAttribute: (name, value) => { if (name === "aria-expanded") expanded = value; } }],
+  ]);
+  const cameraStage = { scrollIntoView: (options) => { cameraScroll = options; } };
+  const shell = createSurfaceShell({
+    documentRef: {
+      getElementById: (id) => nodes.get(id) || null,
+      querySelector: (selector) => selector === ".dashboard-camera-stage" ? cameraStage : null,
+    },
+    showTab: (...args) => calls.push(args),
+  });
+
+  shell.runSurfaceShellAction("home");
+  shell.runSurfaceShellAction("probe-z");
+  shell.runSurfaceShellAction("work-zero");
+  shell.runSurfaceShellAction("files");
+  shell.runSurfaceShellAction("camera");
+  shell.runSurfaceShellAction("maintenance");
+  shell.runSurfaceShellAction("actions");
+
+  assert.equal(homeClicks, 1);
+  assert.equal(probeClicks, 1);
+  assert.equal(nodes.get("work-zero-section").open, true);
+  assert.deepEqual(calls, [
+    ["control"],
+    ["work-zero-scroll", { block: "start", behavior: "smooth" }],
+    ["files"],
+    ["dashboard"],
+    ["maintenance"],
+  ]);
+  assert.deepEqual(cameraScroll, { block: "center", behavior: "smooth" });
+  assert.equal(actionsOpen, true);
+  assert.equal(expanded, "true");
+  shell.runSurfaceShellAction("actions");
+  assert.equal(actionsOpen, false);
+  assert.equal(expanded, "false");
+});
 test("Surface automatic routing maps machine state without overriding an operator-selected tab", () => {
   const calls = [];
   const state = { surface: { auto_switch: true, start_view: "jog" }, machine: { state: "Idle" }, activeTab: "dashboard" };
