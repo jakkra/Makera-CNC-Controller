@@ -3183,33 +3183,28 @@ function init() {
   bindButtonAction(document.getElementById("workarea-zoom-out"), () => zoomWorkArea(1 / WORKAREA_ZOOM_STEP));
   bindButtonAction(document.getElementById("workarea-zoom-reset"), resetWorkAreaView);
   bindButtonAction(document.getElementById("workarea-zoom-in"), () => zoomWorkArea(WORKAREA_ZOOM_STEP));
-  bindButtonAction(document.getElementById("outline-start"), startOutlineCapture);
-  bindButtonAction(document.getElementById("outline-end"), endOutlineCapture);
-  bindButtonAction(document.getElementById("outline-add-point"), addOutlinePoint);
-  bindButtonAction(document.getElementById("outline-trace"), traceOutline);
-  bindButtonAction(document.getElementById("outline-undo"), undoOutline);
-  bindButtonAction(document.getElementById("outline-redo"), redoOutline);
-  bindButtonAction(document.getElementById("outline-close"), closeOutline);
-  bindButtonAction(document.getElementById("outline-load"), () => document.getElementById("outline-file").click());
-  bindButtonAction(document.getElementById("outline-save"), saveOutlineJSON);
-  document.getElementById("outline-curve-fit").onchange = toggleOutlineCurveFit;
-  bindButtonAction(document.getElementById("outline-export"), exportOutline);
-  document.getElementById("outline-file").onchange = (e) => {
-    loadOutlineFile(e.target.files[0]);
-    e.target.value = "";
-  };
-  const outlineSpacing = document.getElementById("outline-field-spacing");
-  outlineSpacing.oninput = () => {
-    markControlDirty(outlineSpacing);
-    scheduleOutlineFieldSpacingUpdate();
-  };
-  outlineSpacing.onchange = scheduleOutlineFieldSpacingUpdate;
-  bindButtonAction(document.getElementById("outline-field-probe"), runFieldProbe);
-  bindButtonAction(document.getElementById("outline-field-move"), moveToSelectedFieldProbePoint);
-  bindButtonAction(document.getElementById("outline-field-reset"), resetSelectedFieldProbeValue);
-  bindButtonAction(document.getElementById("outline-probe-floor"), probeFloor);
-  bindButtonAction(document.getElementById("outline-export-obj"), exportHeightOBJ);
-  bindButtonAction(document.getElementById("outline-export-height"), exportHeightImage);
+  outlineView.bindInteractions({
+    bindButtonAction,
+    startOutlineCapture,
+    endOutlineCapture,
+    addOutlinePoint,
+    traceOutline,
+    undoOutline,
+    redoOutline,
+    closeOutline,
+    saveOutlineJSON,
+    toggleOutlineCurveFit,
+    exportOutline,
+    loadOutlineFile,
+    markControlDirty,
+    scheduleOutlineFieldSpacingUpdate,
+    runFieldProbe,
+    moveToSelectedFieldProbePoint,
+    resetSelectedFieldProbeValue,
+    probeFloor,
+    exportHeightOBJ,
+    exportHeightImage,
+  });
   bindButtonAction(document.getElementById("probe-confirm-close"), () => settleProbeConfirmation(false));
   bindButtonAction(document.getElementById("probe-confirm-cancel"), () => settleProbeConfirmation(false));
   bindButtonAction(document.getElementById("probe-confirm-accept"), () => settleProbeConfirmation(true));

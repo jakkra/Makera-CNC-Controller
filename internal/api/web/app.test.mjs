@@ -395,6 +395,7 @@ test("outline view preserves pending presentation while capture intents are in f
   assert.equal(nodes.get("outline-add-point").attrs.get("aria-busy"), "true");
   assert.equal(nodes.get("outline-field-probe").textContent, "Probing 2/3");
   assert.match(outlineViewModuleSource, /outline-field-probe/);
+  assert.match(outlineViewModuleSource, /function bindInteractions\(/);
 });
 
 test("probe confirmation keeps one pending modal promise and resolves it once", async () => {
@@ -4161,8 +4162,8 @@ test("spot-gap spinner changes debounce expensive preview regeneration", () => {
   assert.equal(vm.runInContext("scheduleOutlineFieldSpacingUpdate()", ctx), false);
   assert.equal(input.validityMessage, "Enter a number.");
   assert.equal(previews, 1, "an invalid draft never starts another preview calculation");
-  assert.match(source, /outlineSpacing\.oninput = \(\) => \{[\s\S]{0,160}scheduleOutlineFieldSpacingUpdate\(\);/);
-  assert.match(source, /outlineSpacing\.onchange = scheduleOutlineFieldSpacingUpdate;/);
+  assert.match(outlineViewModuleSource, /outlineSpacing\.oninput = \(\) => \{[\s\S]{0,160}scheduleOutlineFieldSpacingUpdate\(\);/);
+  assert.match(outlineViewModuleSource, /outlineSpacing\.onchange = scheduleOutlineFieldSpacingUpdate;/);
 });
 
 test("production-size field probe distribution remains dense and responsive", () => {
@@ -7718,4 +7719,38 @@ test("Surface XY map remains a local preview and never issues machine motion", (
   let cancelled = false;
   listeners["modal:cancel"]({ preventDefault: () => { cancelled = true; } });
   assert.equal(cancelled, true);
+});
+
+test("outline interaction binder preserves handler order, file actions, and local spacing drafts", () => {
+  const nodes = new Map(["outline-start","outline-end","outline-add-point","outline-trace","outline-undo","outline-redo","outline-close","outline-load","outline-save","outline-curve-fit","outline-export","outline-file","outline-field-spacing","outline-field-probe","outline-field-move","outline-field-reset","outline-probe-floor","outline-export-obj","outline-export-height"].map((id) => [id, { id, value: "draft", clickCount: 0, click() { this.clickCount++; } }]));
+  const registrations = [];
+  const actions = {};
+  for (const name of ["startOutlineCapture", "endOutlineCapture", "addOutlinePoint", "traceOutline", "undoOutline", "redoOutline", "closeOutline", "saveOutlineJSON", "toggleOutlineCurveFit", "exportOutline", "loadOutlineFile", "markControlDirty", "scheduleOutlineFieldSpacingUpdate", "runFieldProbe", "moveToSelectedFieldProbePoint", "resetSelectedFieldProbeValue", "probeFloor", "exportHeightOBJ", "exportHeightImage"]) actions[name] = (...args) => registrations.push([name, ...args]);
+  const view = createOutlineView({ stateFacade: { outline: {}, jog: {} }, documentRef: { getElementById: (id) => nodes.get(id) || null } });
+  view.bindInteractions({
+    ...actions,
+    bindButtonAction: (node, action) => registrations.push(["bind", node.id, action]),
+  });
+  assert.deepEqual(registrations.filter((entry) => entry[0] === "bind").map((entry) => entry[1]), [
+    "outline-start", "outline-end", "outline-add-point", "outline-trace", "outline-undo", "outline-redo",
+    "outline-close", "outline-load", "outline-save", "outline-export", "outline-field-probe",
+    "outline-field-move", "outline-field-reset", "outline-probe-floor", "outline-export-obj", "outline-export-height",
+  ]);
+  assert.equal(nodes.get("outline-curve-fit").onchange, actions.toggleOutlineCurveFit);
+  const startAction = registrations.find((entry) => entry[0] === "bind" && entry[1] === "outline-start")[2];
+  startAction();
+  assert.deepEqual(registrations.at(-1), ["startOutlineCapture"]);
+  const loadAction = registrations.find((entry) => entry[0] === "bind" && entry[1] === "outline-load")[2];
+  loadAction();
+  assert.equal(nodes.get("outline-file").clickCount, 1);
+  const file = nodes.get("outline-file");
+  file.files = ["outline.json"];
+  file.onchange({ target: file });
+  assert.deepEqual(registrations.at(-1), ["loadOutlineFile", "outline.json"]);
+  assert.equal(file.value, "");
+  const spacing = nodes.get("outline-field-spacing");
+  spacing.oninput();
+  assert.deepEqual(registrations.slice(-2), [["markControlDirty", spacing], ["scheduleOutlineFieldSpacingUpdate"]]);
+  spacing.onchange();
+  assert.deepEqual(registrations.at(-1), ["scheduleOutlineFieldSpacingUpdate"]);
 });

@@ -1467,6 +1467,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/state-defaults.js", "export function defaultOutlineState"},
 		{"/modules/workarea-render.js", "export function createWorkareaRenderers"},
 		{"/modules/outline-view.js", "export function createOutlineView"},
+		{"/modules/outline-view.js", "function bindInteractions("},
 		{"/modules/probe-confirm.js", "export function createProbeConfirmation"},
 		{"/modules/command-history.js", "export function loadCommandHistory"},
 		{"/modules/state.js", "export function createAppState"},
