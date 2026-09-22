@@ -1425,6 +1425,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/outline-geometry.js", "export function buildFieldProbePreview"},
 		{"/modules/tool-actions.js", "export function createToolActions"},
 		{"/modules/origin-probing.js", "export function createOriginProbing"},
+		{"/modules/origin-probing.js", "function bindInteractions("},
 		{"/modules/dashboard-profiles.js", "export function createDashboardProfiles"},
 		{"/modules/machine-status.js", "export function createMachineStatusFeature"},
 		{"/modules/navigation.js", "export function createNavigationFeature"},

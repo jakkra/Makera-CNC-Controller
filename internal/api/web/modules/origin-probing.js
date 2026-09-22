@@ -844,5 +844,55 @@ function recallSelectedOrigin() {
   }
 }
 
-  return { machineReadyForOriginSet, renderOriginButtons, setOriginFeedback, renderOriginSetSourceLabels, hasPendingOriginOperation, savedOrigins, selectedSavedOrigin, savedOriginLabel, renderSavedOriginSelect, saveCurrentOrigin, deleteSelectedOrigin, originCommandLine, formatOriginValue, originTargetsFromXYZ, originTargetsFromSaved, machineAnchorPoints, originTargetsFromOriginSource, originReferenceRequestFromInputs, renderOriginSetChange, originAxes, originTargetLabel, clearOriginVerification, beginOriginVerification, checkOriginVerification, scheduleOriginVerification, setOriginViaGcode, setReferenceOriginViaAPI, setReferenceOriginViaJog, sendNextJogOriginAxis, handleOriginAck, applyOriginTargets, setOriginAxis, openOriginDialog, closeOriginDialog, probe3DFieldRules, probe3DInitialPositioning, probe3DTravelPreflight, probe3DLearnedTravelBounds, probe3DPreflightFromControls, renderProbe3DForm, probe3DNumber, probe3DRequestFromControls, openProbe3D, closeProbe3D, runProbe3D, applyXYZOrigin, applyOriginSource, runAutoZProbe, recallSelectedOrigin };
+  function bindInteractions({ bindButtonAction }) {
+    bindButtonAction(document.getElementById("origin-probe-z"), runAutoZProbe);
+    bindButtonAction(document.getElementById("origin-probe-3d"), openProbe3D);
+    bindButtonAction(document.getElementById("probe-3d-close"), closeProbe3D);
+    bindButtonAction(document.getElementById("probe-3d-cancel"), closeProbe3D);
+    bindButtonAction(document.getElementById("probe-3d-run"), runProbe3D);
+    document.getElementById("probe-3d-kind").onchange = renderProbe3DForm;
+    for (const id of ["probe-3d-x", "probe-3d-y", "probe-3d-z", "probe-3d-diameter"]) {
+      document.getElementById(id).oninput = renderProbe3DForm;
+    }
+    document.getElementById("probe-3d-modal").addEventListener("cancel", (e) => {
+      e.preventDefault();
+      closeProbe3D();
+    });
+    renderProbe3DForm();
+    bindButtonAction(document.getElementById("origin-set-xyz-open"), () => openOriginDialog("origin-xyz-modal"));
+    bindButtonAction(document.getElementById("origin-set-open"), () => openOriginDialog("origin-set-modal"));
+    bindButtonAction(document.getElementById("origin-presets-open"), () => openOriginDialog("origin-presets-modal"));
+    bindButtonAction(document.getElementById("origin-xyz-close"), () => closeOriginDialog("origin-xyz-modal"));
+    bindButtonAction(document.getElementById("origin-set-close"), () => closeOriginDialog("origin-set-modal"));
+    bindButtonAction(document.getElementById("origin-presets-close"), () => closeOriginDialog("origin-presets-modal"));
+    for (const id of ["origin-xyz-x", "origin-xyz-y", "origin-xyz-z"]) {
+      const input = document.getElementById(id);
+      if (!input) continue;
+      input.onkeydown = (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          applyXYZOrigin();
+        }
+      };
+    }
+    document.getElementById("origin-set-source").onchange = renderJog;
+    for (const id of ["origin-set-x", "origin-set-y"]) {
+      const input = document.getElementById(id);
+      input.oninput = renderOriginSetChange;
+      input.onkeydown = (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          applyOriginSource();
+        }
+      };
+    }
+    document.getElementById("saved-origin-select").onchange = renderJog;
+    bindButtonAction(document.getElementById("origin-xyz-apply"), applyXYZOrigin);
+    bindButtonAction(document.getElementById("origin-set-apply"), applyOriginSource);
+    bindButtonAction(document.getElementById("saved-origin-recall"), recallSelectedOrigin);
+    bindButtonAction(document.getElementById("saved-origin-save"), saveCurrentOrigin);
+    bindButtonAction(document.getElementById("saved-origin-delete"), deleteSelectedOrigin);
+  }
+
+  return { bindInteractions, machineReadyForOriginSet, renderOriginButtons, setOriginFeedback, renderOriginSetSourceLabels, hasPendingOriginOperation, savedOrigins, selectedSavedOrigin, savedOriginLabel, renderSavedOriginSelect, saveCurrentOrigin, deleteSelectedOrigin, originCommandLine, formatOriginValue, originTargetsFromXYZ, originTargetsFromSaved, machineAnchorPoints, originTargetsFromOriginSource, originReferenceRequestFromInputs, renderOriginSetChange, originAxes, originTargetLabel, clearOriginVerification, beginOriginVerification, checkOriginVerification, scheduleOriginVerification, setOriginViaGcode, setReferenceOriginViaAPI, setReferenceOriginViaJog, sendNextJogOriginAxis, handleOriginAck, applyOriginTargets, setOriginAxis, openOriginDialog, closeOriginDialog, probe3DFieldRules, probe3DInitialPositioning, probe3DTravelPreflight, probe3DLearnedTravelBounds, probe3DPreflightFromControls, renderProbe3DForm, probe3DNumber, probe3DRequestFromControls, openProbe3D, closeProbe3D, runProbe3D, applyXYZOrigin, applyOriginSource, runAutoZProbe, recallSelectedOrigin };
 }

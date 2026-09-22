@@ -396,6 +396,10 @@ test("outline view preserves pending presentation while capture intents are in f
   assert.equal(nodes.get("outline-field-probe").textContent, "Probing 2/3");
   assert.match(outlineViewModuleSource, /outline-field-probe/);
   assert.match(outlineViewModuleSource, /function bindInteractions\(/);
+  assert.match(originProbingModuleSource, /function bindInteractions\(/);
+  const originBinderAt = source.indexOf("originProbing.bindInteractions({ bindButtonAction });");
+  assert.ok(originBinderAt > source.indexOf('for (const btn of document.querySelectorAll("[data-origin-zero]"))'), "origin binding remains after origin-zero controls");
+  assert.ok(originBinderAt < source.indexOf("bindWorkAreaInteractions();", originBinderAt), "origin binding remains before Work Area listeners");
 });
 
 test("probe confirmation keeps one pending modal promise and resolves it once", async () => {
