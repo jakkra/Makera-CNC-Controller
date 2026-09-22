@@ -1424,6 +1424,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/active-job.js", "export function previewBoundsText"},
 		{"/modules/active-job.js", "export function mountActiveJobPreview"},
 		{"/modules/camera.js", "export function mountDashboardCamera"},
+		{"/modules/camera.js", "bindDashboardCameraSwitches"},
 		{"/modules/dashboard-telemetry.js", "export function createDashboardTelemetry"},
 		{"/modules/dashboard-view.js", "export function createDashboardView"},
 		{"/modules/dashboard-view.js", "function bindInteractions"},

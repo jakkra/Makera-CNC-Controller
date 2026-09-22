@@ -1791,10 +1791,6 @@ function loadDashboardCameras() {
   return dashboardCamera.loadDashboardCameras();
 }
 
-function bindDashboardCameraSwitches() {
-  return dashboardCamera.bindDashboardCameraSwitches();
-}
-
 function stopDashboardBuiltinCamera() {
   return dashboardCamera.stopDashboardBuiltinCamera();
 }
@@ -2954,7 +2950,7 @@ function init() {
       if (current !== null) setAutoVacuum(current === 0);
     },
   });
-  bindDashboardCameraSwitches();
+  dashboardCamera.bindDashboardCameraSwitches();
   dashboardView.bindInteractions({ showTab });
   bindAttentionInteractions({ bindButtonAction, showTab, runActiveJobControl, sendControl });
 

@@ -62,3 +62,34 @@ test("camera loader keeps configured source data and marks configuration loaded 
   assert.equal(failing.dashboardCameraShouldRun(), false);
   assert.equal(camera.dashboardCameraShouldRun(), true);
 });
+
+test("camera interaction binder mounts one listener pair per camera surface", () => {
+  const registrations = [];
+  const makeRoot = (kind) => ({
+    classList: { toggle() {} },
+    addEventListener(type, handler) { registrations.push([kind, type, handler]); },
+  });
+  const roots = {
+    "dashboard-external-camera": makeRoot("external"),
+    "dashboard-builtin-camera": makeRoot("builtin"),
+  };
+  const camera = mountDashboardCamera({
+    getActiveTab: () => "dashboard",
+    getReadOnly: () => false,
+    documentRef: {
+      hidden: false,
+      getElementById: (id) => roots[id] || null,
+      querySelector: () => null,
+    },
+    windowRef: { location: { href: "https://example.test/" }, localStorage: { getItem: () => null, setItem() {} } },
+    request: async () => ({ json: async () => ({}) }),
+    setStatusMessage: () => {},
+    bindButtonAction: () => {},
+    setTextIfChanged: () => {},
+  });
+
+  camera.bindDashboardCameraSwitches();
+  assert.deepEqual(registrations.map(([kind, type]) => `${kind}:${type}`), [
+    "external:click", "external:keydown", "builtin:click", "builtin:keydown",
+  ]);
+});
