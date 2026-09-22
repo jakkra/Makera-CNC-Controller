@@ -830,6 +830,7 @@ const gcodeViewer = mountGcodeViewer({
     updateGcodeProgress,
     toolDisplayName,
     fmtCoord,
+    clearControlDrafts,
   },
 });
 
@@ -2895,8 +2896,6 @@ function initializeResponsiveControlSections(isMobile = window.matchMedia?.("(ma
 }
 
 function init() {
-  const gcodeView = gcodeViewer.getGcodeView();
-  const activeGcodeSource = gcodeViewer.getActiveGcodeSource();
   maintenance.mount();
   mountMachineReadouts();
   initializeResponsiveControlSections();
@@ -3000,52 +2999,13 @@ function init() {
   bindMachineControlInteractions({ bindButtonAction, sendControl });
   bindToolInteractions({ bindButtonAction });
   bindActiveJobInteractions({ documentRef: document, bindButtonAction, runActiveGcode, runJobControl, adjustFeedOverride, setFeedOverride, runPausedJobCommand });
-  const gcodeSourceScroll = document.getElementById("active-gcode-source-scroll");
-  const markGcodeSourceInteraction = () => {
-    activeGcodeSource.userScrollingUntil = Date.now() + 2000;
-  };
-  gcodeSourceScroll.onscroll = scheduleActiveGcodeSourceRender;
-  gcodeSourceScroll.onwheel = markGcodeSourceInteraction;
-  gcodeSourceScroll.onpointerdown = markGcodeSourceInteraction;
-  gcodeSourceScroll.ontouchstart = markGcodeSourceInteraction;
-  gcodeSourceScroll.onkeydown = (e) => {
-    if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"].includes(e.key)) {
-      markGcodeSourceInteraction();
-    }
-  };
-  if (globalThis.ResizeObserver) {
-    activeGcodeSource.resizeObserver = new ResizeObserver(scheduleActiveGcodeSourceRender);
-    activeGcodeSource.resizeObserver.observe(gcodeSourceScroll);
-  }
+  gcodeViewer.bindInteractions({ clearControlDrafts });
   window.addEventListener("resize", () => setActiveJobSplitPercent(state.activeJobSplitPercent));
   window.addEventListener("resize", () => {
     if (!mobileWorkAreaJogEnabled() && state.workarea?.mobileJogActive) {
       if (releaseJogInput(true)) renderJog();
     }
   });
-  const gcodeTimeline = document.getElementById("gcode-timeline");
-  gcodeTimeline.onpointerdown = () => {
-    gcodeView.timelineDragging = true;
-    gcodeView.followLive = false;
-    gcodeTimeline.dataset.dragging = "1";
-  };
-  const releaseGcodeTimeline = () => {
-    gcodeView.cursor = Math.max(0, Math.min(gcodeView.segments.length, Number(gcodeTimeline.value) || 0));
-    gcodeView.timelineDragging = false;
-    clearControlDrafts(gcodeTimeline);
-    updateGcodeProgress();
-  };
-  gcodeTimeline.onpointerup = releaseGcodeTimeline;
-  gcodeTimeline.onpointercancel = releaseGcodeTimeline;
-  gcodeTimeline.onblur = releaseGcodeTimeline;
-  gcodeTimeline.onchange = releaseGcodeTimeline;
-  gcodeTimeline.oninput = (e) => {
-    gcodeView.followLive = false;
-  gcodeView.timelineEventLine = 0;
-  setGcodeTimelineEventDetail("", 0);
-  gcodeView.cursor = Number(e.target.value) || 0;
-    updateGcodeProgress();
-  };
   bindDataControlButtons();
   initCommandPopouts();
   initializeSurfaceMobileOptions();

@@ -60,6 +60,8 @@ export function mountGcodeViewer({
     updateGcodeProgress = () => {},
     toolDisplayName = (tool) => `T${tool}`,
     fmtCoord = (value) => String(value ?? "-"),
+    clearControlDrafts = () => {},
+    ResizeObserverRef = globalThis.ResizeObserver,
   } = deps;
   const drawGcodePreviewCallbacks = {
     renderTimelineEvents: deps.renderGcodeTimelineEvents || ((...args) => renderGcodeTimelineEvents(...args)),
@@ -1909,6 +1911,49 @@ function renderGcodeTimelineEvents(events, toolMetadata, totalLines) {
   setGcodeTimelineEventDetail(markers.length ? `${markers.length} event markers` : "", 0);
 }
 
+  function bindInteractions({ clearControlDrafts: clearDrafts = clearControlDrafts } = {}) {
+    const gcodeSourceScroll = document.getElementById("active-gcode-source-scroll");
+    const markGcodeSourceInteraction = () => {
+      activeGcodeSource.userScrollingUntil = Date.now() + 2000;
+    };
+    gcodeSourceScroll.onscroll = scheduleActiveGcodeSourceRender;
+    gcodeSourceScroll.onwheel = markGcodeSourceInteraction;
+    gcodeSourceScroll.onpointerdown = markGcodeSourceInteraction;
+    gcodeSourceScroll.ontouchstart = markGcodeSourceInteraction;
+    gcodeSourceScroll.onkeydown = (e) => {
+      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"].includes(e.key)) {
+        markGcodeSourceInteraction();
+      }
+    };
+    if (ResizeObserverRef) {
+      activeGcodeSource.resizeObserver = new ResizeObserverRef(scheduleActiveGcodeSourceRender);
+      activeGcodeSource.resizeObserver.observe(gcodeSourceScroll);
+    }
+    const gcodeTimeline = document.getElementById("gcode-timeline");
+    gcodeTimeline.onpointerdown = () => {
+      gcodeView.timelineDragging = true;
+      gcodeView.followLive = false;
+      gcodeTimeline.dataset.dragging = "1";
+    };
+    const releaseGcodeTimeline = () => {
+      gcodeView.cursor = Math.max(0, Math.min(gcodeView.segments.length, Number(gcodeTimeline.value) || 0));
+      gcodeView.timelineDragging = false;
+      clearDrafts(gcodeTimeline);
+      updateGcodeProgress();
+    };
+    gcodeTimeline.onpointerup = releaseGcodeTimeline;
+    gcodeTimeline.onpointercancel = releaseGcodeTimeline;
+    gcodeTimeline.onblur = releaseGcodeTimeline;
+    gcodeTimeline.onchange = releaseGcodeTimeline;
+    gcodeTimeline.oninput = (e) => {
+      gcodeView.followLive = false;
+      gcodeView.timelineEventLine = 0;
+      setGcodeTimelineEventDetail("", 0);
+      gcodeView.cursor = Number(e.target.value) || 0;
+      updateGcodeProgress();
+    };
+  }
+
 function updateGcodeTimeline(total) {
   const slider = document.getElementById("gcode-timeline");
   const label = document.getElementById("gcode-timeline-label");
@@ -2063,6 +2108,7 @@ function drawGcodePreview(preview, live = null) {
 }
 
   return {
+    bindInteractions,
     getGcodeView: () => gcodeView,
     getDashboardGcodeView: () => dashboardGcodeView,
     getActiveGcodeSource: () => activeGcodeSource,

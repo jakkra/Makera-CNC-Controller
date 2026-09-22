@@ -78,6 +78,68 @@ test("production source and timeline helpers preserve bounded ranges and event b
   assert.equal(gcodeTimelineMarkerLabel(markers[1]), "A");
 });
 
+test("G-code source and timeline interactions stay owned by the production viewer", () => {
+  assert.match(moduleSource, /function bindInteractions\(/);
+  assert.match(appSource, /gcodeViewer\.bindInteractions\(\{ clearControlDrafts \}\)/);
+  assert.doesNotMatch(appSource, /const gcodeSourceScroll = document\.getElementById/);
+  assert.doesNotMatch(appSource, /const gcodeTimeline = document\.getElementById/);
+  const sourceScroll = {};
+  const timeline = { dataset: {}, value: "0" };
+  const detail = { textContent: "", title: "" };
+  const nodes = new Map([
+    ["active-gcode-source-scroll", sourceScroll],
+    ["gcode-timeline", timeline],
+    ["gcode-timeline-event-detail", detail],
+  ]);
+  const documentRef = { getElementById: (id) => nodes.get(id) || null, activeElement: null };
+  let observed = null;
+  let cleared = null;
+  let progressUpdates = 0;
+  class ResizeObserverStub {
+    constructor(callback) { this.callback = callback; }
+    observe(node) { observed = node; }
+  }
+  const feature = viewer({
+    documentRef,
+    deps: {
+      ResizeObserverRef: ResizeObserverStub,
+      clearControlDrafts: (node) => { cleared = node; },
+      updateGcodeProgress: () => { progressUpdates++; },
+      setTextIfChanged: (node, value) => { node.textContent = value; },
+    },
+  });
+  const view = feature.getGcodeView();
+  view.segments = [{}, {}, {}];
+  view.followLive = true;
+  view.timelineEventLine = 7;
+  feature.bindInteractions();
+
+  assert.equal(typeof sourceScroll.onscroll, "function");
+  assert.equal(typeof sourceScroll.onwheel, "function");
+  assert.equal(typeof sourceScroll.onpointerdown, "function");
+  assert.equal(typeof sourceScroll.ontouchstart, "function");
+  assert.equal(typeof sourceScroll.onkeydown, "function");
+  assert.equal(observed, sourceScroll);
+  sourceScroll.onpointerdown();
+  assert.ok(feature.getActiveGcodeSource().userScrollingUntil > Date.now());
+
+  timeline.onpointerdown();
+  assert.equal(view.timelineDragging, true);
+  assert.equal(view.followLive, false);
+  assert.equal(timeline.dataset.dragging, "1");
+  timeline.value = "2";
+  timeline.oninput({ target: timeline });
+  assert.equal(view.cursor, 2);
+  assert.equal(view.timelineEventLine, 0);
+  assert.equal(detail.textContent, "Program events");
+  timeline.value = "99";
+  timeline.onpointerup();
+  assert.equal(view.cursor, 3, "release clamps the timeline cursor to the available segments");
+  assert.equal(view.timelineDragging, false);
+  assert.equal(cleared, timeline);
+  assert.equal(progressUpdates, 2);
+});
+
 test("drawGcodePreview keeps the empty path branch and synchronizes its live source", () => {
   const calls = [];
   const feature = viewer({ deps: {
