@@ -347,7 +347,7 @@ const mdiMacros = createMdiMacros({
 });
 const {
   macroByID, slotForMacro, sortedSlots, setMacroPlacement, normalizeSlotOrder,
-  bindCommandInteractions, renderGcodeCommandState, submitGcode, navigateCommandHistory, renderMacroButtons,
+  bindCommandInteractions, bindMacroInteractions, renderGcodeCommandState, submitGcode, navigateCommandHistory, renderMacroButtons,
   renderMacroRegion, renderMacroEditor, currentMacroFromForm, saveMacroFromForm,
   newMacro, macroEditorDirty, confirmDiscardMacroDraft, deleteSelectedMacro,
   moveSelectedMacro, runMacro,
@@ -2905,13 +2905,7 @@ function init() {
   bindCommandInteractions({ submitGcode, navigateCommandHistory });
   bindGcodeLogInteractions({ copyVisibleLog, exportVisibleLog, clearGcodeLog });
   backupFeature.bindInteractions({ exportBackup, importBackupFile });
-  document.getElementById("macro-new").onclick = newMacro;
-  document.getElementById("macro-save").onclick = saveMacroFromForm;
-  bindButtonAction(document.getElementById("macro-run"), () => runMacro(macroByID(state.selectedMacroId)));
-  document.getElementById("macro-up").onclick = () => moveSelectedMacro(-1);
-  document.getElementById("macro-down").onclick = () => moveSelectedMacro(1);
-  document.getElementById("macro-delete").onclick = deleteSelectedMacro;
-  bindDirtyDraftControls(MACRO_EDITOR_IDS);
+  bindMacroInteractions({ bindButtonAction, bindDirtyDraftControls, macroEditorIDs: MACRO_EDITOR_IDS, newMacro, saveMacroFromForm, runMacro, moveSelectedMacro, deleteSelectedMacro, macroByID });
   bindGamepadInteractions();
   bindMachineSettingsInteractions();
   bindFeedStepInteractions();

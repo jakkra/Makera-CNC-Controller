@@ -22,6 +22,7 @@ import { dashboardExternalCameraIsSnapshot, normalizeDashboardExternalCameraView
 import { dashboardATCText, dashboardAlarmText, dashboardControllerText, dashboardLaserText, dashboardOnOff, dashboardOptionalNumber, dashboardRotaryText, createDashboardTelemetry } from "./modules/dashboard-telemetry.js";
 import { createDashboardView } from "./modules/dashboard-view.js";
 import { createDashboardProfiles } from "./modules/dashboard-profiles.js";
+import { createMdiMacros } from "./modules/mdi-macros.js";
 import { createMachineStatusFeature } from "./modules/machine-status.js";
 import { createToolActions } from "./modules/tool-actions.js";
 import { createGcodeLogFeature, formatLogLine, lineMatchesFilter, visibleGcodeLines } from "./modules/gcode-log.js";
@@ -219,6 +220,48 @@ test("manual G-code interactions are wired through the MDI feature binder", () =
   assert.match(source, /bindCommandInteractions\(\{ submitGcode, navigateCommandHistory \}\)/);
   assert.doesNotMatch(source, /const form = document\.getElementById\("gcode-form"\);/);
   assert.doesNotMatch(source, /gcodeInput\.onkeydown =/);
+});
+
+test("macro editor interactions are wired through the MDI feature binder", () => {
+  assert.match(mdiModuleSource, /function bindMacroInteractions\(/);
+  assert.match(source, /bindMacroInteractions\(\{ bindButtonAction, bindDirtyDraftControls, macroEditorIDs: MACRO_EDITOR_IDS, newMacro, saveMacroFromForm, runMacro, moveSelectedMacro, deleteSelectedMacro, macroByID \}\)/);
+  for (const id of ["macro-new", "macro-save", "macro-run", "macro-up", "macro-down", "macro-delete"]) {
+    assert.doesNotMatch(source, new RegExp(`document\\.getElementById\\("${id}"\\)\\.onclick`));
+  }
+  assert.doesNotMatch(source, /bindDirtyDraftControls\(MACRO_EDITOR_IDS\)/);
+  const ids = ["macro-new", "macro-save", "macro-run", "macro-up", "macro-down", "macro-delete"];
+  const nodes = new Map(ids.map((id) => [id, { onclick: null, dataset: {} }]));
+  const calls = [];
+  const bindings = [];
+  const feature = createMdiMacros({
+    documentRef: { getElementById: (id) => nodes.get(id) || null },
+    getUI: () => ({ macros: [] }),
+    bindButtonAction: (button, action) => bindings.push([button, action]),
+    clearControlDrafts: () => {}, setControlValueIfIdle: () => {}, setSoftDisabled: () => {},
+    setNotice: () => {}, clearNotice: () => {}, queueSaveUISettings: () => {}, renderGamepadSettings: () => {},
+    getSelectedMacroId: () => "m1",
+  });
+  const macroEditorIDs = ["macro-name", "macro-lines"];
+  let dirtyIDs = null;
+  feature.bindMacroInteractions({
+    bindButtonAction: (button, action) => bindings.push([button, action]),
+    bindDirtyDraftControls: (idsValue) => { dirtyIDs = idsValue; },
+    macroEditorIDs,
+    newMacro: () => calls.push(["new"]),
+    saveMacroFromForm: () => calls.push(["save"]),
+    runMacro: (macro) => calls.push(["run", macro]),
+    moveSelectedMacro: (direction) => calls.push(["move", direction]),
+    deleteSelectedMacro: () => calls.push(["delete"]),
+    macroByID: (id) => ({ id }),
+  });
+  nodes.get("macro-new").onclick();
+  nodes.get("macro-save").onclick();
+  bindings[0][1]();
+  nodes.get("macro-up").onclick();
+  nodes.get("macro-down").onclick();
+  nodes.get("macro-delete").onclick();
+  assert.deepEqual(calls, [["new"], ["save"], ["run", { id: "m1" }], ["move", -1], ["move", 1], ["delete"]]);
+  assert.deepEqual(dirtyIDs, macroEditorIDs);
 });
 
 test("gamepad settings interactions are wired through the gamepad feature binder", () => {

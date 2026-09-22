@@ -105,6 +105,26 @@ function bindCommandInteractions({ submitGcode: submitGcodeHandler = submitGcode
   };
 }
 
+function bindMacroInteractions({
+  bindButtonAction: bind = bindButtonAction,
+  bindDirtyDraftControls,
+  macroEditorIDs = [],
+  newMacro: newMacroHandler = newMacro,
+  saveMacroFromForm: saveMacroHandler = saveMacroFromForm,
+  runMacro: runMacroHandler = runMacro,
+  moveSelectedMacro: moveMacroHandler = moveSelectedMacro,
+  deleteSelectedMacro: deleteMacroHandler = deleteSelectedMacro,
+  macroByID: macroByIDHandler = macroByID,
+} = {}) {
+  document.getElementById("macro-new").onclick = newMacroHandler;
+  document.getElementById("macro-save").onclick = saveMacroHandler;
+  bind(document.getElementById("macro-run"), () => runMacroHandler(macroByIDHandler(state.selectedMacroId)));
+  document.getElementById("macro-up").onclick = () => moveMacroHandler(-1);
+  document.getElementById("macro-down").onclick = () => moveMacroHandler(1);
+  document.getElementById("macro-delete").onclick = deleteMacroHandler;
+  bindDirtyDraftControls(macroEditorIDs);
+}
+
 function renderMacroButtons() {
   renderMacroRegion("toolbar", document.getElementById("macro-toolbar"));
   renderMacroRegion("panel", document.getElementById("macro-panel"));
@@ -280,5 +300,5 @@ async function runMacro(macro, opts = {}) {
   }
 }
 
-  return { bindCommandInteractions, macroByID, slotForMacro, sortedSlots, setMacroPlacement, normalizeSlotOrder, renderGcodeCommandState, submitGcode, navigateCommandHistory, renderMacroButtons, renderMacroRegion, renderMacroEditor, currentMacroFromForm, saveMacroFromForm, newMacro, macroEditorDirty, confirmDiscardMacroDraft, deleteSelectedMacro, moveSelectedMacro, runMacro };
+  return { bindCommandInteractions, bindMacroInteractions, macroByID, slotForMacro, sortedSlots, setMacroPlacement, normalizeSlotOrder, renderGcodeCommandState, submitGcode, navigateCommandHistory, renderMacroButtons, renderMacroRegion, renderMacroEditor, currentMacroFromForm, saveMacroFromForm, newMacro, macroEditorDirty, confirmDiscardMacroDraft, deleteSelectedMacro, moveSelectedMacro, runMacro };
 }
