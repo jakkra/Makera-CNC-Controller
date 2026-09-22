@@ -42,6 +42,7 @@ import { GCODE_HISTORY_KEY, loadCommandHistory, rememberCommand, saveCommandHist
 import { createUISettingsFeature } from "./modules/ui-settings.js";
 import { createOutlineView } from "./modules/outline-view.js";
 import { createProbeConfirmation } from "./modules/probe-confirm.js";
+import { createOriginProbing } from "./modules/origin-probing.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
 import { createSurfaceRouting, externalJobState } from "./modules/surface-routing.js";
@@ -761,9 +762,31 @@ test("outline view preserves pending presentation while capture intents are in f
   assert.match(outlineViewModuleSource, /outline-field-probe/);
   assert.match(outlineViewModuleSource, /function bindInteractions\(/);
   assert.match(originProbingModuleSource, /function bindInteractions\(/);
-  const originBinderAt = source.indexOf("originProbing.bindInteractions({ bindButtonAction });");
-  assert.ok(originBinderAt > source.indexOf('for (const btn of document.querySelectorAll("[data-origin-zero]"))'), "origin binding remains after origin-zero controls");
+  assert.match(originProbingModuleSource, /function bindOriginZeroInteractions\(/);
+  const originBinderAt = source.indexOf("originProbing.bindInteractions({ bindButtonAction, setOriginAxis });");
+  assert.equal(source.indexOf('for (const btn of document.querySelectorAll("[data-origin-zero]"))'), -1, "origin-zero loop moved into the production feature");
   assert.ok(originBinderAt < source.indexOf("bindWorkAreaInteractions();", originBinderAt), "origin binding remains before Work Area listeners");
+});
+
+test("origin-zero interactions preserve button order and axis routing", () => {
+  const buttons = [
+    { dataset: { originZero: "x" } },
+    { dataset: { originZero: "y" } },
+    { dataset: { originZero: "z" } },
+  ];
+  const feature = createOriginProbing({ documentRef: { querySelectorAll: (selector) => {
+    assert.equal(selector, "[data-origin-zero]");
+    return buttons;
+  } } });
+  const bindings = [];
+  const axes = [];
+  feature.bindOriginZeroInteractions({
+    bindButtonAction: (button, action) => bindings.push([button, action]),
+    setOriginAxis: (axis) => axes.push(axis),
+  });
+  assert.deepEqual(bindings.map(([button]) => button), buttons);
+  bindings.forEach(([, action]) => action());
+  assert.deepEqual(axes, ["x", "y", "z"]);
 });
 
 test("probe confirmation keeps one pending modal promise and resolves it once", async () => {

@@ -1448,6 +1448,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/tool-actions.js", "function bindInteractions"},
 		{"/modules/origin-probing.js", "export function createOriginProbing"},
 		{"/modules/origin-probing.js", "function bindInteractions("},
+		{"/modules/origin-probing.js", "function bindOriginZeroInteractions"},
 		{"/modules/dashboard-profiles.js", "export function createDashboardProfiles"},
 		{"/modules/dashboard-profiles.js", "function bindInteractions"},
 		{"/modules/machine-status.js", "export function createMachineStatusFeature"},

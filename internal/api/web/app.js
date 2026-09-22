@@ -2912,10 +2912,7 @@ function init() {
   workMoveInteractions.bindInteractions({ workMoveInput, renderWorkMoveControls, sendWorkCoordinateMove, resetWorkMoveInput, bindButtonAction });
   bindSettingsInteractions({ bindButtonAction });
   bindZStepInteractions({ bindButtonAction, stepZ });
-  for (const btn of document.querySelectorAll("[data-origin-zero]")) {
-    bindButtonAction(btn, () => setOriginAxis(btn.dataset.originZero));
-  }
-  originProbing.bindInteractions({ bindButtonAction });
+  originProbing.bindInteractions({ bindButtonAction, setOriginAxis });
   bindWorkAreaInteractions();
   bindWorkAreaZoomInteractions({ bindButtonAction, zoomWorkArea, resetWorkAreaView });
   outlineView.bindInteractions({
