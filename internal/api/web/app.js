@@ -999,6 +999,8 @@ const outlineFilesFeature = createOutlineFilesFeature({
   setOutline: (value) => { state.outline = value; },
   outlineJSONDocument: () => outlineJSONDocument(),
   buildOutlineDXF: () => buildOutlineDXF(),
+  buildHeightOBJ: () => buildHeightOBJ(),
+  buildHeightPGM: () => buildHeightPGM(),
   outlineStateFromJSON: (doc) => outlineStateFromJSON(doc),
   cancelOutlineCaptureIntents,
   markGcodeContextOverlayDirty,
@@ -1013,6 +1015,8 @@ const {
   downloadBlob: downloadOutlineBlob,
   saveOutlineJSON: saveOutlineJSONFeature,
   exportOutline: exportOutlineFeature,
+  exportHeightOBJ: exportHeightOBJFeature,
+  exportHeightImage: exportHeightImageFeature,
   loadOutlineFile: loadOutlineFileFeature,
   installLoadedOutlineState: installLoadedOutlineStateFeature,
 } = outlineFilesFeature;
@@ -1613,16 +1617,7 @@ function fieldProbeHeightReference(origin, outlineState = state.outline) {
   return fieldProbeHeightReferenceDocument(origin, outlineState, finiteOr, axisValue);
 }
 
-function exportHeightOBJ() {
-  try {
-    const obj = buildHeightOBJ();
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    downloadBlob("cnc-outline-height-" + stamp + ".obj", obj, "text/plain");
-    setOutlineFeedback("OBJ export started.", "ok");
-  } catch (e) {
-    setOutlineFeedback("OBJ export failed: " + e.message, "error");
-  }
-}
+function exportHeightOBJ() { return exportHeightOBJFeature(); }
 
 function buildHeightOBJ() {
   return buildHeightOBJDocument({
@@ -1659,16 +1654,7 @@ function orderedOutlineBoundaryIndices(points, outline) {
 }
 
 
-function exportHeightImage() {
-  try {
-    const pgm = buildHeightPGM();
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    downloadBlob("cnc-outline-height-" + stamp + ".pgm", pgm, "image/x-portable-graymap");
-    setOutlineFeedback("Height image export started.", "ok");
-  } catch (e) {
-    setOutlineFeedback("Height image export failed: " + e.message, "error");
-  }
-}
+function exportHeightImage() { return exportHeightImageFeature(); }
 
 function buildHeightPGM() {
   return buildHeightPGMDocument({

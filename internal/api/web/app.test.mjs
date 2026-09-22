@@ -246,6 +246,8 @@ test("shared helpers are imported as production ES modules", async () => {
   assert.match(source, /import \{ createOutlineFilesFeature \} from "\.\/modules\/outline-files\.js";/);
   assert.match(outlineFilesModuleSource, /export function createOutlineFilesFeature/);
   assert.match(outlineFilesModuleSource, /function exportOutline\(\)/);
+  assert.match(outlineFilesModuleSource, /function exportHeightOBJ\(\)/);
+  assert.match(outlineFilesModuleSource, /function exportHeightImage\(\)/);
   assert.equal(typeof createCommandUI, "function");
   assert.match(source, /import \{ createCommandUI \} from "\.\/modules\/command-ui\.js";/);
   assert.match(commandUIModuleSource, /export function createCommandUI/);

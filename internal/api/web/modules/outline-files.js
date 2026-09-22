@@ -10,6 +10,8 @@ export function createOutlineFilesFeature({
   setOutline = () => {},
   outlineJSONDocument = () => { throw new Error("outline JSON serializer is unavailable"); },
   buildOutlineDXF = () => { throw new Error("outline DXF builder is unavailable"); },
+  buildHeightOBJ = () => { throw new Error("height OBJ builder is unavailable"); },
+  buildHeightPGM = () => { throw new Error("height PGM builder is unavailable"); },
   outlineStateFromJSON = () => { throw new Error("outline JSON parser is unavailable"); },
   cancelOutlineCaptureIntents = () => {},
   markGcodeContextOverlayDirty = () => {},
@@ -54,6 +56,28 @@ export function createOutlineFilesFeature({
     }
   }
 
+  function exportHeightOBJ() {
+    try {
+      const obj = buildHeightOBJ();
+      const stamp = now().toISOString().replace(/[:.]/g, "-");
+      downloadBlob("cnc-outline-height-" + stamp + ".obj", obj, "text/plain");
+      setOutlineFeedback("OBJ export started.", "ok");
+    } catch (e) {
+      setOutlineFeedback("OBJ export failed: " + e.message, "error");
+    }
+  }
+
+  function exportHeightImage() {
+    try {
+      const pgm = buildHeightPGM();
+      const stamp = now().toISOString().replace(/[:.]/g, "-");
+      downloadBlob("cnc-outline-height-" + stamp + ".pgm", pgm, "image/x-portable-graymap");
+      setOutlineFeedback("Height image export started.", "ok");
+    } catch (e) {
+      setOutlineFeedback("Height image export failed: " + e.message, "error");
+    }
+  }
+
   function installLoadedOutlineState(next) {
     const current = getOutline();
     cancelOutlineCaptureIntents(current);
@@ -86,6 +110,8 @@ export function createOutlineFilesFeature({
     downloadBlob,
     saveOutlineJSON,
     exportOutline,
+    exportHeightOBJ,
+    exportHeightImage,
     loadOutlineFile,
     installLoadedOutlineState,
   };

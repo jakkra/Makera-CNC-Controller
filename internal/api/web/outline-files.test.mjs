@@ -44,6 +44,8 @@ function makeFeature(overrides = {}) {
     setOutline: (value) => { outline = value; },
     outlineJSONDocument: () => ({ app: "cnc-proxy" }),
     buildOutlineDXF: () => { events.push(["build-dxf"]); return "DXF CONTENT"; },
+    buildHeightOBJ: () => { events.push(["build-obj"]); return "OBJ CONTENT"; },
+    buildHeightPGM: () => { events.push(["build-pgm"]); return "PGM CONTENT"; },
     outlineStateFromJSON: (doc) => ({ points: doc.points, closed: !!doc.closed, filePending: false }),
     cancelOutlineCaptureIntents: (value) => events.push(["cancel", value]),
     markGcodeContextOverlayDirty: () => events.push(["dirty"]),
@@ -147,4 +149,35 @@ test("exportOutline preserves point guard and reports builder failures", () => {
   });
   broken.exportOutline();
   assert.deepEqual(failureEvents, [["feedback", "Export failed: invalid geometry", "error"]]);
+});
+
+test("height exports download timestamped files with the established MIME types and feedback", () => {
+  const obj = makeFeature();
+  obj.feature.exportHeightOBJ();
+  assert.equal(obj.documentRef.links[0].download, "cnc-outline-height-2026-01-02T03-04-05-000Z.obj");
+  assert.equal(obj.events.find((event) => event[0] === "create")[1].type, "text/plain");
+  assert.equal(obj.events.find((event) => event[0] === "create")[1].parts[0], "OBJ CONTENT");
+  assert.deepEqual(obj.events.at(-1), ["feedback", "OBJ export started.", "ok"]);
+
+  const pgm = makeFeature();
+  pgm.feature.exportHeightImage();
+  assert.equal(pgm.documentRef.links[0].download, "cnc-outline-height-2026-01-02T03-04-05-000Z.pgm");
+  assert.equal(pgm.events.find((event) => event[0] === "create")[1].type, "image/x-portable-graymap");
+  assert.equal(pgm.events.find((event) => event[0] === "create")[1].parts[0], "PGM CONTENT");
+  assert.deepEqual(pgm.events.at(-1), ["feedback", "Height image export started.", "ok"]);
+});
+
+test("height exports preserve their distinct builder error feedback", () => {
+  const events = [];
+  const feature = createOutlineFilesFeature({
+    buildHeightOBJ: () => { throw new Error("OBJ unavailable"); },
+    buildHeightPGM: () => { throw new Error("PGM unavailable"); },
+    setOutlineFeedback: (...args) => events.push(["feedback", ...args]),
+  });
+  feature.exportHeightOBJ();
+  feature.exportHeightImage();
+  assert.deepEqual(events, [
+    ["feedback", "OBJ export failed: OBJ unavailable", "error"],
+    ["feedback", "Height image export failed: PGM unavailable", "error"],
+  ]);
 });
