@@ -44,5 +44,16 @@ export function createSurfaceShell({
     }
   }
 
-  return { runSurfaceShellAction };
+  function bindInteractions({ bindButtonAction } = {}) {
+    for (const button of document.querySelectorAll("[data-surface-view]")) {
+      button.onclick = () => showTab(button.dataset.surfaceView);
+    }
+    for (const button of document.querySelectorAll("[data-surface-action]")) {
+      button.onclick = () => runSurfaceShellAction(button.dataset.surfaceAction);
+    }
+    bindButtonAction(document.getElementById("surface-footer-job"), () => showTab("active-job"));
+    document.getElementById("surface-open-active-job").onclick = () => showTab("active-job");
+  }
+
+  return { bindInteractions, runSurfaceShellAction };
 }

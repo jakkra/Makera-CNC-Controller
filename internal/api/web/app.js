@@ -3013,24 +3013,17 @@ function init() {
   window.matchMedia?.("(min-width: 1320px)")?.addEventListener?.("change", () => applyDashboardProfile(currentDashboardProfile()));
   bindButtonAction(document.getElementById("jog-arm"), toggleTapMoveArm);
   surfaceControls.init();
-  for (const button of document.querySelectorAll("[data-surface-view]")) {
-    button.onclick = () => showTab(button.dataset.surfaceView);
-  }
-  for (const button of document.querySelectorAll("[data-surface-action]")) {
-    button.onclick = () => runSurfaceShellAction(button.dataset.surfaceAction);
-  }
+  surfaceShell.bindInteractions({ bindButtonAction });
   bindButtonAction(document.getElementById("surface-footer-hold"), () => sendControl("hold"));
   bindButtonAction(document.getElementById("surface-footer-resume"), () => {
     resumeActiveJob();
   });
   bindDashboardCameraSwitches();
   bindDashboardToolpathShortcut();
-  bindButtonAction(document.getElementById("surface-footer-job"), () => showTab("active-job"));
   bindButtonAction(document.getElementById("surface-footer-vacuum"), () => {
     const current = dashboardOptionalNumber(state.machine?.spindle?.vacuum_mode);
     if (current !== null) setAutoVacuum(current === 0);
   });
-  document.getElementById("surface-open-active-job").onclick = () => showTab("active-job");
   document.getElementById("attention-open-active-job").onclick = () => showTab("active-job");
   bindButtonAction(document.getElementById("attention-resume"), () => {
     const action = attentionResumeAction(String(state.machine?.state || ""));

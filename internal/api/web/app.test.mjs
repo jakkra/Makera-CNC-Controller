@@ -62,6 +62,7 @@ import { createAppState } from "./modules/state.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const surfaceControlsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-controls.js"), "utf8");
+const surfaceShellModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-shell.js"), "utf8");
 const jogEventsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/jog-events.js"), "utf8");
 const gamepadControlsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/gamepad-controls.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
@@ -7959,6 +7960,36 @@ test("Surface shell actions keep their navigation and DOM behavior", () => {
   shell.runSurfaceShellAction("actions");
   assert.equal(actionsOpen, false);
   assert.equal(expanded, "false");
+});
+test("Surface shell interaction binder preserves navigation and action routing", () => {
+  assert.match(source, /surfaceShell\.bindInteractions\(\{ bindButtonAction \}\)/);
+  assert.match(surfaceShellModuleSource, /function bindInteractions\(\{ bindButtonAction \} = \{\}\)/);
+  assert.doesNotMatch(source, /querySelectorAll\("\[data-surface-view\]"\)/);
+  assert.doesNotMatch(source, /querySelectorAll\("\[data-surface-action\]"\)/);
+  assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("surface-footer-job"\)/);
+  assert.doesNotMatch(source, /document\.getElementById\("surface-open-active-job"\)\.onclick/);
+  const viewButton = { id: "surface-view-dashboard", dataset: { surfaceView: "dashboard" } };
+  const actionButton = { id: "surface-action-files", dataset: { surfaceAction: "files" } };
+  const footerJob = { id: "surface-footer-job" };
+  const openActiveJob = { id: "surface-open-active-job" };
+  const nodes = new Map([footerJob, openActiveJob].map((node) => [node.id, node]));
+  const tabs = [];
+  const bound = [];
+  const shell = createSurfaceShell({
+    documentRef: {
+      getElementById: (id) => nodes.get(id) || null,
+      querySelectorAll: (selector) => selector === "[data-surface-view]" ? [viewButton] : [actionButton],
+      querySelector: () => null,
+    },
+    showTab: (tab) => tabs.push(tab),
+  });
+  shell.bindInteractions({ bindButtonAction: (button, action) => bound.push([button.id, action]) });
+  viewButton.onclick();
+  actionButton.onclick();
+  bound[0][1]();
+  openActiveJob.onclick();
+  assert.deepEqual(tabs, ["dashboard", "files", "active-job", "active-job"]);
+  assert.deepEqual(bound.map(([id]) => id), ["surface-footer-job"]);
 });
 test("Surface automatic routing maps machine state without overriding an operator-selected tab", () => {
   const calls = [];
