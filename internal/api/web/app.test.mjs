@@ -144,7 +144,7 @@ const outlineCaptureOperationCallbacks = [
   "clearNotice", "setStatusMessage", "resetJogInputSender", "sendJog", "setOutlineFeedback",
   "resolveOutlineCaptureIntent", "confirm", "waitForOutlineCapturePosition",
 ];
-const fieldProbingHelpers = new Set(["probeZAtWorkPoint", "rebaseOutlineToFloor", "probeFloor", "runFieldProbe", "traceOutlineMachinePoints", "traceOutline"]);
+const fieldProbingHelpers = new Set(["probeZAtWorkPoint", "rebaseOutlineToFloor", "probeFloor", "runFieldProbe", "traceOutlineMachinePoints", "traceOutline", "moveToSelectedFieldProbePoint"]);
 const fieldProbingCallbacks = [
   "cloneOutlineOrigin", "axisValue", "currentWorkOrigin", "normalizeMachineSettings", "finiteOr",
   "safeZForTapMove", "request", "markGcodeContextOverlayDirty", "machineReadyForOriginSet",
@@ -153,7 +153,7 @@ const fieldProbingCallbacks = [
   "commitOutlineFieldSpacingDraft", "clearControlDrafts", "updateFieldProbePreview",
   "unprobedFieldProbePoints", "currentOutlineCapturePosition", "renderWorkArea",
   "effectiveOutlineGeometry", "outlineWorkPoints", "workPointToMachinePoint",
-  "tapMoveTargetBusy", "currentTapFeed",
+  "tapMoveTargetBusy", "currentTapFeed", "selectedFieldProbePoint", "connectJog", "sendJog", "setTapFeedback", "hasPendingOriginOperation",
 ];
 const workareaRenderHelpers = new Set(["displayedFieldProbePoints"]);
 const stateDefaultsHelpers = new Set(["cloneFloorProbe", "cloneOutlineOrigin", "cloneOutlinePoint", "defaultOutlineState", "defaultWorkAreaView", "newID"]);
@@ -3826,6 +3826,7 @@ test("resetting a selected probe removes only that point's current sample", asyn
 
 test("moving to a selected field point requires armed movement and sends the Safe Z setting", () => {
   let sent = null;
+  const renderOrder = [];
   const state = {
     machine: { mpos: { x: 0, y: 0, z: -2 } },
     ui: { machine: { safe_z_disabled: false, safe_z_mm: 4 } },
@@ -3862,11 +3863,11 @@ test("moving to a selected field point requires armed movement and sends the Saf
     normalizeMachineSettings: (machine) => machine,
     safeZForTapMove: (machine) => machine.safe_z_mm,
     fmtCoord: (value) => String(value),
-    sendJog: (message) => { sent = message; return 17; },
+    sendJog: (message) => { sent = message; renderOrder.push("send"); return 17; },
     setTapFeedback: () => {},
     connectJog: () => {},
-    renderJog: () => {},
-    renderOutlineCapture: () => {},
+    renderJog: () => renderOrder.push("render-jog"),
+    renderOutlineCapture: () => renderOrder.push("render-outline"),
   });
   vm.runInContext("moveToSelectedFieldProbePoint()", ctx);
   assert.deepEqual(JSON.parse(JSON.stringify(sent)), {
@@ -3879,6 +3880,82 @@ test("moving to a selected field point requires armed movement and sends the Saf
   assert.equal(state.jog.targetPending, 17);
   assert.equal(state.jog.targetMotionPending, 17);
   assert.equal(state.jog.fieldProbeMovePending, 17);
+  assert.deepEqual(JSON.parse(JSON.stringify(state.jog.target)), { x: -197, y: -96, z: -2 });
+  assert.deepEqual(renderOrder, ["send", "render-jog", "render-outline"]);
+  assert.equal(state.jog.targetLabel, "field point 2 (X 3 Y 4)");
+  assert.equal(state.jog.tapFeedback, "Sending move to field point 2 (X 3 Y 4)...");
+});
+
+test("field-point machine move preserves ordered guards and validation feedback", () => {
+  const point = { id: "point", x: 2, y: 3 };
+  const makeFixture = (overrides = {}) => {
+    const calls = [];
+    const state = {
+      machine: { mpos: { x: 10, y: 20 } },
+      ui: { machine: { safe_z_disabled: true, safe_z_mm: 6 } },
+      jog: { link: "online", armed: true, zStepPending: 0, target: null },
+      outline: { origin: { x: 0, y: 0, z: 0 }, fieldProbePreview: [point] },
+    };
+    const selected = Object.hasOwn(overrides, "selected") ? overrides.selected : point;
+    const probing = createFieldProbing({ state, callbacks: {
+      selectedFieldProbePoint: () => selected,
+      setTapFeedback: (...args) => calls.push(["feedback", ...args]),
+      connectJog: () => calls.push(["connect"]),
+      tapMoveTargetBusy: () => !!overrides.busy,
+      hasPendingOriginOperation: () => !!overrides.originPending,
+      currentTapFeed: () => {
+        calls.push(["feed"]);
+        if (overrides.feedError) throw new Error("bad feed");
+        return 450;
+      },
+      cloneOutlineOrigin: (origin) => origin,
+      currentWorkOrigin: () => null,
+      workPointToMachinePoint: () => overrides.invalidTarget ? { x: NaN, y: 2 } : { x: 12, y: 23 },
+      normalizeMachineSettings: (machine) => machine,
+      safeZForTapMove: (machine) => machine.safe_z_mm,
+      fmtCoord: String,
+      sendJog: (message) => { calls.push(["send", message]); return overrides.sequence ?? 23; },
+      renderJog: () => calls.push(["render-jog"]),
+      renderOutlineCapture: () => calls.push(["render-outline"]),
+    }});
+    return { state, calls, move: probing.moveToSelectedFieldProbePoint };
+  };
+
+  let fixture = makeFixture({ selected: null });
+  fixture.move();
+  assert.deepEqual(fixture.calls, [["feedback", "Select a field probe point before moving.", "error"]]);
+
+  fixture = makeFixture();
+  fixture.state.jog.link = "offline";
+  fixture.move();
+  assert.deepEqual(fixture.calls, [["feedback", "Jog service is not connected.", "error"], ["connect"]]);
+
+  fixture = makeFixture();
+  fixture.state.jog.armed = false;
+  fixture.move();
+  assert.deepEqual(fixture.calls, [["feedback", "Arm Movement before moving to a field probe point.", "error"]]);
+
+  fixture = makeFixture({ busy: true });
+  fixture.move();
+  assert.deepEqual(fixture.calls, [], "busy target guard runs before feed validation");
+
+  fixture = makeFixture({ originPending: true });
+  fixture.move();
+  assert.deepEqual(fixture.calls, [], "origin operation guard runs before feed validation");
+
+  fixture = makeFixture({ feedError: true });
+  fixture.move();
+  assert.deepEqual(fixture.calls, [["feed"], ["feedback", "bad feed", "error"]]);
+
+  fixture = makeFixture({ invalidTarget: true });
+  fixture.move();
+  assert.equal(fixture.calls.at(-1)[1], "Selected field probe point does not have a valid machine position.");
+  assert.equal(fixture.calls.some(([kind]) => kind === "send"), false);
+
+  fixture = makeFixture({ sequence: 0 });
+  fixture.move();
+  assert.equal(fixture.calls.at(-1)[1], "Jog service is not connected.");
+  assert.equal(fixture.state.jog.targetPending, undefined);
 });
 
 test("moving a probed field point keeps the temporary position until confirmation", async () => {

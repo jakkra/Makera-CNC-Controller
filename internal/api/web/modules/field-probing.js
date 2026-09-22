@@ -8,7 +8,7 @@ export function createFieldProbing({ state, constants = {}, callbacks = {} }) {
     commitOutlineFieldSpacingDraft, clearControlDrafts, updateFieldProbePreview,
     unprobedFieldProbePoints, currentOutlineCapturePosition, renderWorkArea,
     effectiveOutlineGeometry, outlineWorkPoints, workPointToMachinePoint,
-    tapMoveTargetBusy, currentTapFeed,
+    tapMoveTargetBusy, currentTapFeed, selectedFieldProbePoint, connectJog, sendJog, setTapFeedback, hasPendingOriginOperation,
   } = callbacks;
 
   async function probeZAtWorkPoint(workPoint, opts = {}) {
@@ -330,8 +330,65 @@ export function createFieldProbing({ state, constants = {}, callbacks = {} }) {
     }
   }
 
+  function moveToSelectedFieldProbePoint() {
+    const o = state.outline;
+    const point = selectedFieldProbePoint(o);
+    if (!point) {
+      setTapFeedback("Select a field probe point before moving.", "error");
+      return;
+    }
+    if (state.jog.link !== "online") {
+      setTapFeedback("Jog service is not connected.", "error");
+      connectJog();
+      return;
+    }
+    if (!state.jog.armed) {
+      setTapFeedback("Arm Movement before moving to a field probe point.", "error");
+      return;
+    }
+    if (tapMoveTargetBusy() || state.jog.zStepPending || hasPendingOriginOperation()) return;
+    let feed;
+    try {
+      feed = currentTapFeed();
+    } catch (e) {
+      setTapFeedback(e.message, "error");
+      return;
+    }
+    const origin = cloneOutlineOrigin(o.origin || currentWorkOrigin());
+    const target = workPointToMachinePoint(point, origin);
+    if (![target?.x, target?.y].every(Number.isFinite)) {
+      setTapFeedback("Selected field probe point does not have a valid machine position.", "error");
+      return;
+    }
+    const machine = normalizeMachineSettings(state.ui.machine);
+    const index = o.fieldProbePreview.indexOf(point);
+    const label = "field point " + (index + 1) + " (X " + fmtCoord(point.x) + " Y " + fmtCoord(point.y) + ")";
+    const seq = sendJog({
+      type: "target",
+      target: { x: target.x, y: target.y },
+      feed_mm_min: feed,
+      safe_z_enabled: !machine.safe_z_disabled,
+      safe_z_mm: safeZForTapMove(machine),
+    });
+    if (!seq) {
+      setTapFeedback("Jog service is not connected.", "error");
+      return;
+    }
+    const base = state.jog.target || state.jog.observed || state.jog.mpos || state.machine.mpos || {};
+    state.jog.target = { ...base, x: target.x, y: target.y };
+    state.jog.targetPending = seq;
+    state.jog.targetMotionPending = seq;
+    state.jog.fieldProbeMovePending = seq;
+    state.jog.targetLabel = label;
+    state.jog.tapFeedback = "Sending move to " + label + "...";
+    state.jog.tapFeedbackKind = "";
+    renderJog();
+    renderOutlineCapture();
+  }
+
   return {
     probeZAtWorkPoint,
+    moveToSelectedFieldProbePoint,
     rebaseOutlineToFloor,
     probeFloor,
     runFieldProbe,

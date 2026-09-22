@@ -1449,6 +1449,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/surface-controls.js", "export function createSurfaceControls"},
 		{"/modules/workarea-interactions.js", "export function createWorkAreaInteractions"},
 		{"/modules/field-probing.js", "export function createFieldProbing"},
+		{"/modules/field-probing.js", "function moveToSelectedFieldProbePoint()"},
 		{"/modules/outline-capture-operations.js", "export function createOutlineCaptureOperations"},
 		{"/modules/ui-settings.js", "export function createUISettingsFeature"},
 		{"/modules/state-defaults.js", "export function defaultOutlineState"},
