@@ -106,7 +106,7 @@ const mdiMacrosHelpers = new Set(["macroByID", "slotForMacro", "sortedSlots", "s
 const toolActionsHelpers = new Set(["customToolID", "resetToolSelects", "toggleToolCustomInput", "handleToolSelect", "selectedToolID", "setCurrentTool", "changeTool", "continueToolChange", "calibrateCurrentTool", "beginToolAction", "finishToolAction", "refreshMachineAfterToolAction", "renderToolActions", "setToolFeedback", "clearToolFeedback"]);
 const originProbingHelpers = new Set(["machineReadyForOriginSet", "renderOriginButtons", "setOriginFeedback", "renderOriginSetSourceLabels", "hasPendingOriginOperation", "savedOrigins", "selectedSavedOrigin", "savedOriginLabel", "renderSavedOriginSelect", "saveCurrentOrigin", "deleteSelectedOrigin", "originCommandLine", "formatOriginValue", "originTargetsFromXYZ", "originTargetsFromSaved", "machineAnchorPoints", "originTargetsFromOriginSource", "originReferenceRequestFromInputs", "renderOriginSetChange", "originAxes", "originTargetLabel", "clearOriginVerification", "beginOriginVerification", "checkOriginVerification", "scheduleOriginVerification", "setOriginViaGcode", "setReferenceOriginViaAPI", "setReferenceOriginViaJog", "sendNextJogOriginAxis", "handleOriginAck", "applyOriginTargets", "setOriginAxis", "openOriginDialog", "closeOriginDialog", "probe3DFieldRules", "probe3DInitialPositioning", "probe3DTravelPreflight", "probe3DLearnedTravelBounds", "probe3DPreflightFromControls", "renderProbe3DForm", "probe3DNumber", "probe3DRequestFromControls", "openProbe3D", "closeProbe3D", "runProbe3D", "applyXYZOrigin", "applyOriginSource", "runAutoZProbe", "recallSelectedOrigin"]);
 const machineStatusHelpers = new Set(["gcodeToolMetadata", "gcodeToolLabel", "programToolListModel", "renderProgramToolLists", "machineFeedOverrideControlModel", "toolChangeTargetLabel", "toolChangeAttentionDetail", "machineReadoutModel", "renderMachineReadouts", "haltReason", "recoveryText", "machineActionState", "jobControlModel", "jobControlLabel", "renderJobControls", "renderMachine", "renderAttention", "attentionResumeAction", "renderToolStatus", "renderAlarmPanel", "recoveryButtonText"]);
-const outlineHelpers = new Set(["fieldProbeSpotGap", "fieldProbeCenterSpacing", "outlineWorkPoints", "fieldProbePlanPointMatchesResult", "selectedFieldProbePoint", "selectedFieldProbeResult", "unprobedFieldProbePoints", "selectFieldProbePoint", "outlinePointLabel", "outlineSummaryText", "setOutlineFeedback", "isProbeToolActive", "is3DProbeToolActive", "workPointToMachinePoint"]);
+const outlineHelpers = new Set(["fieldProbeSpotGap", "fieldProbeCenterSpacing", "outlineWorkPoints", "fieldProbePlanPointMatchesResult", "fieldProbeMoveCandidate", "selectedFieldProbePoint", "selectedFieldProbeResult", "unprobedFieldProbePoints", "selectFieldProbePoint", "outlinePointLabel", "outlineSummaryText", "setOutlineFeedback", "isProbeToolActive", "is3DProbeToolActive", "workPointToMachinePoint"]);
 const outlineIOHelpers = new Set(["pathNum", "pathPoint", "outlinePathD", "outlineCubicSegments", "dxfPair", "dxfPairs", "dxfNumber", "dxfBounds", "addOutlinePolylineDXF"]);
 const navigationHelpers = new Set(["viewTabFromURL", "syncViewTabURL", "setHeaderCollapsed"]);
 const navigationConsts = new Set(["DEFAULT_VIEW_TABS", "DEFAULT_NAV_VIEW_TABS", "FOREGROUND_PAGE_RELOAD_MS", "PULL_TO_REFRESH_DISTANCE_PX", "PULL_TO_REFRESH_DIRECTION_SLOP_PX"]);
@@ -144,7 +144,7 @@ const outlineCaptureOperationCallbacks = [
   "clearNotice", "setStatusMessage", "resetJogInputSender", "sendJog", "setOutlineFeedback",
   "resolveOutlineCaptureIntent", "confirm", "waitForOutlineCapturePosition",
 ];
-const fieldProbingHelpers = new Set(["probeZAtWorkPoint", "rebaseOutlineToFloor", "probeFloor", "runFieldProbe", "traceOutlineMachinePoints", "traceOutline", "moveToSelectedFieldProbePoint"]);
+const fieldProbingHelpers = new Set(["probeZAtWorkPoint", "rebaseOutlineToFloor", "probeFloor", "runFieldProbe", "traceOutlineMachinePoints", "traceOutline", "moveToSelectedFieldProbePoint", "updateSelectedFieldProbeDrag", "restoreSelectedFieldProbePosition", "finishSelectedFieldProbeMove", "moveSelectedFieldProbePointBy"]);
 const fieldProbingCallbacks = [
   "cloneOutlineOrigin", "axisValue", "currentWorkOrigin", "normalizeMachineSettings", "finiteOr",
   "safeZForTapMove", "request", "markGcodeContextOverlayDirty", "machineReadyForOriginSet",
@@ -154,6 +154,7 @@ const fieldProbingCallbacks = [
   "unprobedFieldProbePoints", "currentOutlineCapturePosition", "renderWorkArea",
   "effectiveOutlineGeometry", "outlineWorkPoints", "workPointToMachinePoint",
   "tapMoveTargetBusy", "currentTapFeed", "selectedFieldProbePoint", "connectJog", "sendJog", "setTapFeedback", "hasPendingOriginOperation",
+  "fieldProbeMoveCandidate", "fieldProbePlanPointMatchesResult", "normalizedClosedPolygon", "pointInPolygonOrBoundary",
 ];
 const workareaRenderHelpers = new Set(["displayedFieldProbePoints"]);
 const stateDefaultsHelpers = new Set(["cloneFloorProbe", "cloneOutlineOrigin", "cloneOutlinePoint", "defaultOutlineState", "defaultWorkAreaView", "newID"]);
@@ -658,6 +659,11 @@ function buildContext(functionNames, constNames = [], globals = {}) {
       callbacks,
     }));
   }
+  if (includesFieldProbing) {
+    const callbacks = Object.fromEntries(fieldProbingCallbacks.map((name) => [name, context[name]]));
+    const constants = Object.fromEntries(["DEFAULT_PROBE_DEPTH_MM", "DEFAULT_PROBE_FEED_MM"].map((name) => [name, context[name]]));
+    Object.assign(context, createFieldProbing({ state: context.state, constants, callbacks }));
+  }
   if (includesWorkAreaInteractions) {
     const callbacks = Object.fromEntries(workareaInteractionCallbacks.map((name) => [name, context[name]]));
     const constants = Object.fromEntries(["WORKAREA_PAN_THRESHOLD_PX", "WORKAREA_ZOOM_STEP", "MOBILE_WORKAREA_MAX_WIDTH_PX"].map((name) => [name, context[name]]));
@@ -668,11 +674,6 @@ function buildContext(functionNames, constNames = [], globals = {}) {
       constants,
       callbacks,
     }));
-  }
-  if (includesFieldProbing) {
-    const callbacks = Object.fromEntries(fieldProbingCallbacks.map((name) => [name, context[name]]));
-    const constants = Object.fromEntries(["DEFAULT_PROBE_DEPTH_MM", "DEFAULT_PROBE_FEED_MM"].map((name) => [name, context[name]]));
-    Object.assign(context, createFieldProbing({ state: context.state, constants, callbacks }));
   }
   if (includesOutlineCaptureOperations) {
     const callbacks = Object.fromEntries(outlineCaptureOperationCallbacks.map((name) => [name, context[name]]));
@@ -3961,6 +3962,8 @@ test("field-point machine move preserves ordered guards and validation feedback"
 test("moving a probed field point keeps the temporary position until confirmation", async () => {
   let accept = false;
   let dirty = 0;
+  const pendingDuringConfirmation = [];
+  const renderOrder = [];
   const state = {
     outline: {
       fieldProbeSelectedID: "point",
@@ -3979,17 +3982,20 @@ test("moving a probed field point keeps the temporary position until confirmatio
     "finishSelectedFieldProbeMove",
   ], [], {
     state,
-    confirmProbeAction: async () => accept,
+    confirmProbeAction: async () => { pendingDuringConfirmation.push(state.outline.fieldProbePointMovePending); return accept; },
     fmtCoord: (value) => String(value),
     markGcodeContextOverlayDirty: () => { dirty++; },
-    renderOutlineCapture: () => {},
-    renderWorkArea: () => {},
+    renderOutlineCapture: () => renderOrder.push(["outline", state.outline.fieldProbePointMovePending]),
+    renderWorkArea: () => renderOrder.push(["workarea", state.outline.fieldProbePointMovePending]),
   });
 
   await vm.runInContext("finishSelectedFieldProbeMove({ id: 'point', x: 3, y: 4, fieldProbeComplete: true })", ctx);
   assert.deepEqual(state.outline.fieldProbePreview[0], { id: "point", x: 3, y: 4 }, "cancel restores the previous position");
   assert.equal(state.outline.fieldProbeResults.length, 1, "cancel keeps the probe value");
   assert.equal(state.outline.fieldProbeComplete, true);
+  assert.deepEqual(pendingDuringConfirmation, [true], "the point-move pending flag stays active through confirmation");
+  assert.equal(state.outline.fieldProbePointMovePending, false);
+  assert.deepEqual(renderOrder.slice(0, 3), [["outline", true], ["outline", false], ["workarea", false]]);
 
   state.outline.fieldProbePreview[0].x = 6;
   state.outline.fieldProbeComplete = false;
@@ -3998,6 +4004,8 @@ test("moving a probed field point keeps the temporary position until confirmatio
   assert.deepEqual(state.outline.fieldProbePreview[0], { id: "point", x: 6, y: 4 }, "confirmation keeps the new position");
   assert.equal(state.outline.fieldProbeResults.length, 0, "confirmation resets the stale probe value");
   assert.equal(state.outline.fieldProbeComplete, false);
+  assert.deepEqual(pendingDuringConfirmation, [true, true]);
+  assert.equal(state.outline.fieldProbePointMovePending, false);
   assert.equal(dirty, 1);
 });
 
@@ -6095,6 +6103,31 @@ test("Work Area interactions capture only the owning pointer and distinguish a t
   assert.equal(calls.filter(([kind]) => kind === "tap").length, tapsBefore, "a pan never becomes a tap target");
 });
 
+function createFieldProbeInteractionMethods(state, calls, { allowInside = () => true, acceptMove = async () => false } = {}) {
+  const selectedFieldProbePoint = (outline = state.outline) => (outline.fieldProbePreview || []).find((point) => point.id === outline.fieldProbeSelectedID) || null;
+  const feature = createFieldProbing({ state, callbacks: {
+    selectedFieldProbePoint,
+    fieldProbeMoveCandidate: (local) => local,
+    fieldProbePlanPointMatchesResult: (plan, result) => !!plan && !!result && plan.id === result.id && Math.hypot(Number(plan.x) - Number(result.x), Number(plan.y) - Number(result.y)) <= 0.05,
+    normalizedClosedPolygon: (points) => points,
+    pointInPolygonOrBoundary: (point, polygon) => allowInside(point, polygon),
+    outlineWorkPoints: () => state.outline.points,
+    markGcodeContextOverlayDirty: () => calls.push(["overlay-dirty"]),
+    setOutlineFeedback: (...args) => calls.push(["outline-feedback", ...args]),
+    confirmProbeAction: (options) => { calls.push(["confirm", options]); return acceptMove(options); },
+    fmtCoord: String,
+    renderOutlineCapture: () => calls.push(["render-outline"]),
+    renderWorkArea: () => calls.push(["render-workarea"]),
+  }});
+  return {
+    selectedFieldProbePoint,
+    updateSelectedFieldProbeDrag: feature.updateSelectedFieldProbeDrag,
+    finishSelectedFieldProbeMove: feature.finishSelectedFieldProbeMove,
+    restoreSelectedFieldProbePosition: feature.restoreSelectedFieldProbePosition,
+    moveSelectedFieldProbePointBy: feature.moveSelectedFieldProbePointBy,
+  };
+}
+
 test("Work Area probe drag hands off only the selected point and restores on pointer cancellation", () => {
   const listeners = {};
   const classes = new Set();
@@ -6104,21 +6137,27 @@ test("Work Area probe drag hands off only the selected point and restores on poi
     addEventListener: (type, fn) => { listeners[type] = fn; },
     setPointerCapture() {}, releasePointerCapture() {},
   };
+  const selected = { id: "p1", x: 4, y: 5 };
   const state = {
-    activeTab: "control", jog: { link: "online", armed: false },
-    outline: { fieldProbePointMovePending: false, fieldProbePending: false }, workarea: {},
+    activeTab: "control", jog: { link: "online", armed: false }, workarea: {},
+    outline: {
+      fieldProbePointMovePending: false, fieldProbePending: false, fieldProbeComplete: true,
+      fieldProbeSelectedID: "p1", fieldProbePreview: [selected], fieldProbeResults: [],
+      points: [{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }, { x: 0, y: 30 }],
+    },
   };
   const calls = [];
-  const selected = { id: "p1", x: 4, y: 5 };
+  const probeMethods = createFieldProbeInteractionMethods(state, calls);
+  state.workarea.probeDragID = "another-point";
+  assert.equal(probeMethods.updateSelectedFieldProbeDrag({ x: 9, y: 9 }), false, "the production drag method rejects a point that does not own the drag");
+  assert.deepEqual(selected, { id: "p1", x: 4, y: 5 });
+  delete state.workarea.probeDragID;
   const controls = createWorkAreaInteractions({ state, documentRef: { getElementById: (id) => id === "workarea-plot" ? svg : null }, windowRef: { innerWidth: 900, addEventListener() {} }, constants: { WORKAREA_PAN_THRESHOLD_PX: 4, WORKAREA_ZOOM_STEP: 1.25, MOBILE_WORKAREA_MAX_WIDTH_PX: 600 }, callbacks: {
     isMobileWorkAreaJogEnabled: () => false,
     normalizeWorkAreaView: () => state.workarea,
     workAreaSVGPointFromClient: (e) => ({ x: e.clientX, y: e.clientY }),
-    selectedFieldProbePoint: () => selected,
-    updateSelectedFieldProbeDrag: (point) => calls.push(["drag", point]),
-    finishSelectedFieldProbeMove: (original) => calls.push(["finish", original]),
-    restoreSelectedFieldProbePosition: (original) => calls.push(["restore", original]),
-    renderWorkArea: () => calls.push(["render"]),
+    ...probeMethods,
+    renderWorkArea: () => calls.push(["render-workarea"]),
     updateWorkAreaHoverPosition: () => {},
     hideWorkAreaHoverPosition: () => {},
     panWorkArea: () => calls.push(["pan"]),
@@ -6129,17 +6168,16 @@ test("Work Area probe drag hands off only the selected point and restores on poi
   const event = (pointerId, x, y) => ({ pointerId, button: 0, clientX: x, clientY: y, target: { dataset: { fieldProbeId: "p1" } }, preventDefault() {} });
   controls.handleWorkAreaPointerDown(event(21, 1, 2));
   controls.handleWorkAreaPointerMove(event(21, 10, 2));
-  assert.deepEqual(calls.find(([kind]) => kind === "drag"), ["drag", { x: 10, y: 2 }]);
-  const original = { id: "p1", x: 4, y: 5, fieldProbeComplete: false };
-  state.workarea.probeDragOriginal = original;
-  controls.handleWorkAreaPointerUp(event(21, 10, 2));
-  assert.deepEqual(calls.find(([kind]) => kind === "finish"), ["finish", original]);
+  assert.deepEqual(selected, { id: "p1", x: 10, y: 2 }, "the production field-probing drag callback updates the selected point");
   assert.equal(calls.some(([kind]) => kind === "pan"), false);
+  controls.handleWorkAreaPointerUp(event(21, 10, 2));
+  assert.ok(calls.some(([kind, message]) => kind === "outline-feedback" && message === "Field point 1 moved."), "the selected point finishes through the production feature");
 
   controls.handleWorkAreaPointerDown(event(22, 1, 2));
-  state.workarea.probeDragOriginal = original;
-  listeners.pointercancel(event(22, 10, 2));
-  assert.deepEqual(calls.find(([kind]) => kind === "restore"), ["restore", original]);
+  controls.handleWorkAreaPointerMove(event(22, 20, 8));
+  assert.deepEqual(selected, { id: "p1", x: 20, y: 8 });
+  listeners.pointercancel(event(22, 20, 8));
+  assert.deepEqual(selected, { id: "p1", x: 10, y: 2 }, "pointer cancellation calls the production rollback method");
 });
 
 test("Work Area keyboard probe movement uses selected-point guards and coarse shift steps", () => {
@@ -6149,8 +6187,18 @@ test("Work Area keyboard probe movement uses selected-point guards and coarse sh
     classList: { add() {}, remove() {} },
     addEventListener: (type, fn) => { listeners[type] = fn; },
   };
-  const state = { outline: { fieldProbeSelectedID: "p1" }, workarea: {} };
-  const moves = [];
+  const selectedPoint = { id: "p1", x: 15, y: 15 };
+  const state = {
+    outline: {
+      fieldProbeSelectedID: "p1", fieldProbePointMovePending: false, fieldProbePending: false,
+      fieldProbeComplete: true, fieldProbePreview: [selectedPoint], fieldProbeResults: [],
+      points: [{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }, { x: 0, y: 30 }],
+    },
+    workarea: {},
+  };
+  const calls = [];
+  let withinOutline = true;
+  const probeMethods = createFieldProbeInteractionMethods(state, calls, { allowInside: () => withinOutline });
   const selected = [];
   const controls = createWorkAreaInteractions({
     state,
@@ -6158,7 +6206,7 @@ test("Work Area keyboard probe movement uses selected-point guards and coarse sh
     windowRef: { addEventListener() {} },
     constants: { WORKAREA_PAN_THRESHOLD_PX: 4, WORKAREA_ZOOM_STEP: 1.25, MOBILE_WORKAREA_MAX_WIDTH_PX: 600 },
     callbacks: {
-      moveSelectedFieldProbePointBy: (dx, dy) => moves.push([dx, dy]),
+      ...probeMethods,
       selectFieldProbePoint: (id) => selected.push(id),
     },
   });
@@ -6169,11 +6217,14 @@ test("Work Area keyboard probe movement uses selected-point guards and coarse sh
     return prevented;
   };
   assert.equal(keydown("p1", "ArrowLeft", true), true);
-  assert.deepEqual(moves, [[-10, 0]], "Shift+Arrow moves ten millimeters");
+  assert.deepEqual([selectedPoint.x, selectedPoint.y], [5, 15], "Shift+Arrow applies the production ten-millimeter edit");
   assert.equal(keydown("p1", "ArrowUp"), true);
-  assert.deepEqual(moves.at(-1), [0, 1], "an ordinary arrow key moves one millimeter");
+  assert.deepEqual([selectedPoint.x, selectedPoint.y], [5, 16], "an ordinary arrow applies a one-millimeter edit");
   assert.equal(keydown("other", "ArrowRight"), false, "an unselected probe cannot be adjusted");
-  assert.equal(moves.length, 2);
+  withinOutline = false;
+  assert.equal(keydown("p1", "ArrowRight"), true);
+  assert.deepEqual([selectedPoint.x, selectedPoint.y], [5, 16], "the feature keeps keyboard edits inside the captured polygon");
+  assert.ok(calls.some(([kind, message]) => kind === "outline-feedback" && message === "Field point must remain inside the captured outline."));
   assert.equal(keydown("p1", "Enter"), true);
   assert.deepEqual(selected, ["p1"]);
 });

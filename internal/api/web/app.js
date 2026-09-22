@@ -1063,7 +1063,8 @@ const fieldProbing = createFieldProbing({
     unprobedFieldProbePoints, currentOutlineCapturePosition, renderWorkArea,
     effectiveOutlineGeometry, outlineWorkPoints, workPointToMachinePoint,
     tapMoveTargetBusy, currentTapFeed, selectedFieldProbePoint, connectJog, sendJog,
-    setTapFeedback, hasPendingOriginOperation,
+    setTapFeedback, hasPendingOriginOperation, fieldProbeMoveCandidate,
+    fieldProbePlanPointMatchesResult, normalizedClosedPolygon, pointInPolygonOrBoundary,
   },
 });
 
@@ -1530,81 +1531,10 @@ async function resetSelectedFieldProbeValue() {
 
 function moveToSelectedFieldProbePoint() { return fieldProbing.moveToSelectedFieldProbePoint(); }
 
-function updateSelectedFieldProbeDrag(local) {
-  const o = state.outline;
-  const point = selectedFieldProbePoint(o);
-  const candidate = fieldProbeMoveCandidate(local);
-  if (!point || point.id !== state.workarea.probeDragID || !candidate) return false;
-  point.x = candidate.x;
-  point.y = candidate.y;
-  o.fieldProbeComplete = false;
-  renderWorkArea();
-  return true;
-}
-
-function restoreSelectedFieldProbePosition(original) {
-  const point = selectedFieldProbePoint();
-  if (!point || !original) return;
-  point.x = original.x;
-  point.y = original.y;
-  state.outline.fieldProbeComplete = !!original.fieldProbeComplete;
-}
-
-async function finishSelectedFieldProbeMove(original) {
-  const o = state.outline;
-  const point = selectedFieldProbePoint(o);
-  if (!point || !original) return;
-  if (Math.hypot(Number(point.x) - Number(original.x), Number(point.y) - Number(original.y)) <= 1e-7) return;
-  const index = o.fieldProbePreview.indexOf(point);
-  const previousResult = o.fieldProbeResults.find((sample) => fieldProbePlanPointMatchesResult(original, sample)) || null;
-  if (!previousResult) {
-    o.fieldProbeComplete = false;
-    markGcodeContextOverlayDirty();
-    setOutlineFeedback("Field point " + (index + 1) + " moved.", "ok");
-    renderWorkArea();
-    return;
-  }
-  o.fieldProbePointMovePending = true;
-  renderOutlineCapture();
-  const accepted = await confirmProbeAction({
-    title: "Move Probed Point",
-    message: "Keep field point " + (index + 1) + " at X " + fmtCoord(point.x) + " Y " + fmtCoord(point.y) + "?",
-    warning: "This point already has a Z sample. Keeping the new position will reset that probe value.",
-    confirmLabel: "Move and Reset",
-  });
-  if (accepted) {
-    o.fieldProbeResults = o.fieldProbeResults.filter((sample) => !fieldProbePlanPointMatchesResult(original, sample));
-    o.fieldProbeComplete = false;
-    markGcodeContextOverlayDirty();
-    o.feedback = "Field point " + (index + 1) + " moved and its probe value was reset.";
-    o.feedbackKind = "ok";
-  } else {
-    restoreSelectedFieldProbePosition(original);
-    o.feedback = "Field point move canceled; its probe value was kept.";
-    o.feedbackKind = "";
-  }
-  o.fieldProbePointMovePending = false;
-  renderOutlineCapture();
-  renderWorkArea();
-}
-
-function moveSelectedFieldProbePointBy(dx, dy) {
-  const o = state.outline;
-  const point = selectedFieldProbePoint(o);
-  if (!point || o.fieldProbePointMovePending || o.fieldProbePending) return;
-  const original = { id: point.id, x: point.x, y: point.y, fieldProbeComplete: !!o.fieldProbeComplete };
-  const candidate = { x: Number(point.x) + Number(dx), y: Number(point.y) + Number(dy) };
-  const polygon = normalizedClosedPolygon(outlineWorkPoints());
-  if (polygon.length < 3 || !pointInPolygonOrBoundary(candidate, polygon)) {
-    setOutlineFeedback("Field point must remain inside the captured outline.", "error");
-    return;
-  }
-  point.x = candidate.x;
-  point.y = candidate.y;
-  o.fieldProbeComplete = false;
-  renderWorkArea();
-  finishSelectedFieldProbeMove(original);
-}
+function updateSelectedFieldProbeDrag(local) { return fieldProbing.updateSelectedFieldProbeDrag(local); }
+function restoreSelectedFieldProbePosition(original) { return fieldProbing.restoreSelectedFieldProbePosition(original); }
+async function finishSelectedFieldProbeMove(original) { return fieldProbing.finishSelectedFieldProbeMove(original); }
+function moveSelectedFieldProbePointBy(dx, dy) { return fieldProbing.moveSelectedFieldProbePointBy(dx, dy); }
 
 function updateFieldProbePreview() {
   const o = state.outline;
