@@ -259,7 +259,7 @@ const { resetEventStream, connectControlSSE, connectFilesSSE, pollMachine } = cr
   setConnectivityIssue,
   refreshJobs,
 });
-const { confirmProbeAction, settleProbeConfirmation } = createProbeConfirmation({ documentRef: document });
+const { confirmProbeAction, bindInteractions: bindProbeConfirmationInteractions } = createProbeConfirmation({ documentRef: document });
 
 // Settings owns the machine/gamepad controls while API load/save remains in
 // this bootstrap. Late-bound callbacks keep the existing initialization graph
@@ -2995,13 +2995,7 @@ function init() {
     exportHeightOBJ,
     exportHeightImage,
   });
-  bindButtonAction(document.getElementById("probe-confirm-close"), () => settleProbeConfirmation(false));
-  bindButtonAction(document.getElementById("probe-confirm-cancel"), () => settleProbeConfirmation(false));
-  bindButtonAction(document.getElementById("probe-confirm-accept"), () => settleProbeConfirmation(true));
-  document.getElementById("probe-confirm-modal").addEventListener("cancel", (e) => {
-    e.preventDefault();
-    settleProbeConfirmation(false);
-  });
+  bindProbeConfirmationInteractions({ bindButtonAction });
   bindButtonAction(document.getElementById("ctl-hold"), () => sendControl("hold"));
   bindButtonAction(document.getElementById("ctl-resume"), () => sendControl("resume"));
   bindButtonAction(document.getElementById("ctl-halt"), () => sendControl("halt"));

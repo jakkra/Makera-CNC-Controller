@@ -543,6 +543,29 @@ test("probe confirmation keeps one pending modal promise and resolves it once", 
   assert.match(probeConfirmModuleSource, /pendingResolve/);
 });
 
+test("probe confirmation binder routes buttons and modal cancel through settle", async () => {
+  const fields = new Map(["probe-confirm-title", "probe-confirm-message", "probe-confirm-warning", "probe-confirm-accept"].map((id) => [id, { textContent: "", hidden: false, focus() {} }]));
+  const listeners = {};
+  const dialog = { open: false, showModal() { this.open = true; }, close() { this.open = false; }, addEventListener(type, handler) { listeners[type] = handler; } };
+  const buttons = new Map(["probe-confirm-close", "probe-confirm-cancel", "probe-confirm-accept"].map((id) => [id, { id, focus() {} }]));
+  const feature = createProbeConfirmation({ documentRef: { getElementById: (id) => id === "probe-confirm-modal" ? dialog : buttons.get(id) || fields.get(id) } });
+  const bound = [];
+  feature.bindInteractions({ bindButtonAction: (button, action) => bound.push([button.id, action]) });
+  assert.deepEqual(bound.map(([id]) => id), ["probe-confirm-close", "probe-confirm-cancel", "probe-confirm-accept"]);
+
+  const closePending = feature.confirmProbeAction({ title: "Probe", message: "Close?" });
+  bound[0][1]();
+  assert.equal(await closePending, false);
+  const cancelPending = feature.confirmProbeAction({ title: "Probe", message: "Cancel?" });
+  const cancelEvent = { prevented: false, preventDefault() { this.prevented = true; } };
+  listeners.cancel(cancelEvent);
+  assert.equal(cancelEvent.prevented, true);
+  assert.equal(await cancelPending, false);
+  const acceptPending = feature.confirmProbeAction({ title: "Probe", message: "Accept?" });
+  bound[2][1]();
+  assert.equal(await acceptPending, true);
+});
+
 test("jog view keeps arm and feed controls synchronized with pending movement", () => {
   const nodes = new Map();
   const node = () => ({ textContent: "", value: "", disabled: false, attrs: new Map(), classList: { toggle() {} }, setAttribute(name, value) { this.attrs.set(name, value); } });

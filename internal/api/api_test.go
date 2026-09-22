@@ -1490,6 +1490,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/outline-view.js", "export function createOutlineView"},
 		{"/modules/outline-view.js", "function bindInteractions("},
 		{"/modules/probe-confirm.js", "export function createProbeConfirmation"},
+		{"/modules/probe-confirm.js", "function bindInteractions"},
 		{"/modules/command-history.js", "export function loadCommandHistory"},
 		{"/modules/state.js", "export function createAppState"},
 	} {

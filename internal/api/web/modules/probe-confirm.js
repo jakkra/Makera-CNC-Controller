@@ -24,5 +24,15 @@ export function createProbeConfirmation({ documentRef } = {}) {
     if (resolve) resolve(!!accepted);
   }
 
-  return { confirmProbeAction, settleProbeConfirmation };
+  function bindInteractions({ bindButtonAction } = {}) {
+    bindButtonAction(documentRef.getElementById("probe-confirm-close"), () => settleProbeConfirmation(false));
+    bindButtonAction(documentRef.getElementById("probe-confirm-cancel"), () => settleProbeConfirmation(false));
+    bindButtonAction(documentRef.getElementById("probe-confirm-accept"), () => settleProbeConfirmation(true));
+    documentRef.getElementById("probe-confirm-modal").addEventListener("cancel", (event) => {
+      event.preventDefault();
+      settleProbeConfirmation(false);
+    });
+  }
+
+  return { confirmProbeAction, settleProbeConfirmation, bindInteractions };
 }
