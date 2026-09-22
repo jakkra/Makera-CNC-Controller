@@ -22,6 +22,7 @@ import { dashboardExternalCameraIsSnapshot, normalizeDashboardExternalCameraView
 import { dashboardATCText, dashboardAlarmText, dashboardControllerText, dashboardLaserText, dashboardOnOff, dashboardOptionalNumber, dashboardRotaryText, createDashboardTelemetry } from "./modules/dashboard-telemetry.js";
 import { createDashboardView } from "./modules/dashboard-view.js";
 import { createMachineStatusFeature } from "./modules/machine-status.js";
+import { createToolActions } from "./modules/tool-actions.js";
 import { createGcodeLogFeature, formatLogLine, lineMatchesFilter, visibleGcodeLines } from "./modules/gcode-log.js";
 import { beginFileAction, createFileCatalog, createFileHelpers, endFileAction, fileRowLocallyOwned, mountFilesCommands, mountFilesJobRefresh, mountFilesNavigation, mountFilesPresentation, mountFilesRows, mountFilesTransitions } from "./modules/files.js";
 import { createSettingsFeature, defaultMachineSettings } from "./modules/settings.js";
@@ -269,6 +270,53 @@ test("machine control interactions route hold, resume, and halt in order", () =>
   assert.deepEqual(bound.slice(0, 3).map(([button]) => button.id), ["ctl-hold", "ctl-resume", "ctl-halt"]);
   bound.slice(0, 3).forEach(([, action]) => action());
   assert.deepEqual(bound.slice(3), [["send", "hold"], ["send", "resume"], ["send", "halt"]]);
+});
+test("tool interactions route actions and tool selection through the production binder", async () => {
+  assert.match(toolActionsModuleSource, /function bindInteractions\(\{ bindButtonAction \} = \{\}\)/);
+  assert.match(source, /bindToolInteractions\(\{ bindButtonAction \}\)/);
+  assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("tool-set"\)/);
+  assert.doesNotMatch(source, /document\.getElementById\("tool-set-select"\)\.onchange/);
+
+  const ids = [
+    "tool-set", "tool-change-set", "tool-continue", "tool-calibrate",
+    "tool-set-select", "tool-change-select", "tool-id", "tool-change-id",
+    "tool-set-row", "tool-change-row", "tool-wait-row", "tool-wait-status",
+  ];
+  const nodes = new Map(ids.map((id) => [id, {
+    id, value: "", hidden: false, disabled: false, textContent: "",
+    classList: { toggle() {} }, focus() {}, select() {},
+  }]));
+  const requests = [];
+  const feature = createToolActions({
+    documentRef: { getElementById: (id) => nodes.get(id) || null },
+    request: async (path) => { requests.push(path); return { json: async () => ({ message: "ok" }) }; },
+    validToolID: (value, allowEmpty) => allowEmpty ? Number.isInteger(value) && value >= 0 && value <= 999 : Number.isInteger(value) && value > 0 && value <= 999,
+    toolDisplayName: (value) => `T${value}`,
+    getMachine: () => ({ state: "Tool" }),
+    setSoftDisabled() {},
+    setElementBusy() {},
+    setStatusMessage() {},
+    disarmTapMoveForCommand: async () => {},
+    appendGcodeLine() {},
+    pollMachine() {},
+    setTimeoutRef() {},
+  });
+  const bound = [];
+  feature.bindInteractions({ bindButtonAction: (button, action) => bound.push([button.id, action]) });
+  assert.deepEqual(bound.map(([id]) => id), ["tool-set", "tool-change-set", "tool-continue", "tool-calibrate"]);
+
+  nodes.get("tool-set-select").value = "other";
+  nodes.get("tool-set-select").onchange({ target: nodes.get("tool-set-select") });
+  nodes.get("tool-change-select").value = "other";
+  nodes.get("tool-change-select").onchange({ target: nodes.get("tool-change-select") });
+
+  nodes.get("tool-set-select").value = "1";
+  await bound[0][1]();
+  nodes.get("tool-change-select").value = "2";
+  await bound[1][1]();
+  await bound[2][1]();
+  await bound[3][1]();
+  assert.deepEqual(requests, ["/api/tool/current", "/api/tool/change", "/api/tool/continue", "/api/tool/calibrate"]);
 });
 test("work-coordinate move binder preserves dirty, Enter, reset, and send behavior", () => {
   const inputs = new Map(["x", "y", "z"].map((axis) => [axis, { dataset: {}, oninput: null, onkeydown: null }]));

@@ -239,5 +239,14 @@ function clearToolFeedback() {
   setStatusMessage("tool", "");
 }
 
-  return { customToolID, resetToolSelects, toggleToolCustomInput, handleToolSelect, selectedToolID, setCurrentTool, changeTool, continueToolChange, calibrateCurrentTool, beginToolAction, finishToolAction, refreshMachineAfterToolAction, renderToolActions, setToolFeedback, clearToolFeedback };
+  function bindInteractions({ bindButtonAction } = {}) {
+    bindButtonAction(document.getElementById("tool-set"), () => setCurrentTool());
+    bindButtonAction(document.getElementById("tool-change-set"), () => changeTool());
+    bindButtonAction(document.getElementById("tool-continue"), continueToolChange);
+    bindButtonAction(document.getElementById("tool-calibrate"), calibrateCurrentTool);
+    document.getElementById("tool-set-select").onchange = (e) => handleToolSelect("set", e.target.value);
+    document.getElementById("tool-change-select").onchange = (e) => handleToolSelect("change", e.target.value);
+  }
+
+  return { bindInteractions, customToolID, resetToolSelects, toggleToolCustomInput, handleToolSelect, selectedToolID, setCurrentTool, changeTool, continueToolChange, calibrateCurrentTool, beginToolAction, finishToolAction, refreshMachineAfterToolAction, renderToolActions, setToolFeedback, clearToolFeedback };
 }

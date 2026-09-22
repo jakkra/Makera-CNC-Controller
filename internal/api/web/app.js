@@ -368,6 +368,7 @@ const toolActions = createToolActions({
   pollMachine,
 });
 const {
+  bindInteractions: bindToolInteractions,
   customToolID, resetToolSelects, toggleToolCustomInput, handleToolSelect,
   selectedToolID, setCurrentTool, changeTool, continueToolChange,
   calibrateCurrentTool, beginToolAction, finishToolAction,
@@ -2997,12 +2998,7 @@ function init() {
   });
   bindProbeConfirmationInteractions({ bindButtonAction });
   bindMachineControlInteractions({ bindButtonAction, sendControl });
-  bindButtonAction(document.getElementById("tool-set"), () => setCurrentTool());
-  bindButtonAction(document.getElementById("tool-change-set"), () => changeTool());
-  bindButtonAction(document.getElementById("tool-continue"), continueToolChange);
-  bindButtonAction(document.getElementById("tool-calibrate"), calibrateCurrentTool);
-  document.getElementById("tool-set-select").onchange = (e) => handleToolSelect("set", e.target.value);
-  document.getElementById("tool-change-select").onchange = (e) => handleToolSelect("change", e.target.value);
+  bindToolInteractions({ bindButtonAction });
   bindButtonAction(document.getElementById("active-gcode-run"), runActiveGcode);
   for (const button of document.querySelectorAll("[data-job-control]")) {
     bindButtonAction(button, () => runJobControl(button.dataset.jobControl));
