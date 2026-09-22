@@ -487,10 +487,26 @@ function bindMachineControlInteractions({ bindButtonAction, sendControl } = {}) 
   bindButtonAction(document.getElementById("ctl-halt"), () => sendControl("halt"));
 }
 
+function bindAttentionInteractions({ bindButtonAction, showTab, runActiveJobControl, sendControl } = {}) {
+  document.getElementById("attention-open-active-job").onclick = () => showTab("active-job");
+  bindButtonAction(document.getElementById("attention-resume"), () => {
+    const action = attentionResumeAction(String(state.machine?.state || ""));
+    if (action === "resume_job") runActiveJobControl(action);
+    else if (action === "resume") sendControl(action);
+  });
+  document.getElementById("attention-open-tool").onclick = () => {
+    const menu = document.getElementById("tool-panel")?.closest(".command-popout");
+    if (!menu) return;
+    document.getElementById("command-actions")?.classList.add("mobile-menu-open");
+    document.getElementById("mobile-actions-toggle")?.setAttribute("aria-expanded", "true");
+    menu.open = true;
+  };
+}
+
   return {
     gcodeToolMetadata, gcodeToolLabel, programToolListModel, renderProgramToolLists, toolChangeTargetLabel, toolChangeAttentionDetail,
     machineReadoutModel, renderMachineReadouts, mountMachineReadouts, haltReason, recoveryText, machineActionState, jobControlModel,
     jobControlLabel, renderJobControls, renderMachine, renderAttention, attentionResumeAction, renderToolStatus,
-    renderAlarmPanel, recoveryButtonText, machineFeedOverrideControlModel, bindMachineControlInteractions,
+    renderAlarmPanel, recoveryButtonText, machineFeedOverrideControlModel, bindMachineControlInteractions, bindAttentionInteractions,
   };
 }

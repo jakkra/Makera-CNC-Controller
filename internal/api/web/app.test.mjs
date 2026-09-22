@@ -247,6 +247,64 @@ test("Z step interactions are wired through the Jog feature", () => {
   assert.match(source, /bindZStepInteractions\(\{ bindButtonAction, stepZ \}\)/);
   assert.doesNotMatch(source, /querySelectorAll\("\[data-z-step-dir\]"\)/);
 });
+test("Jog arm interaction is wired through the Jog feature", () => {
+  assert.match(jogModuleSource, /function bindJogArmInteractions\(/);
+  assert.match(source, /bindJogArmInteractions\(\{ bindButtonAction, toggleTapMoveArm \}\)/);
+  assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("jog-arm"\)/);
+  const button = { id: "jog-arm" };
+  const feature = createJogFeature({
+    jogState: {},
+    surfaceState: {},
+    documentRef: { getElementById: (id) => id === "jog-arm" ? button : null },
+    windowRef: {},
+  });
+  const bindings = [];
+  feature.bindJogArmInteractions({
+    bindButtonAction: (node, action) => bindings.push([node, action]),
+    toggleTapMoveArm: () => bindings.push(["toggle"]),
+  });
+  assert.equal(bindings.length, 1);
+  assert.equal(bindings[0][0], button);
+  bindings[0][1]();
+  assert.deepEqual(bindings.slice(1), [["toggle"]]);
+});
+test("Attention interactions preserve resume routing and mobile tool opening", () => {
+  assert.match(machineStatusModuleSource, /function bindAttentionInteractions\(/);
+  assert.match(source, /bindAttentionInteractions\(\{ bindButtonAction, showTab, runActiveJobControl, sendControl \}\)/);
+  assert.doesNotMatch(source, /document\.getElementById\("attention-open-active-job"\)\.onclick/);
+  assert.doesNotMatch(source, /document\.getElementById\("attention-open-tool"\)\.onclick/);
+  const menu = { open: false };
+  const nodes = new Map([
+    ["attention-open-active-job", { onclick: null }],
+    ["attention-resume", { id: "attention-resume" }],
+    ["attention-open-tool", { onclick: null }],
+    ["tool-panel", { closest: () => menu }],
+    ["command-actions", { classList: { added: [], add: (name) => menu.classListAdded = name } }],
+    ["mobile-actions-toggle", { setAttribute: (name, value) => { menu[name] = value; } }],
+  ]);
+  let machineState = "Pause";
+  const feature = createMachineStatusFeature({
+    documentRef: { getElementById: (id) => nodes.get(id) || null },
+    getMachine: () => ({ state: machineState }),
+  });
+  const bound = [];
+  const calls = [];
+  feature.bindAttentionInteractions({
+    bindButtonAction: (button, action) => bound.push([button, action]),
+    showTab: (tab) => calls.push(["tab", tab]),
+    runActiveJobControl: (action) => calls.push(["job", action]),
+    sendControl: (action) => calls.push(["control", action]),
+  });
+  nodes.get("attention-open-active-job").onclick();
+  bound[0][1]();
+  machineState = "Hold";
+  bound[0][1]();
+  nodes.get("attention-open-tool").onclick();
+  assert.deepEqual(calls, [["tab", "active-job"], ["job", "resume_job"], ["control", "resume"]]);
+  assert.equal(menu.open, true);
+  assert.equal(menu.classListAdded, "mobile-menu-open");
+  assert.equal(menu["aria-expanded"], "true");
+});
 test("settings dialog interactions are wired through the settings feature", () => {
   assert.match(settingsModuleSource, /function bindSettingsInteractions\(/);
   assert.match(source, /bindSettingsInteractions\(\{ bindButtonAction \}\)/);

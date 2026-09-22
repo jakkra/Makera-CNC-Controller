@@ -448,6 +448,7 @@ const jogFeature = createJogFeature({
   clearOriginVerification: (...args) => originProbing.clearOriginVerification(...args),
   setOriginFeedback: (...args) => originProbing.setOriginFeedback(...args),
   tapMoveArmFailureText,
+  toggleTapMoveArm,
   clampAxis,
   currentGamepad,
   mappedAxis,
@@ -466,7 +467,7 @@ const jogFeature = createJogFeature({
 });
 const {
   connectJog, disableJogConnection, scheduleJogReconnect, sendJogInput, sendJog,
-  sampleJog, releaseJogInput, scheduleJogSample, bindSurfaceMPGWheel, bindZStepInteractions,
+  sampleJog, releaseJogInput, scheduleJogSample, bindSurfaceMPGWheel, bindZStepInteractions, bindJogArmInteractions,
 } = jogFeature;
 
 const surfaceControls = createSurfaceControls({
@@ -785,7 +786,7 @@ const {
   toolChangeAttentionDetail, machineReadoutModel, renderMachineReadouts, mountMachineReadouts, haltReason,
   recoveryText, machineActionState, jobControlModel, jobControlLabel, renderJobControls,
   renderMachine, renderAttention, attentionResumeAction, renderToolStatus,
-  renderAlarmPanel, recoveryButtonText, bindMachineControlInteractions,
+  renderAlarmPanel, recoveryButtonText, bindMachineControlInteractions, bindAttentionInteractions,
 } = machineStatus;
 
 const gcodeViewer = mountGcodeViewer({
@@ -3011,7 +3012,7 @@ function init() {
   initializeSurfaceMobileOptions();
   window.matchMedia?.("(max-width: 600px)")?.addEventListener?.("change", (e) => initializeSurfaceMobileOptions(e.matches));
   window.matchMedia?.("(min-width: 1320px)")?.addEventListener?.("change", () => applyDashboardProfile(currentDashboardProfile()));
-  bindButtonAction(document.getElementById("jog-arm"), toggleTapMoveArm);
+  bindJogArmInteractions({ bindButtonAction, toggleTapMoveArm });
   surfaceControls.init();
   surfaceShell.bindInteractions({ bindButtonAction });
   surfaceControls.bindFooterInteractions({
@@ -3025,19 +3026,7 @@ function init() {
   });
   bindDashboardCameraSwitches();
   bindDashboardToolpathShortcut();
-  document.getElementById("attention-open-active-job").onclick = () => showTab("active-job");
-  bindButtonAction(document.getElementById("attention-resume"), () => {
-    const action = attentionResumeAction(String(state.machine?.state || ""));
-    if (action === "resume_job") runActiveJobControl(action);
-    else if (action === "resume") sendControl(action);
-  });
-  document.getElementById("attention-open-tool").onclick = () => {
-    const menu = document.getElementById("tool-panel")?.closest(".command-popout");
-    if (!menu) return;
-    document.getElementById("command-actions")?.classList.add("mobile-menu-open");
-    document.getElementById("mobile-actions-toggle")?.setAttribute("aria-expanded", "true");
-    menu.open = true;
-  };
+  bindAttentionInteractions({ bindButtonAction, showTab, runActiveJobControl, sendControl });
 
   loadUISettings();
   loadAPICapabilities();
