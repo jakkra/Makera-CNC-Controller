@@ -51,6 +51,7 @@ import { createGamepadControls } from "./modules/gamepad-controls.js";
 import { createSurfaceControls } from "./modules/surface-controls.js";
 import { createWorkAreaInteractions } from "./modules/workarea-interactions.js";
 import { createFieldProbing } from "./modules/field-probing.js";
+import { buildFieldProbePreview as computeFieldProbePreview } from "./modules/outline-geometry.js";
 import { createOutlineCaptureOperations } from "./modules/outline-capture-operations.js";
 import { createWorkareaRenderers, displayedFieldProbePoints } from "./modules/workarea-render.js";
 import { cloneFloorProbe, cloneOutlineOrigin, cloneOutlinePoint, defaultOutlineState, defaultWorkAreaView } from "./modules/state-defaults.js";
@@ -144,17 +145,18 @@ const outlineCaptureOperationCallbacks = [
   "clearNotice", "setStatusMessage", "resetJogInputSender", "sendJog", "setOutlineFeedback",
   "resolveOutlineCaptureIntent", "confirm", "waitForOutlineCapturePosition",
 ];
-const fieldProbingHelpers = new Set(["probeZAtWorkPoint", "rebaseOutlineToFloor", "probeFloor", "runFieldProbe", "traceOutlineMachinePoints", "traceOutline", "moveToSelectedFieldProbePoint", "updateSelectedFieldProbeDrag", "restoreSelectedFieldProbePosition", "finishSelectedFieldProbeMove", "moveSelectedFieldProbePointBy"]);
+const fieldProbingHelpers = new Set(["probeZAtWorkPoint", "rebaseOutlineToFloor", "probeFloor", "runFieldProbe", "traceOutlineMachinePoints", "traceOutline", "moveToSelectedFieldProbePoint", "updateSelectedFieldProbeDrag", "restoreSelectedFieldProbePosition", "finishSelectedFieldProbeMove", "moveSelectedFieldProbePointBy", "resetSelectedFieldProbeValue", "updateFieldProbePreview"]);
 const fieldProbingCallbacks = [
   "cloneOutlineOrigin", "axisValue", "currentWorkOrigin", "normalizeMachineSettings", "finiteOr",
   "safeZForTapMove", "request", "markGcodeContextOverlayDirty", "machineReadyForOriginSet",
   "isProbeToolActive", "setOutlineFeedback", "confirmProbeAction", "renderOutlineCapture",
   "renderJog", "pollMachine", "fmtCoord", "cancelOutlineFieldSpacingUpdate",
-  "commitOutlineFieldSpacingDraft", "clearControlDrafts", "updateFieldProbePreview",
+  "commitOutlineFieldSpacingDraft", "clearControlDrafts",
   "unprobedFieldProbePoints", "currentOutlineCapturePosition", "renderWorkArea",
   "effectiveOutlineGeometry", "outlineWorkPoints", "workPointToMachinePoint",
   "tapMoveTargetBusy", "currentTapFeed", "selectedFieldProbePoint", "connectJog", "sendJog", "setTapFeedback", "hasPendingOriginOperation",
   "fieldProbeMoveCandidate", "fieldProbePlanPointMatchesResult", "normalizedClosedPolygon", "pointInPolygonOrBoundary",
+  "selectedFieldProbeResult", "fieldProbeSpotGap", "computeFieldProbePreview",
 ];
 const workareaRenderHelpers = new Set(["displayedFieldProbePoints"]);
 const stateDefaultsHelpers = new Set(["cloneFloorProbe", "cloneOutlineOrigin", "cloneOutlinePoint", "defaultOutlineState", "defaultWorkAreaView", "newID"]);
@@ -637,6 +639,7 @@ function buildContext(functionNames, constNames = [], globals = {}) {
     outlineEffectiveExportPointsDocument,
     outlineExportPointsDocument,
     exportExtents: exportExtentsDocument,
+    computeFieldProbePreview,
     ...globals,
   });
   const includesJogEventHandler = functionNames.includes("applyJogEvent");
@@ -3789,7 +3792,10 @@ test("physical outline probes remain visibly distinct from generated border prob
 
 test("resetting a selected probe removes only that point's current sample", async () => {
   const messages = [];
+  const confirmations = [];
   let dirty = 0;
+  let renders = 0;
+  let accept = false;
   const state = {
     outline: {
       fieldProbeSelectedID: "second",
@@ -3812,17 +3818,96 @@ test("resetting a selected probe removes only that point's current sample", asyn
     "resetSelectedFieldProbeValue",
   ], [], {
     state,
-    confirmProbeAction: async () => true,
+    confirmProbeAction: async (options) => { confirmations.push(options); return accept; },
     fmtCoord: (value) => String(value),
     markGcodeContextOverlayDirty: () => { dirty++; },
     setOutlineFeedback: (text, kind) => messages.push({ text, kind }),
-    renderWorkArea: () => {},
+    renderWorkArea: () => { renders++; },
   });
+  await vm.runInContext("resetSelectedFieldProbeValue()", ctx);
+  assert.deepEqual(confirmations, [{
+    title: "Reset Probe Value",
+    message: "Reset the Z sample for field point 2 at X 3 Y 4?",
+    confirmLabel: "Reset Value",
+  }]);
+  assert.equal(state.outline.fieldProbeResults.length, 2, "cancel retains the selected sample");
+  assert.equal(state.outline.fieldProbeComplete, true);
+  assert.equal(dirty, 0);
+  assert.equal(renders, 0);
+  accept = true;
   await vm.runInContext("resetSelectedFieldProbeValue()", ctx);
   assert.deepEqual(state.outline.fieldProbeResults, [{ id: "first", x: 1, y: 2, z: 5 }]);
   assert.equal(state.outline.fieldProbeComplete, false);
   assert.equal(dirty, 1);
+  assert.equal(renders, 1);
   assert.deepEqual(messages, [{ text: "Probe value reset for field point 2.", kind: "ok" }]);
+  state.outline.fieldProbePending = true;
+  await vm.runInContext("resetSelectedFieldProbeValue()", ctx);
+  assert.equal(confirmations.length, 2, "an active field probe blocks the reset action");
+});
+
+test("field-probing production preview preserves empty, limited, and generated plans", () => {
+  const outlinePoints = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }, { x: 0, y: 20 }];
+  const geometryPoints = outlinePoints.map((point) => ({ ...point }));
+  const state = {
+    outline: {
+      closed: false, curveFit: true, points: [], fieldSpotGapMM: 8,
+      fieldProbePreview: [{ id: "old", x: 1, y: 1 }], fieldProbeSelectedID: "old",
+      fieldProbeTooDense: true, fieldProbeIssue: "previous issue", fieldProbeResults: [],
+    },
+  };
+  let dirty = 0;
+  let geometryCalls = 0;
+  let geometry = { limited: false, points: geometryPoints };
+  const ctx = buildContext([
+    "fieldProbeSpotGap", "outlineWorkPoints", "selectedFieldProbePoint", "updateFieldProbePreview",
+  ], [], {
+    state,
+    markGcodeContextOverlayDirty: () => { dirty++; },
+    effectiveOutlineGeometry: (points, closed, curveFit) => {
+      geometryCalls++;
+      assert.equal(closed, state.outline.closed);
+      assert.equal(curveFit, state.outline.curveFit);
+      return geometry;
+    },
+    outlineWorkPoints: () => outlinePoints,
+  });
+
+  vm.runInContext("updateFieldProbePreview()", ctx);
+  assert.deepEqual(state.outline.fieldProbePreview, []);
+  assert.equal(state.outline.fieldProbeSelectedID, "");
+  assert.equal(state.outline.fieldProbeTooDense, false);
+  assert.equal(state.outline.fieldProbeIssue, "");
+  assert.equal(geometryCalls, 0, "open outlines skip geometry calculation");
+
+  state.outline.closed = true;
+  state.outline.points = outlinePoints.slice(0, 2);
+  vm.runInContext("updateFieldProbePreview()", ctx);
+  assert.deepEqual(state.outline.fieldProbePreview, []);
+  assert.equal(state.outline.fieldProbeTooDense, false, "closed outlines with fewer than three points are not marked dense");
+  assert.equal(geometryCalls, 0, "incomplete outlines skip geometry calculation");
+
+  state.outline.points = outlinePoints;
+  geometry = { limited: true, points: [] };
+  vm.runInContext("updateFieldProbePreview()", ctx);
+  assert.deepEqual(state.outline.fieldProbePreview, []);
+  assert.equal(state.outline.fieldProbeSelectedID, "");
+  assert.equal(state.outline.fieldProbeTooDense, true);
+  assert.equal(state.outline.fieldProbeIssue, "curve fit generated too many outline points");
+
+  geometry = { limited: false, points: geometryPoints };
+  const expected = computeFieldProbePreview(geometryPoints, 8, outlinePoints);
+  vm.runInContext("updateFieldProbePreview()", ctx);
+  assert.deepEqual(state.outline.fieldProbePreview, expected.points);
+  assert.equal(state.outline.fieldProbeTooDense, expected.tooDense);
+  assert.equal(state.outline.fieldProbeIssue, expected.issue || "");
+  assert.equal(state.outline.fieldProbeSelectedID, "", "a stale selected ID is cleared after plan replacement");
+  const firstID = state.outline.fieldProbePreview[0]?.id;
+  state.outline.fieldProbeSelectedID = firstID;
+  vm.runInContext("updateFieldProbePreview()", ctx);
+  assert.equal(state.outline.fieldProbeSelectedID, firstID, "a still-valid selection survives plan regeneration");
+  assert.equal(geometryCalls, 3);
+  assert.equal(dirty, 5);
 });
 
 test("moving to a selected field point requires armed movement and sends the Safe Z setting", () => {

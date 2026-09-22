@@ -1453,6 +1453,8 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/field-probing.js", "function updateSelectedFieldProbeDrag(local)"},
 		{"/modules/field-probing.js", "async function finishSelectedFieldProbeMove(original)"},
 		{"/modules/field-probing.js", "function moveSelectedFieldProbePointBy(dx, dy)"},
+		{"/modules/field-probing.js", "async function resetSelectedFieldProbeValue()"},
+		{"/modules/field-probing.js", "function updateFieldProbePreview()"},
 		{"/modules/outline-capture-operations.js", "export function createOutlineCaptureOperations"},
 		{"/modules/ui-settings.js", "export function createUISettingsFeature"},
 		{"/modules/state-defaults.js", "export function defaultOutlineState"},

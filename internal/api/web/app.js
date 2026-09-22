@@ -1059,12 +1059,13 @@ const fieldProbing = createFieldProbing({
     safeZForTapMove, request, markGcodeContextOverlayDirty, machineReadyForOriginSet,
     isProbeToolActive, setOutlineFeedback, confirmProbeAction, renderOutlineCapture,
     renderJog, pollMachine, fmtCoord, cancelOutlineFieldSpacingUpdate,
-    commitOutlineFieldSpacingDraft, clearControlDrafts, updateFieldProbePreview,
+    commitOutlineFieldSpacingDraft, clearControlDrafts,
     unprobedFieldProbePoints, currentOutlineCapturePosition, renderWorkArea,
     effectiveOutlineGeometry, outlineWorkPoints, workPointToMachinePoint,
     tapMoveTargetBusy, currentTapFeed, selectedFieldProbePoint, connectJog, sendJog,
     setTapFeedback, hasPendingOriginOperation, fieldProbeMoveCandidate,
     fieldProbePlanPointMatchesResult, normalizedClosedPolygon, pointInPolygonOrBoundary,
+    selectedFieldProbeResult, fieldProbeSpotGap, computeFieldProbePreview,
   },
 });
 
@@ -1511,23 +1512,7 @@ function scheduleOutlineFieldSpacingUpdate() {
   return true;
 }
 
-async function resetSelectedFieldProbeValue() {
-  const o = state.outline;
-  const point = selectedFieldProbePoint(o);
-  const result = selectedFieldProbeResult(o);
-  if (!point || !result || o.fieldProbePending) return;
-  const index = o.fieldProbePreview.indexOf(point);
-  if (!await confirmProbeAction({
-    title: "Reset Probe Value",
-    message: "Reset the Z sample for field point " + (index + 1) + " at X " + fmtCoord(point.x) + " Y " + fmtCoord(point.y) + "?",
-    confirmLabel: "Reset Value",
-  })) return;
-  o.fieldProbeResults = o.fieldProbeResults.filter((sample) => !fieldProbePlanPointMatchesResult(point, sample));
-  o.fieldProbeComplete = false;
-  markGcodeContextOverlayDirty();
-  setOutlineFeedback("Probe value reset for field point " + (index + 1) + ".", "ok");
-  renderWorkArea();
-}
+async function resetSelectedFieldProbeValue() { return fieldProbing.resetSelectedFieldProbeValue(); }
 
 function moveToSelectedFieldProbePoint() { return fieldProbing.moveToSelectedFieldProbePoint(); }
 
@@ -1536,30 +1521,7 @@ function restoreSelectedFieldProbePosition(original) { return fieldProbing.resto
 async function finishSelectedFieldProbeMove(original) { return fieldProbing.finishSelectedFieldProbeMove(original); }
 function moveSelectedFieldProbePointBy(dx, dy) { return fieldProbing.moveSelectedFieldProbePointBy(dx, dy); }
 
-function updateFieldProbePreview() {
-  const o = state.outline;
-  markGcodeContextOverlayDirty();
-  if (!o.closed || o.points.length < 3) {
-    o.fieldProbePreview = [];
-    o.fieldProbeSelectedID = "";
-    o.fieldProbeTooDense = false;
-    o.fieldProbeIssue = "";
-    return;
-  }
-  const geometry = effectiveOutlineGeometry(outlineWorkPoints(), o.closed, o.curveFit);
-  if (geometry.limited) {
-    o.fieldProbePreview = [];
-    o.fieldProbeSelectedID = "";
-    o.fieldProbeTooDense = true;
-    o.fieldProbeIssue = "curve fit generated too many outline points";
-    return;
-  }
-  const built = computeFieldProbePreview(geometry.points, fieldProbeSpotGap(), outlineWorkPoints());
-  o.fieldProbePreview = built.points;
-  if (!selectedFieldProbePoint(o)) o.fieldProbeSelectedID = "";
-  o.fieldProbeTooDense = built.tooDense;
-  o.fieldProbeIssue = built.issue || "";
-}
+function updateFieldProbePreview() { return fieldProbing.updateFieldProbePreview(); }
 
 // Return the exact covering radius for this finite probe set over the polygon.
 // In the interior, every local maximum of the nearest-site distance is a
