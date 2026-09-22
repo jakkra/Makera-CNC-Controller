@@ -743,6 +743,7 @@ const gcodeViewer = mountGcodeViewer({
   getOutline: () => state.outline,
   deps: {
     activeJobPreviewState,
+    getActiveFile: (path) => filesFeature.getFile(path),
     gcodeToolLabel,
     gcodeToolMetadata,
     externalJobInfo,
@@ -2083,79 +2084,7 @@ function rebuildGcodeContextOverlay(...args) { return gcodeViewer.rebuildGcodeCo
 
 function rebuildGcodeContextOverlayForGroup(...args) { return gcodeViewer.rebuildGcodeContextOverlayForGroup(...args); }
 
-function drawGcodePreview(preview, live = null) {
-  const gcodeView = gcodeViewer.getGcodeView();
-  const segments = Array.isArray(preview?.segments) ? preview.segments : [];
-  renderGcodeTimelineEvents(preview?.events, preview?.tool_metadata, preview?.line_count);
-  const hasToolpath = segments.length > 0 && !!preview?.bounds;
-  const hasContextCandidate = !!state.outline?.active && !!state.outline?.points?.length;
-  if (!hasToolpath && !hasContextCandidate) {
-    if (gcodeView.key || gcodeView.segments.length) clearGcodeScene();
-    gcodeView.live = live;
-    gcodeView.followLive = !!live;
-    setGcodePreviewEmpty("No plotted moves");
-    updateGcodeTimeline(0);
-    syncActiveGcodeSourceLine(live);
-    return;
-  }
-  if (!ensureGcodeViewer()) {
-    gcodeView.segments = hasToolpath ? segments : [];
-    gcodeView.live = live;
-    if (live && !gcodeTimelineLocallyOwned()) {
-      gcodeView.cursor = live.cursor;
-      gcodeView.followLive = true;
-    } else {
-      if (!gcodeTimelineLocallyOwned()) gcodeView.cursor = gcodeView.segments.length;
-      gcodeView.cursor = Math.max(0, Math.min(gcodeView.segments.length, gcodeView.cursor));
-      if (!live) gcodeView.followLive = false;
-    }
-    updateGcodeTimeline(gcodeView.segments.length);
-    syncActiveGcodeSourceLine(live);
-    return;
-  }
-  syncGcodeContextOverlay();
-  if (!hasToolpath && !gcodeView.contextVisible) {
-    clearGcodeScene();
-    setGcodePreviewEmpty("No plotted moves");
-    updateGcodeTimeline(0);
-    syncActiveGcodeSourceLine(live);
-    return;
-  }
-  const pathKey = hasToolpath ? [
-    state.activeGcode?.path || "",
-    preview.line_count || 0,
-    preview.plotted_segments || segments.length,
-    preview.total_distance || 0,
-    preview.has_4axis ? "4" : "3",
-  ].join(":") : "context-only";
-  const key = `${pathKey}|${gcodeView.contextKey}`;
-  const sceneBounds = combineGcodeBounds(hasToolpath ? preview.bounds : null, gcodeView.contextBounds);
-  const entry = state.activeGcode?.entry || filesFeature.getFile(state.activeGcode?.path || "") || {};
-  const fitKey = gcodeCameraFitKey(state.activeGcode?.path, entry, preview, hasToolpath);
-  if (gcodeView.key !== key) {
-    const renderedSegments = hasToolpath ? segments : [];
-    gcodeView.key = key;
-    gcodeView.segments = renderedSegments;
-    gcodeView.has4Axis = hasToolpath && !!preview.has_4axis;
-    gcodeView.cursor = live ? live.cursor : renderedSegments.length;
-    rebuildGcodeScene({ ...preview, bounds: sceneBounds }, renderedSegments);
-    if (sceneBounds && gcodeView.fitKey !== fitKey) {
-      gcodeView.fitKey = fitKey;
-      fitGcodeCamera(sceneBounds);
-    }
-  }
-  gcodeView.live = live;
-  if (live && !gcodeTimelineLocallyOwned()) {
-    gcodeView.cursor = live.cursor;
-    gcodeView.followLive = true;
-  } else if (!live) {
-    gcodeView.followLive = false;
-  }
-  setGcodePreviewEmpty("");
-  updateGcodeTimeline(gcodeView.segments.length);
-  updateGcodeProgress();
-  scheduleGcodeRender();
-}
+function drawGcodePreview(preview, live = null) { return gcodeViewer.drawGcodePreview(preview, live); }
 
 function gcodeRenderPixelRatio(...args) { return gcodeViewer.gcodeRenderPixelRatio(...args); }
 

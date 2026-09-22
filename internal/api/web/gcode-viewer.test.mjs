@@ -35,14 +35,18 @@ const movedNames = [
   "ensureActiveGcodeGeometry", "ensureActiveGcodeSource", "renderActiveGcodeSource",
   "gcodeSourceWindow", "renderGcodeTimelineEvents", "updateGcodeTimeline",
   "ensureGcodeViewer", "ensureDashboardGcodeViewer", "bindGcodeOrbitControls",
-  "populateGcodePathScene", "clearGcodeScene", "fitGcodeCamera", "updateGcodeCamera",
+  "populateGcodePathScene", "clearGcodeScene", "fitGcodeCamera", "updateGcodeCamera", "drawGcodePreview",
 ];
 
-function viewer() {
+function viewer({ deps = {}, documentRef, getActiveGcode = () => null, getMachine = () => ({}), getFiles = () => new Map(), getOutline = () => ({}) } = {}) {
   return mountGcodeViewer({
     THREE: { Vector3: class { constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; } set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; } } },
-    documentRef: { getElementById: () => null, activeElement: null },
-    getViewerSnapshot: () => ({}),
+    documentRef: documentRef || { getElementById: () => null, activeElement: null },
+    getActiveGcode,
+    getMachine,
+    getFiles,
+    getOutline,
+    deps,
   });
 }
 
@@ -72,6 +76,113 @@ test("production source and timeline helpers preserve bounded ranges and event b
   assert.equal(markers.length, 2);
   assert.equal(gcodeTimelineMarkerLabel(markers[0]), "T3+");
   assert.equal(gcodeTimelineMarkerLabel(markers[1]), "A");
+});
+
+test("drawGcodePreview keeps the empty path branch and synchronizes its live source", () => {
+  const calls = [];
+  const feature = viewer({ deps: {
+    renderGcodeTimelineEvents: (...args) => calls.push(["events", ...args]),
+    setGcodePreviewEmpty: (text) => calls.push(["empty", text]),
+    updateGcodeTimeline: (total) => calls.push(["timeline", total]),
+    syncActiveGcodeSourceLine: (live) => calls.push(["source", live]),
+  } });
+  const preview = { segments: [], events: [{ kind: "attention", line: 4 }], tool_metadata: [{ number: 2 }], line_count: 12 };
+  feature.drawGcodePreview(preview, null);
+  assert.deepEqual(calls, [["events", preview.events, preview.tool_metadata, 12], ["empty", "No plotted moves"], ["timeline", 0], ["source", null]]);
+  assert.equal(feature.getGcodeView().followLive, false);
+});
+
+test("drawGcodePreview preserves local timeline ownership when the canvas is unavailable", () => {
+  const calls = [];
+  const feature = viewer({ deps: {
+    ensureGcodeViewer: () => false,
+    gcodeTimelineLocallyOwned: () => true,
+    updateGcodeTimeline: (total) => calls.push(["timeline", total]),
+    syncActiveGcodeSourceLine: (live) => calls.push(["source", live]),
+  } });
+  const view = feature.getGcodeView();
+  view.cursor = 2;
+  const segments = [{ line: 1 }, { line: 2 }, { line: 3 }];
+  const live = { cursor: 1, playedLines: 2 };
+  feature.drawGcodePreview({ segments, bounds: { min: [0, 0, 0], max: [1, 1, 1] } }, live);
+  assert.equal(view.segments, segments);
+  assert.equal(view.cursor, 2, "a locally owned timeline keeps its current cursor");
+  assert.equal(view.followLive, false);
+  assert.equal(view.live, live);
+  assert.deepEqual(calls, [["timeline", 3], ["source", live]]);
+});
+
+test("drawGcodePreview fits a new path once, then keeps live cursor local to a selected timeline event", () => {
+  const calls = [];
+  let timelineOwned = false;
+  const bounds = { min: [0, 0, 0], max: [4, 5, 6] };
+  const feature = viewer({
+    getActiveGcode: () => ({ path: "part.nc", entry: { name: "part.nc" } }),
+    deps: {
+      ensureGcodeViewer: () => true,
+      syncGcodeContextOverlay: () => {},
+      combineGcodeBounds: (_path, context) => context || bounds,
+      gcodeCameraFitKey: () => "fit-part",
+      rebuildGcodeScene: (...args) => calls.push(["rebuild", ...args]),
+      fitGcodeCamera: (value) => calls.push(["fit", value]),
+      gcodeTimelineLocallyOwned: () => timelineOwned,
+      setGcodePreviewEmpty: (text) => calls.push(["empty", text]),
+      updateGcodeTimeline: (total) => calls.push(["timeline", total]),
+      updateGcodeProgress: () => calls.push(["progress"]),
+      scheduleGcodeRender: () => calls.push(["schedule"]),
+    },
+  });
+  const preview = { segments: [{ line: 2 }, { line: 7 }], bounds, line_count: 9, plotted_segments: 2, total_distance: 5, has_4axis: true };
+  feature.drawGcodePreview(preview, { cursor: 1 });
+  const view = feature.getGcodeView();
+  assert.equal(view.key, "part.nc:9:2:5:4|");
+  assert.equal(view.fitKey, "fit-part");
+  assert.equal(view.cursor, 1);
+  assert.equal(view.followLive, true);
+  assert.equal(view.has4Axis, true);
+  assert.equal(calls.filter(([name]) => name === "rebuild").length, 1);
+  assert.equal(calls.filter(([name]) => name === "fit").length, 1);
+  view.timelineEventLine = 7;
+  timelineOwned = true;
+  feature.drawGcodePreview(preview, { cursor: 2 });
+  assert.equal(view.cursor, 1, "a locally selected event retains the displayed cursor during live updates");
+  assert.equal(calls.filter(([name]) => name === "rebuild").length, 1, "an unchanged key does not rebuild the path");
+  assert.equal(calls.filter(([name]) => name === "fit").length, 1, "an unchanged fit key does not refit the camera");
+  assert.equal(calls.filter(([name]) => name === "schedule").length, 2);
+});
+
+test("drawGcodePreview renders context-only outlines and keeps the empty-context fallback", () => {
+  const calls = [];
+  const outline = { active: true, points: [{ x: 0, y: 0 }, { x: 2, y: 1 }] };
+  let showContext = true;
+  const feature = viewer({ getOutline: () => outline, deps: {
+    ensureGcodeViewer: () => true,
+    syncGcodeContextOverlay: () => { const view = feature.getGcodeView(); view.contextVisible = showContext; view.contextKey = "outline-1"; view.contextBounds = { min: [0, 0, 0], max: [2, 1, 0] }; },
+    clearGcodeScene: () => calls.push(["clear"]),
+    combineGcodeBounds: (path, context) => context,
+    gcodeCameraFitKey: () => "outline-fit",
+    rebuildGcodeScene: (preview, segments) => calls.push(["rebuild", preview, segments]),
+    fitGcodeCamera: () => calls.push(["fit"]),
+    setGcodePreviewEmpty: (text) => calls.push(["empty", text]),
+    updateGcodeTimeline: (total) => calls.push(["timeline", total]),
+    syncActiveGcodeSourceLine: (live) => calls.push(["source", live]),
+    updateGcodeProgress: () => calls.push(["progress"]),
+    scheduleGcodeRender: () => calls.push(["schedule"]),
+  } });
+  feature.drawGcodePreview({ segments: [] });
+  const view = feature.getGcodeView();
+  assert.equal(view.key, "context-only|outline-1");
+  assert.deepEqual(view.segments, []);
+  assert.ok(calls.some(([name, preview]) => name === "rebuild" && preview.bounds === view.contextBounds));
+  assert.ok(calls.some(([name]) => name === "fit"));
+  assert.ok(calls.some(([name, text]) => name === "empty" && text === ""));
+  assert.ok(calls.some(([name, total]) => name === "timeline" && total === 0));
+
+  showContext = false;
+  view.key = "stale-context";
+  calls.length = 0;
+  feature.drawGcodePreview({ segments: [] });
+  assert.deepEqual(calls, [["clear"], ["empty", "No plotted moves"], ["timeline", 0], ["source", null]]);
 });
 
 test("production orbit helpers retain pinch and wheel bounds", () => {

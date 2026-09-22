@@ -841,7 +841,7 @@ test("built-in camera keeps the previous frame until the replacement has loaded"
 
 test("empty G-code viewers do not repeatedly clear their WebGL scenes", () => {
   assert.match(gcodeModuleSource, /if \(dashboardGcodeView\.key \|\| dashboardGcodeView\.segments\.length\) clearDashboardGcodeScene\(\);/);
-  assert.match(source, /if \(gcodeView\.key \|\| gcodeView\.segments\.length\) clearGcodeScene\(\);/);
+  assert.match(gcodeModuleSource, /if \(gcodeView\.key \|\| gcodeView\.segments\.length\) drawGcodePreviewCallbacks.clearGcodeScene\(\);/);
 });
 
 test("wide Surface overview keeps job and machine panels regardless of saved profile", () => {

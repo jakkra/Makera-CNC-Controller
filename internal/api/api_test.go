@@ -1419,6 +1419,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/dashboard-view.js", "export function createDashboardView"},
 		{"/modules/gcode-log.js", "export function createGcodeLogFeature"},
 		{"/modules/gcode-viewer.js", "export function mountGcodeViewer"},
+		{"/modules/gcode-viewer.js", "function drawGcodePreview(preview, live = null)"},
 		{"/modules/feedback.js", "export function createFeedback"},
 		{"/modules/live-updates.js", "export function createLiveUpdates"},
 		{"/modules/outline-geometry.js", "export function buildFieldProbePreview"},

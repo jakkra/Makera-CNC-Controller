@@ -61,6 +61,24 @@ export function mountGcodeViewer({
     toolDisplayName = (tool) => `T${tool}`,
     fmtCoord = (value) => String(value ?? "-"),
   } = deps;
+  const drawGcodePreviewCallbacks = {
+    renderTimelineEvents: deps.renderGcodeTimelineEvents || ((...args) => renderGcodeTimelineEvents(...args)),
+    clearGcodeScene: deps.clearGcodeScene || ((...args) => clearGcodeScene(...args)),
+    setPreviewEmpty: deps.setGcodePreviewEmpty || ((...args) => setGcodePreviewEmpty(...args)),
+    updateTimeline: deps.updateGcodeTimeline || ((...args) => updateGcodeTimeline(...args)),
+    syncSourceLine: deps.syncActiveGcodeSourceLine || ((...args) => syncActiveGcodeSourceLine(...args)),
+    ensureViewer: deps.ensureGcodeViewer || ((...args) => ensureGcodeViewer(...args)),
+    timelineLocallyOwned: deps.gcodeTimelineLocallyOwned || ((...args) => gcodeTimelineLocallyOwned(...args)),
+    syncContextOverlay: deps.syncGcodeContextOverlay || ((...args) => syncGcodeContextOverlay(...args)),
+    combineBounds: deps.combineGcodeBounds || ((...args) => combineGcodeBounds(...args)),
+    getActiveFile: deps.getActiveFile || ((path) => state.files?.get(path)),
+    cameraFitKey: deps.gcodeCameraFitKey || ((...args) => gcodeCameraFitKey(...args)),
+    rebuildScene: deps.rebuildGcodeScene || ((...args) => rebuildGcodeScene(...args)),
+    fitCamera: deps.fitGcodeCamera || ((...args) => fitGcodeCamera(...args)),
+    updateProgress: deps.updateGcodeProgress || ((...args) => updateGcodeProgress(...args)),
+    scheduleRender: deps.scheduleGcodeRender || ((...args) => scheduleGcodeRender(...args)),
+  };
+
   const gcodeView = {
   key: "",
   fitKey: "",
@@ -1970,6 +1988,80 @@ function renderGcodeScene() {
   renderGcodeViewCube();
 }
 
+
+function drawGcodePreview(preview, live = null) {
+  const segments = Array.isArray(preview?.segments) ? preview.segments : [];
+  drawGcodePreviewCallbacks.renderTimelineEvents(preview?.events, preview?.tool_metadata, preview?.line_count);
+  const hasToolpath = segments.length > 0 && !!preview?.bounds;
+  const hasContextCandidate = !!state.outline?.active && !!state.outline?.points?.length;
+  if (!hasToolpath && !hasContextCandidate) {
+    if (gcodeView.key || gcodeView.segments.length) drawGcodePreviewCallbacks.clearGcodeScene();
+    gcodeView.live = live;
+    gcodeView.followLive = !!live;
+    drawGcodePreviewCallbacks.setPreviewEmpty("No plotted moves");
+    drawGcodePreviewCallbacks.updateTimeline(0);
+    drawGcodePreviewCallbacks.syncSourceLine(live);
+    return;
+  }
+  if (!drawGcodePreviewCallbacks.ensureViewer()) {
+    gcodeView.segments = hasToolpath ? segments : [];
+    gcodeView.live = live;
+    if (live && !drawGcodePreviewCallbacks.timelineLocallyOwned()) {
+      gcodeView.cursor = live.cursor;
+      gcodeView.followLive = true;
+    } else {
+      if (!drawGcodePreviewCallbacks.timelineLocallyOwned()) gcodeView.cursor = gcodeView.segments.length;
+      gcodeView.cursor = Math.max(0, Math.min(gcodeView.segments.length, gcodeView.cursor));
+      if (!live) gcodeView.followLive = false;
+    }
+    drawGcodePreviewCallbacks.updateTimeline(gcodeView.segments.length);
+    drawGcodePreviewCallbacks.syncSourceLine(live);
+    return;
+  }
+  drawGcodePreviewCallbacks.syncContextOverlay();
+  if (!hasToolpath && !gcodeView.contextVisible) {
+    drawGcodePreviewCallbacks.clearGcodeScene();
+    drawGcodePreviewCallbacks.setPreviewEmpty("No plotted moves");
+    drawGcodePreviewCallbacks.updateTimeline(0);
+    drawGcodePreviewCallbacks.syncSourceLine(live);
+    return;
+  }
+  const pathKey = hasToolpath ? [
+    state.activeGcode?.path || "",
+    preview.line_count || 0,
+    preview.plotted_segments || segments.length,
+    preview.total_distance || 0,
+    preview.has_4axis ? "4" : "3",
+  ].join(":") : "context-only";
+  const key = pathKey + "|" + gcodeView.contextKey;
+  const sceneBounds = drawGcodePreviewCallbacks.combineBounds(hasToolpath ? preview.bounds : null, gcodeView.contextBounds);
+  const entry = state.activeGcode?.entry || drawGcodePreviewCallbacks.getActiveFile(state.activeGcode?.path || "") || {};
+  const fitKey = drawGcodePreviewCallbacks.cameraFitKey(state.activeGcode?.path, entry, preview, hasToolpath);
+  if (gcodeView.key !== key) {
+    const renderedSegments = hasToolpath ? segments : [];
+    gcodeView.key = key;
+    gcodeView.segments = renderedSegments;
+    gcodeView.has4Axis = hasToolpath && !!preview.has_4axis;
+    gcodeView.cursor = live ? live.cursor : renderedSegments.length;
+    drawGcodePreviewCallbacks.rebuildScene({ ...preview, bounds: sceneBounds }, renderedSegments);
+    if (sceneBounds && gcodeView.fitKey !== fitKey) {
+      gcodeView.fitKey = fitKey;
+      drawGcodePreviewCallbacks.fitCamera(sceneBounds);
+    }
+  }
+  gcodeView.live = live;
+  if (live && !drawGcodePreviewCallbacks.timelineLocallyOwned()) {
+    gcodeView.cursor = live.cursor;
+    gcodeView.followLive = true;
+  } else if (!live) {
+    gcodeView.followLive = false;
+  }
+  drawGcodePreviewCallbacks.setPreviewEmpty("");
+  drawGcodePreviewCallbacks.updateTimeline(gcodeView.segments.length);
+  drawGcodePreviewCallbacks.updateProgress();
+  drawGcodePreviewCallbacks.scheduleRender();
+}
+
   return {
     getGcodeView: () => gcodeView,
     getDashboardGcodeView: () => dashboardGcodeView,
@@ -1978,6 +2070,7 @@ function renderGcodeScene() {
     dashboardGcodeWindow,
     renderDashboardGcodeStream,
     drawDashboardGcodePreview,
+    drawGcodePreview,
     dashboardGcodeRenderStateKey,
     activeGcodeSourceSignature,
     gcodeCameraFitKey,
