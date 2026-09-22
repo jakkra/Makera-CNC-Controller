@@ -130,7 +130,7 @@ const workareaInteractionCallbacks = [
   "workAreaSVGPointFromClient", "selectedFieldProbePoint", "updateWorkAreaHoverPosition",
   "updateSelectedFieldProbeDrag", "panWorkArea", "finishSelectedFieldProbeMove",
   "selectFieldProbePoint", "hideWorkAreaHoverPosition", "restoreSelectedFieldProbePosition",
-  "renderWorkArea", "zoomWorkArea",
+  "renderWorkArea", "zoomWorkArea", "moveSelectedFieldProbePointBy",
 ];
 const workareaRenderHelpers = new Set(["displayedFieldProbePoints"]);
 const stateDefaultsHelpers = new Set(["cloneFloorProbe", "cloneOutlineOrigin", "cloneOutlinePoint", "defaultOutlineState", "defaultWorkAreaView", "newID"]);
@@ -5866,6 +5866,42 @@ test("Work Area probe drag hands off only the selected point and restores on poi
   state.workarea.probeDragOriginal = original;
   listeners.pointercancel(event(22, 10, 2));
   assert.deepEqual(calls.find(([kind]) => kind === "restore"), ["restore", original]);
+});
+
+test("Work Area keyboard probe movement uses selected-point guards and coarse shift steps", () => {
+  const listeners = {};
+  const svg = {
+    dataset: {},
+    classList: { add() {}, remove() {} },
+    addEventListener: (type, fn) => { listeners[type] = fn; },
+  };
+  const state = { outline: { fieldProbeSelectedID: "p1" }, workarea: {} };
+  const moves = [];
+  const selected = [];
+  const controls = createWorkAreaInteractions({
+    state,
+    documentRef: { getElementById: (id) => id === "workarea-plot" ? svg : null },
+    windowRef: { addEventListener() {} },
+    constants: { WORKAREA_PAN_THRESHOLD_PX: 4, WORKAREA_ZOOM_STEP: 1.25, MOBILE_WORKAREA_MAX_WIDTH_PX: 600 },
+    callbacks: {
+      moveSelectedFieldProbePointBy: (dx, dy) => moves.push([dx, dy]),
+      selectFieldProbePoint: (id) => selected.push(id),
+    },
+  });
+  controls.bindWorkAreaInteractions();
+  const keydown = (id, key, shiftKey = false) => {
+    let prevented = false;
+    listeners.keydown({ target: { dataset: { fieldProbeId: id } }, key, shiftKey, preventDefault() { prevented = true; } });
+    return prevented;
+  };
+  assert.equal(keydown("p1", "ArrowLeft", true), true);
+  assert.deepEqual(moves, [[-10, 0]], "Shift+Arrow moves ten millimeters");
+  assert.equal(keydown("p1", "ArrowUp"), true);
+  assert.deepEqual(moves.at(-1), [0, 1], "an ordinary arrow key moves one millimeter");
+  assert.equal(keydown("other", "ArrowRight"), false, "an unselected probe cannot be adjusted");
+  assert.equal(moves.length, 2);
+  assert.equal(keydown("p1", "Enter"), true);
+  assert.deepEqual(selected, ["p1"]);
 });
 
 test("mobile Work Area jog requires readiness and releases the deadman on its owned pointer", () => {

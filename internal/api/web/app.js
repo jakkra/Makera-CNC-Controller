@@ -1044,7 +1044,7 @@ workAreaInteractions = createWorkAreaInteractions({
     jogInputActive, workAreaSVGPointFromClient, selectedFieldProbePoint,
     updateWorkAreaHoverPosition, updateSelectedFieldProbeDrag, panWorkArea,
     finishSelectedFieldProbeMove, selectFieldProbePoint, hideWorkAreaHoverPosition,
-    restoreSelectedFieldProbePosition, renderWorkArea, zoomWorkArea,
+    restoreSelectedFieldProbePosition, renderWorkArea, zoomWorkArea, moveSelectedFieldProbePointBy,
   },
 });
 

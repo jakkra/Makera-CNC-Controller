@@ -8,7 +8,7 @@ export function createWorkAreaInteractions({ state, documentRef = globalThis.doc
     workAreaSVGPointFromClient, selectedFieldProbePoint, updateWorkAreaHoverPosition,
     updateSelectedFieldProbeDrag, panWorkArea, finishSelectedFieldProbeMove,
     selectFieldProbePoint, hideWorkAreaHoverPosition, restoreSelectedFieldProbePosition,
-    renderWorkArea, zoomWorkArea,
+    renderWorkArea, zoomWorkArea, moveSelectedFieldProbePointBy,
   } = callbacks;
 
   function handleWorkAreaTap(local) {
