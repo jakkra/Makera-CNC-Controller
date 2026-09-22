@@ -47,12 +47,14 @@ import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWork
 import { movementArmAvailable as movementArmAvailableState, movementArmLabel as movementArmLabelState, syncJogAvailabilityFromMachine as syncJogAvailabilityState } from "./modules/jog.js";
 import { createJogView } from "./modules/jog-view.js";
 import { createJogEventHandler } from "./modules/jog-events.js";
+import { createGamepadControls } from "./modules/gamepad-controls.js";
 import { createWorkareaRenderers, displayedFieldProbePoints } from "./modules/workarea-render.js";
 import { cloneFloorProbe, cloneOutlineOrigin, cloneOutlinePoint, defaultOutlineState, defaultWorkAreaView } from "./modules/state-defaults.js";
 import { createAppState } from "./modules/state.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const jogEventsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/jog-events.js"), "utf8");
+const gamepadControlsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/gamepad-controls.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
 const activeJobViewModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/active-job-view.js"), "utf8");
 const cameraModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/camera.js"), "utf8");
@@ -126,6 +128,8 @@ const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "i
   + cssFiles.map((name) => readFileSync(join(dirname(fileURLToPath(import.meta.url)), "styles", name), "utf8")).join("");
 
 test("shared helpers are imported as production ES modules", async () => {
+  assert.match(source, /import \{ createGamepadControls \} from "\.\/modules\/gamepad-controls\.js";/);
+  assert.match(gamepadControlsModuleSource, /export function createGamepadControls/);
   assert.equal(fmtCoord(1.2345), "1.234");
   assert.equal(fmtCoord(Number.NaN), "-");
   assert.equal(fmtPos({ x: 1, y: -2.5, z: 0 }, true), "X 1.000 Y -2.500 Z 0.000 est");
@@ -546,6 +550,16 @@ function extractConst(name) {
   return m[0].replace(/^export /, "");
 }
 
+const gamepadControlHelpers = new Set([
+  "currentGamepad", "buttonPressed", "buttonStates", "mappedAxis",
+  "captureGamepadOutlineButton", "handleGamepadOutlineButton",
+  "handleGamepadMacroButtons", "sameButtonStates", "clampAxis",
+]);
+const gamepadControlCallbacks = [
+  "clearControlDrafts", "queueSaveUISettings", "addOutlinePoint",
+  "macroByID", "setNotice", "clearNotice", "runMacro",
+];
+
 const jogEventCallbacks = [
   "flushQueuedTapMoveArm", "resetJogInputSender", "clearDisarmedMovementState",
   "clearNotice", "reconcileObservedMachineStatus", "mergeMachineStatusForDisplay",
@@ -583,14 +597,79 @@ function buildContext(functionNames, constNames = [], globals = {}) {
     ...globals,
   });
   const includesJogEventHandler = functionNames.includes("applyJogEvent");
-  const code = constNames.map(extractConst).concat(functionNames.filter((name) => name !== "applyJogEvent").map(extractFunction)).join("\n");
+  const includesGamepadControls = functionNames.some((name) => gamepadControlHelpers.has(name));
+  const code = constNames.map(extractConst).concat(functionNames.filter((name) => name !== "applyJogEvent" && !gamepadControlHelpers.has(name)).map(extractFunction)).join("\n");
   vm.runInContext(code, context);
   if (includesJogEventHandler) {
     const callbacks = Object.fromEntries(jogEventCallbacks.map((name) => [name, context[name]]));
     context.applyJogEvent = createJogEventHandler({ state: context.state, documentRef: context.document, performanceRef: context.performance, callbacks });
   }
+  if (includesGamepadControls) {
+    const callbacks = Object.fromEntries(gamepadControlCallbacks.map((name) => [name, context[name]]));
+    Object.assign(context, createGamepadControls({
+      state: context.state,
+      navigatorRef: context.navigator,
+      documentRef: context.document,
+      callbacks,
+    }));
+  }
   return context;
 }
+
+test("gamepad control module preserves sampling, bindings, and macro guard", () => {
+  let documentRef;
+  const input = { value: "7", blur() { documentRef.activeElement = null; } };
+  const state = {
+    jog: { preferredPadIndex: 1, buttons: [], armed: false },
+    ui: { gamepad: {
+      axes: { x: { axis: 0, invert: true, scale: 2 } },
+      outline_button: 7,
+      macro_buttons: [{ button: 3, macro_id: "m1" }],
+    } },
+    outline: { active: true },
+  };
+  const pads = [
+    { index: 0, connected: true, axes: [0.25], buttons: [{ pressed: true }] },
+    { index: 1, connected: true, axes: [0.8], buttons: [{ pressed: false }] },
+  ];
+  const notices = [];
+  const actions = [];
+  documentRef = { activeElement: input, getElementById: (id) => id === "gamepad-outline-button" ? input : null };
+  const controls = createGamepadControls({
+    state,
+    navigatorRef: { getGamepads: () => pads },
+    documentRef,
+    callbacks: {
+      clearControlDrafts: (node) => actions.push(["clear-draft", node]),
+      queueSaveUISettings: () => actions.push(["save"]),
+      addOutlinePoint: () => actions.push(["outline-point"]),
+      macroByID: (id) => id === "m1" ? { id } : null,
+      setNotice: (...args) => notices.push(args),
+      clearNotice: (...args) => actions.push(["clear-notice", ...args]),
+      runMacro: (...args) => actions.push(["run-macro", ...args]),
+    },
+  });
+
+  assert.equal(controls.currentGamepad(), pads[1]);
+  assert.equal(controls.buttonPressed(pads[0], 0), true);
+  assert.deepEqual(controls.buttonStates(pads[0]), [true]);
+  assert.equal(controls.mappedAxis(pads[1], "x"), -1);
+  assert.equal(controls.captureGamepadOutlineButton([false, false, false, false, false, false, true]), true);
+  assert.equal(state.ui.gamepad.outline_button, 6);
+  assert.equal(input.value, "6");
+  assert.deepEqual(actions.slice(0, 2).map(([name]) => name), ["clear-draft", "save"]);
+  controls.handleGamepadOutlineButton([false, false, false, false, false, false, true], false);
+  assert.equal(actions[2][0], "outline-point");
+  controls.handleGamepadMacroButtons([false, false, false, true], false);
+  assert.equal(notices.length, 1);
+  state.jog.armed = true;
+  controls.handleGamepadMacroButtons([false, false, false, true], true);
+  assert.deepEqual(actions.at(-2), ["clear-notice", "gamepad-macro"]);
+  assert.deepEqual(actions.at(-1), ["run-macro", { id: "m1" }, { source: "gamepad" }]);
+  assert.equal(controls.sameButtonStates([false, 1], [0, true]), true);
+  assert.equal(controls.clampAxis(1.5), 1);
+  assert.equal(controls.clampAxis(Number.NaN), 0);
+});
 
 test("external camera refresh is limited to explicit snapshot sources", () => {
   assert.equal(dashboardExternalCameraIsSnapshot({ mode: "snapshot" }), true);
