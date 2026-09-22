@@ -1120,6 +1120,7 @@ workAreaInteractions = createWorkAreaInteractions({
     updateWorkAreaHoverPosition, updateSelectedFieldProbeDrag, panWorkArea,
     finishSelectedFieldProbeMove, selectFieldProbePoint, hideWorkAreaHoverPosition,
     restoreSelectedFieldProbePosition, renderWorkArea, zoomWorkArea, resetWorkAreaView, moveSelectedFieldProbePointBy,
+    releaseJogInput,
   },
 });
 
@@ -2916,11 +2917,7 @@ function init() {
   bindToolInteractions({ bindButtonAction });
   bindActiveJobInteractions({ documentRef: document, bindButtonAction, runActiveGcode, runJobControl, adjustFeedOverride, setFeedOverride, runPausedJobCommand });
   gcodeViewer.bindInteractions({ clearControlDrafts });
-  window.addEventListener("resize", () => {
-    if (!mobileWorkAreaJogEnabled() && state.workarea?.mobileJogActive) {
-      if (releaseJogInput(true)) renderJog();
-    }
-  });
+  workAreaInteractions.bindLifecycleInteractions({ mobileWorkAreaJogEnabled, releaseJogInput, renderJog });
   bindDataControlButtons({ bindButtonAction, confirmControl, sendControl });
   bindCommandUIInteractions();
   initializeSurfaceMobileOptions();

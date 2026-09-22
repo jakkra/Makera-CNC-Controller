@@ -6843,6 +6843,33 @@ test("Work Area zoom wiring is owned by the interactions feature", () => {
   assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("workarea-zoom-in"\)/);
 });
 
+test("Work Area resize recovery is owned by the interactions feature", () => {
+  assert.match(workareaInteractionsModuleSource, /function bindLifecycleInteractions\(/);
+  assert.match(source, /workAreaInteractions\.bindLifecycleInteractions\(\{ mobileWorkAreaJogEnabled, releaseJogInput, renderJog \}\)/);
+  assert.doesNotMatch(source, /window\.addEventListener\("resize", \(\) => \{[\s\S]*releaseJogInput\(true\)[\s\S]*renderJog\(\);[\s\S]*\}\);/);
+
+  const listeners = [];
+  const calls = [];
+  const state = { workarea: { mobileJogActive: true } };
+  const controls = createWorkAreaInteractions({
+    state,
+    documentRef: { getElementById: () => null },
+    windowRef: { addEventListener: (type, handler) => listeners.push([type, handler]) },
+    callbacks: {},
+  });
+  controls.bindLifecycleInteractions({
+    mobileWorkAreaJogEnabled: () => false,
+    releaseJogInput: (force) => { calls.push(["release", force]); return true; },
+    renderJog: () => calls.push(["render"]),
+  });
+  assert.deepEqual(listeners.map(([type]) => type), ["resize"]);
+  listeners[0][1]();
+  assert.deepEqual(calls, [["release", true], ["render"]]);
+  state.workarea.mobileJogActive = false;
+  listeners[0][1]();
+  assert.deepEqual(calls, [["release", true], ["render"]]);
+});
+
 test("Work Area interactions capture only the owning pointer and distinguish a tap from a pan", () => {
   const listeners = {};
   let captured = null;
