@@ -312,3 +312,50 @@ export function mountFeedOverride({
 
   return { setFeedOverride, adjustFeedOverride };
 }
+
+export function mountActiveJobDispatch({
+  documentRef,
+  machineActionState,
+  jobControlModel,
+  setActiveFeedback,
+  runActiveJobControl,
+  sendControl,
+  runPausedJobCommand,
+}) {
+  async function resumeActiveJob() {
+    const machineState = machineActionState();
+    if (machineState === "Pause") return runActiveJobControl("resume_job");
+    if (machineState === "Hold") return sendControl("resume");
+    setActiveFeedback(`Resume is unavailable while the machine is ${machineState}.`, "error");
+    return false;
+  }
+
+  async function runJobControl(action) {
+    const model = jobControlModel();
+    const control = model.actions[action];
+    if (!control?.visible || control.disabled) {
+      setActiveFeedback("This job control is unavailable for the current machine state.", "error");
+      return false;
+    }
+    if (action === "pause") return runActiveJobControl("pause_job");
+    if (action === "resume") return runActiveJobControl("resume_job");
+    if (action === "stop-spindle") return runPausedJobCommand("stop_spindle");
+    if (action === "start-spindle") {
+      if (model.speed !== null) return runPausedJobCommand("start_spindle");
+      const speed = Number(documentRef.getElementById("paused-job-spindle-speed")?.value);
+      const direction = String(documentRef.getElementById("paused-job-spindle-direction")?.value || "");
+      if (!Number.isFinite(speed) || speed <= 0 || speed > 13000) {
+        setActiveFeedback("Enter a spindle speed from 1 to 13,000 rpm before starting.", "error");
+        return false;
+      }
+      if (direction !== "M3" && direction !== "M4") {
+        setActiveFeedback("Choose clockwise or counterclockwise spindle direction before starting.", "error");
+        return false;
+      }
+      return runPausedJobCommand("start_spindle", { speed_rpm: speed, direction });
+    }
+    return false;
+  }
+
+  return { resumeActiveJob, runJobControl };
+}

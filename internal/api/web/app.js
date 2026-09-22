@@ -3,7 +3,7 @@ import { createLiveUpdates } from "./modules/live-updates.js";
 import { pointInPolygonOrBoundary, effectiveOutlineGeometry, normalizedClosedPolygon, buildFieldProbePreview as computeFieldProbePreview, DEFAULT_FIELD_SPOT_GAP_MM } from "./modules/outline-geometry.js";
 import * as THREE from "./three.module.min.js";
 import { request } from "./modules/api.js";
-import { gcodeCursorForPlayedLine, mountActiveJobControl, mountFeedOverride, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection } from "./modules/active-job.js";
+import { gcodeCursorForPlayedLine, mountActiveJobControl, mountActiveJobDispatch, mountFeedOverride, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection } from "./modules/active-job.js";
 import { ACTIVE_JOB_SPLIT_MIN_LEFT_PX, ACTIVE_JOB_SPLIT_MIN_PREVIEW_PX, ACTIVE_JOB_SPLIT_STEP_PERCENT, ACTIVE_JOB_SPLITTER_PX, DEFAULT_ACTIVE_JOB_SPLIT_PERCENT, activeJobSplitBounds as calculateActiveJobSplitBounds, createActiveJobLayout } from "./modules/active-job-layout.js";
 import { createActiveJobView } from "./modules/active-job-view.js";
 import { escapeHtml, setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
@@ -580,6 +580,16 @@ const feedOverrideOperation = mountFeedOverride({
   pollMachine,
 });
 const { setFeedOverride: setFeedOverrideOperationFn, adjustFeedOverride: adjustFeedOverrideOperationFn } = feedOverrideOperation;
+const activeJobDispatch = mountActiveJobDispatch({
+  documentRef: document,
+  machineActionState: (...args) => machineActionState(...args),
+  jobControlModel: (...args) => jobControlModel(...args),
+  setActiveFeedback,
+  runActiveJobControl: (...args) => runActiveJobControl(...args),
+  sendControl: (...args) => sendControl(...args),
+  runPausedJobCommand: (...args) => runPausedJobCommand(...args),
+});
+const { resumeActiveJob: resumeActiveJobOperation, runJobControl: runJobControlOperation } = activeJobDispatch;
 
 const pausedJobCommand = mountPausedJobCommand({
   request,
@@ -2056,40 +2066,9 @@ async function runActiveJobControl(action) {
   return activeJobControl.runActiveJobControl(action);
 }
 
-async function resumeActiveJob() {
-  const machineState = machineActionState();
-  if (machineState === "Pause") return runActiveJobControl("resume_job");
-  if (machineState === "Hold") return sendControl("resume");
-  setActiveFeedback(`Resume is unavailable while the machine is ${machineState}.`, "error");
-  return false;
-}
+async function resumeActiveJob() { return resumeActiveJobOperation(); }
 
-async function runJobControl(action) {
-  const model = jobControlModel();
-  const control = model.actions[action];
-  if (!control?.visible || control.disabled) {
-    setActiveFeedback("This job control is unavailable for the current machine state.", "error");
-    return false;
-  }
-  if (action === "pause") return runActiveJobControl("pause_job");
-  if (action === "resume") return runActiveJobControl("resume_job");
-  if (action === "stop-spindle") return runPausedJobCommand("stop_spindle");
-  if (action === "start-spindle") {
-    if (model.speed !== null) return runPausedJobCommand("start_spindle");
-    const speed = Number(document.getElementById("paused-job-spindle-speed")?.value);
-    const direction = String(document.getElementById("paused-job-spindle-direction")?.value || "");
-    if (!Number.isFinite(speed) || speed <= 0 || speed > 13000) {
-      setActiveFeedback("Enter a spindle speed from 1 to 13,000 rpm before starting.", "error");
-      return false;
-    }
-    if (direction !== "M3" && direction !== "M4") {
-      setActiveFeedback("Choose clockwise or counterclockwise spindle direction before starting.", "error");
-      return false;
-    }
-    return runPausedJobCommand("start_spindle", { speed_rpm: speed, direction });
-  }
-  return false;
-}
+async function runJobControl(action) { return runJobControlOperation(action); }
 
 async function runPausedJobCommand(action, options = {}) {
   return pausedJobCommand.runPausedJobCommand(action, options);

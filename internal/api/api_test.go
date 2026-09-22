@@ -1412,6 +1412,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/active-job.js", "export function mountActiveJobRunner"},
 		{"/modules/active-job.js", "export function mountActiveJobControl"},
 		{"/modules/active-job.js", "export function mountFeedOverride"},
+		{"/modules/active-job.js", "export function mountActiveJobDispatch"},
 		{"/modules/active-job.js", "export function mountPausedJobCommand"},
 		{"/modules/active-job.js", "export function previewBoundsText"},
 		{"/modules/active-job.js", "export function mountActiveJobPreview"},

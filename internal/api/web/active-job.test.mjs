@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mountFeedOverride } from "./modules/active-job.js";
+import { mountActiveJobDispatch, mountFeedOverride } from "./modules/active-job.js";
 
 function makeFeedOverride(overrides = {}) {
   const state = { pending: "", pendingPercent: null, machine: { feed: { override: 144 } } };
@@ -75,4 +75,75 @@ test("feed override pending guard avoids duplicate work and request errors reset
   assert.equal(failed.state.pending, "");
   assert.equal(failed.state.pendingPercent, null);
   assert.deepEqual(failed.events.slice(-3), [["pending", ""], ["pending-percent", null], ["render", "", null]]);
+});
+
+function makeDispatch(overrides = {}) {
+  const events = [];
+  const inputs = new Map([
+    ["paused-job-spindle-speed", { value: "1200" }],
+    ["paused-job-spindle-direction", { value: "M3" }],
+  ]);
+  const feature = mountActiveJobDispatch({
+    documentRef: { getElementById: (id) => inputs.get(id) || null },
+    machineActionState: () => overrides.machineState || "Pause",
+    jobControlModel: () => overrides.model || { speed: null, actions: {
+      pause: { visible: true, disabled: false }, resume: { visible: true, disabled: false },
+      "stop-spindle": { visible: true, disabled: false }, "start-spindle": { visible: true, disabled: false },
+    } },
+    setActiveFeedback: (...args) => events.push(["feedback", ...args]),
+    runActiveJobControl: (...args) => { events.push(["active", ...args]); return "active-result"; },
+    sendControl: (...args) => { events.push(["control", ...args]); return "control-result"; },
+    runPausedJobCommand: (...args) => { events.push(["paused", ...args]); return "paused-result"; },
+  });
+  return { feature, events, inputs };
+}
+
+test("active job dispatch preserves resume state routing and feedback", async () => {
+  const pause = makeDispatch({ machineState: "Pause" });
+  assert.equal(await pause.feature.resumeActiveJob(), "active-result");
+  assert.deepEqual(pause.events, [["active", "resume_job"]]);
+
+  const hold = makeDispatch({ machineState: "Hold" });
+  assert.equal(await hold.feature.resumeActiveJob(), "control-result");
+  assert.deepEqual(hold.events, [["control", "resume"]]);
+
+  const invalid = makeDispatch({ machineState: "Run" });
+  assert.equal(await invalid.feature.resumeActiveJob(), false);
+  assert.deepEqual(invalid.events, [["feedback", "Resume is unavailable while the machine is Run.", "error"]]);
+});
+
+test("job control dispatch keeps model guards and routes pause, resume, and paused spindle actions", async () => {
+  const guarded = makeDispatch({ model: { speed: null, actions: { pause: { visible: false, disabled: false } } } });
+  assert.equal(await guarded.feature.runJobControl("pause"), false);
+  assert.deepEqual(guarded.events, [["feedback", "This job control is unavailable for the current machine state.", "error"]]);
+
+  const valid = makeDispatch();
+  assert.equal(await valid.feature.runJobControl("pause"), "active-result");
+  assert.equal(await valid.feature.runJobControl("resume"), "active-result");
+  assert.equal(await valid.feature.runJobControl("stop-spindle"), "paused-result");
+  assert.deepEqual(valid.events, [["active", "pause_job"], ["active", "resume_job"], ["paused", "stop_spindle"]]);
+
+  const knownSpeed = makeDispatch({ model: { speed: 1800, actions: { "start-spindle": { visible: true, disabled: false } } } });
+  assert.equal(await knownSpeed.feature.runJobControl("start-spindle"), "paused-result");
+  assert.deepEqual(knownSpeed.events, [["paused", "start_spindle"]]);
+});
+
+test("start-spindle dispatch reads current form values and preserves RPM/direction validation", async () => {
+  const dispatch = makeDispatch();
+  dispatch.inputs.get("paused-job-spindle-speed").value = "13000";
+  dispatch.inputs.get("paused-job-spindle-direction").value = "M4";
+  assert.equal(await dispatch.feature.runJobControl("start-spindle"), "paused-result");
+  assert.deepEqual(dispatch.events, [["paused", "start_spindle", { speed_rpm: 13000, direction: "M4" }]]);
+
+  for (const [speed, direction, message] of [
+    ["0", "M3", "Enter a spindle speed from 1 to 13,000 rpm before starting."],
+    ["13001", "M3", "Enter a spindle speed from 1 to 13,000 rpm before starting."],
+    ["1200", "G0", "Choose clockwise or counterclockwise spindle direction before starting."],
+  ]) {
+    const invalid = makeDispatch();
+    invalid.inputs.get("paused-job-spindle-speed").value = speed;
+    invalid.inputs.get("paused-job-spindle-direction").value = direction;
+    assert.equal(await invalid.feature.runJobControl("start-spindle"), false);
+    assert.deepEqual(invalid.events, [["feedback", message, "error"]]);
+  }
 });

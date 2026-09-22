@@ -12,7 +12,7 @@ import vm from "node:vm";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { request } from "./modules/api.js";
-import { gcodeCursorForPlayedLine, mountActiveJobControl, mountFeedOverride, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountActiveJobSelection, mountPausedJobCommand, previewBoundsText } from "./modules/active-job.js";
+import { gcodeCursorForPlayedLine, mountActiveJobControl, mountActiveJobDispatch, mountFeedOverride, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountActiveJobSelection, mountPausedJobCommand, previewBoundsText } from "./modules/active-job.js";
 import { createActiveJobView } from "./modules/active-job-view.js";
 import { activeJobSplitBounds, createActiveJobLayout } from "./modules/active-job-layout.js";
 import { escapeHtml, setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
@@ -240,6 +240,11 @@ test("shared helpers are imported as production ES modules", async () => {
   assert.equal(parentRelPath("jobs/nested"), "jobs");
   assert.equal(remotePathFromRel("jobs/example.nc"), "/sd/gcodes/jobs/example.nc");
   assert.equal(apiFileURL("/sd/gcodes/jobs/example.nc"), "/api/files/jobs/example.nc");
+  assert.equal(typeof mountActiveJobDispatch, "function");
+  assert.match(activeJobModuleSource, /export function mountActiveJobDispatch/);
+  assert.match(source, /mountActiveJobDispatch\(/);
+  assert.match(source, /function runJobControl\(action\) \{ return runJobControlOperation\(action\); \}/);
+  assert.match(source, /bindButtonAction\(document\.getElementById\("paused-job-raise"\), \(\) => runPausedJobCommand\("raise_z"\)\);/);
   assert.equal(typeof mountFeedOverride, "function");
   assert.match(activeJobModuleSource, /export function mountFeedOverride/);
   assert.match(source, /mountFeedOverride\(/);
@@ -1036,26 +1041,20 @@ test("unknown paused spindle context requires an explicit RPM and direction", as
   const commands = [];
   const speed = { value: "12000" };
   const direction = { value: "M4" };
-  const state = {
-    activeGcodePending: "",
-    readOnly: false,
-    machine: {
-      state: "Pause", connected: true, stale: false, age_ms: 0,
-      job_control: { paused: true, can_start_spindle: false, spindle: { speed_known: false } },
-    },
-  };
-  const ctx = buildContext(["machineActionState", "jobControlModel", "runJobControl"], [], {
-    state,
-    document: { getElementById: (id) => id === "paused-job-spindle-speed" ? speed : id === "paused-job-spindle-direction" ? direction : null },
+  const dispatch = mountActiveJobDispatch({
+    documentRef: { getElementById: (id) => id === "paused-job-spindle-speed" ? speed : id === "paused-job-spindle-direction" ? direction : null },
+    machineActionState: () => "Pause",
+    jobControlModel: () => ({ speed: null, actions: { "start-spindle": { visible: true, disabled: false } } }),
     setActiveFeedback: (text, kind) => messages.push([text, kind]),
     runActiveJobControl: async () => false,
+    sendControl: async () => false,
     runPausedJobCommand: async (action, options) => { commands.push([action, options]); return true; },
   });
-  assert.equal(await vm.runInContext('runJobControl("start-spindle")', ctx), true);
-  assert.deepEqual(JSON.parse(JSON.stringify(commands)), [["start_spindle", { speed_rpm: 12000, direction: "M4" }]]);
+  assert.equal(await dispatch.runJobControl("start-spindle"), true);
+  assert.deepEqual(commands, [["start_spindle", { speed_rpm: 12000, direction: "M4" }]]);
 
   speed.value = "0";
-  assert.equal(await vm.runInContext('runJobControl("start-spindle")', ctx), false);
+  assert.equal(await dispatch.runJobControl("start-spindle"), false);
   assert.deepEqual(messages.at(-1), ["Enter a spindle speed from 1 to 13,000 rpm before starting.", "error"]);
 });
 
@@ -1831,16 +1830,19 @@ test("paused-job resume reports stale and busy clicks instead of failing silentl
 
 test("Active Job resume selects firmware resume for Pause and realtime resume for Hold", async () => {
   const calls = [];
-  const state = { machine: { state: "Pause", connected: true, stale: false, age_ms: 0 } };
-  const ctx = buildContext(["machineActionState", "resumeActiveJob"], [], {
-    state,
+  let machineState = "Pause";
+  const dispatch = mountActiveJobDispatch({
+    documentRef: {},
+    machineActionState: () => machineState,
+    jobControlModel: () => ({ actions: {} }),
+    setActiveFeedback: () => {},
     runActiveJobControl: async (action) => { calls.push(action); return true; },
     sendControl: async (action) => { calls.push(action); return true; },
-    setActiveFeedback: () => {},
+    runPausedJobCommand: async () => false,
   });
-  assert.equal(await vm.runInContext("resumeActiveJob()", ctx), true);
-  state.machine.state = "Hold";
-  assert.equal(await vm.runInContext("resumeActiveJob()", ctx), true);
+  assert.equal(await dispatch.resumeActiveJob(), true);
+  machineState = "Hold";
+  assert.equal(await dispatch.resumeActiveJob(), true);
   assert.deepEqual(calls, ["resume_job", "resume"]);
 });
 
