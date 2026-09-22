@@ -31,12 +31,18 @@ export function formatLogLine(ln) {
 
 export function createGcodeLogFeature({
   documentRef = globalThis.document,
+  navigatorRef = globalThis.navigator,
+  URLRef = globalThis.URL,
+  BlobCtor = globalThis.Blob,
+  setTimeoutRef = globalThis.setTimeout,
+  setNotice = () => {},
   getLines = () => [],
   setLines,
   getSeqs,
   getFilter = () => "all",
   getSearch = () => "",
   getAutoscroll = () => true,
+  getPaused = () => false,
   maxLines = 500,
   escapeHtml = (value) => String(value ?? ""),
 } = {}) {
@@ -63,6 +69,43 @@ export function createGcodeLogFeature({
     if (atBottom) log.scrollTop = log.scrollHeight;
   }
 
+  function appendGcodeLine(ln) {
+    const seqs = getSeqs?.();
+    if (!ln || seqs?.has?.(ln.seq)) return;
+    seqs?.add?.(ln.seq);
+    const lines = getLines();
+    lines.push(ln);
+    if (lines.length > maxLines) {
+      const drop = lines.splice(0, lines.length - maxLines);
+      for (const old of drop) seqs?.delete?.(old.seq);
+    }
+    if (getPaused()) return;
+    if (!matches(ln)) return;
+    appendGcodeLineElement(ln);
+  }
+
+  async function copyVisibleLog() {
+    const text = visibleGcodeLines(getLines(), { filter: getFilter(), search: getSearch() }).map(formatLogLine).join("\n");
+    try {
+      if (!navigatorRef?.clipboard) throw new Error("clipboard unavailable");
+      await navigatorRef.clipboard.writeText(text);
+      setNotice("Copied visible log lines.", "ok", "log-copy");
+    } catch {
+      setNotice("Copy failed.", "error", "log-copy");
+    }
+  }
+
+  function exportVisibleLog() {
+    const text = visibleGcodeLines(getLines(), { filter: getFilter(), search: getSearch() }).map((ln) => JSON.stringify(ln)).join("\n") + "\n";
+    const blob = new BlobCtor([text], { type: "application/x-ndjson" });
+    const a = documentRef.createElement("a");
+    a.href = URLRef.createObjectURL(blob);
+    a.download = "cnc-proxy-log.ndjson";
+    documentRef.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeoutRef(() => URLRef.revokeObjectURL(a.href), 1000);
+  }
   function renderGcodeLog() {
     const log = logElement();
     if (!log) return;
@@ -83,7 +126,10 @@ export function createGcodeLogFeature({
   }
 
   return {
+    appendGcodeLine,
     appendGcodeLineElement,
+    copyVisibleLog,
+    exportVisibleLog,
     clearGcodeLog,
     formatLogLine,
     lineMatchesFilter: matches,

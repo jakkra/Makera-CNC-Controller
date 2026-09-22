@@ -173,6 +173,16 @@ const cssFiles = ["base.css", "layout.css", "machine.css", "active-job.css", "jo
 const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.html"), "utf8")
   + cssFiles.map((name) => readFileSync(join(dirname(fileURLToPath(import.meta.url)), "styles", name), "utf8")).join("");
 
+test("G-code log actions are wired to the production feature module", () => {
+  assert.match(source, /import \{ createGcodeLogFeature \} from "\.\/modules\/gcode-log\.js";/);
+  assert.match(gcodeLogModuleSource, /appendGcodeLine,\s*appendGcodeLineElement,\s*copyVisibleLog,\s*exportVisibleLog/);
+  assert.match(source, /appendGcodeLine\(ln\) \{ return appendGcodeLineOperation\(ln\); \}/);
+  assert.match(source, /copyVisibleLog\(\) \{ return copyVisibleLogOperation\(\); \}/);
+  assert.match(source, /exportVisibleLog\(\) \{ return exportVisibleLogOperation\(\); \}/);
+  assert.match(source, /getPaused: \(\) => state\.logPaused/);
+  assert.match(source, /document\.getElementById\("log-copy"\)\.onclick = copyVisibleLog/);
+  assert.match(source, /document\.getElementById\("log-export"\)\.onclick = exportVisibleLog/);
+});
 test("shared helpers are imported as production ES modules", async () => {
   assert.match(source, /import \{ createGamepadControls \} from "\.\/modules\/gamepad-controls\.js";/);
   assert.match(gamepadControlsModuleSource, /export function createGamepadControls/);

@@ -148,22 +148,27 @@ const machineReconciliation = createMachineReconciliation({ getState: () => stat
 
 const gcodeLog = createGcodeLogFeature({
   documentRef: document,
+  navigatorRef: navigator,
+  URLRef: URL,
+  BlobCtor: Blob,
+  setTimeoutRef: setTimeout,
+  setNotice: (...args) => setNotice(...args),
   getLines: () => state.gcodeLines,
   setLines: (value) => { state.gcodeLines = value; },
   getSeqs: () => state.gcodeSeqs,
   getFilter: () => state.logFilter,
   getSearch: () => state.logSearch,
   getAutoscroll: () => state.ui.log.autoscroll !== false,
+  getPaused: () => state.logPaused,
   maxLines: GCODE_MAX_LINES,
   escapeHtml,
 });
 const {
-  appendGcodeLineElement,
+  appendGcodeLine: appendGcodeLineOperation,
+  copyVisibleLog: copyVisibleLogOperation,
+  exportVisibleLog: exportVisibleLogOperation,
   clearGcodeLog,
-  formatLogLine,
-  lineMatchesFilter,
   renderGcodeLog,
-  visibleGcodeLines,
 } = gcodeLog;
 
 const dashboardTelemetry = createDashboardTelemetry({
@@ -2082,41 +2087,11 @@ function setActiveFeedback(text, kind) {
   setStatusMessage("active-gcode", text, kind, { force: true });
 }
 
-function appendGcodeLine(ln) {
-  if (!ln || state.gcodeSeqs.has(ln.seq)) return;
-  state.gcodeSeqs.add(ln.seq);
-  state.gcodeLines.push(ln);
-  if (state.gcodeLines.length > GCODE_MAX_LINES) {
-    const drop = state.gcodeLines.splice(0, state.gcodeLines.length - GCODE_MAX_LINES);
-    for (const old of drop) state.gcodeSeqs.delete(old.seq);
-  }
-  if (state.logPaused) return;
-  if (!lineMatchesFilter(ln)) return;
-  appendGcodeLineElement(ln);
-}
+function appendGcodeLine(ln) { return appendGcodeLineOperation(ln); }
 
-async function copyVisibleLog() {
-  const text = visibleGcodeLines().map(formatLogLine).join("\n");
-  try {
-    if (!navigator.clipboard) throw new Error("clipboard unavailable");
-    await navigator.clipboard.writeText(text);
-    setNotice("Copied visible log lines.", "ok", "log-copy");
-  } catch {
-    setNotice("Copy failed.", "error", "log-copy");
-  }
-}
+async function copyVisibleLog() { return copyVisibleLogOperation(); }
 
-function exportVisibleLog() {
-  const text = visibleGcodeLines().map((ln) => JSON.stringify(ln)).join("\n") + "\n";
-  const blob = new Blob([text], { type: "application/x-ndjson" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "cnc-proxy-log.ndjson";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
+function exportVisibleLog() { return exportVisibleLogOperation(); }
 
 async function exportBackup() {
   try {
