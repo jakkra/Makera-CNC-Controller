@@ -51,6 +51,7 @@ import { createGamepadControls } from "./modules/gamepad-controls.js";
 import { createSurfaceControls } from "./modules/surface-controls.js";
 import { createWorkAreaInteractions } from "./modules/workarea-interactions.js";
 import { createFieldProbing } from "./modules/field-probing.js";
+import { createOutlineCaptureOperations } from "./modules/outline-capture-operations.js";
 import { createWorkareaRenderers, displayedFieldProbePoints } from "./modules/workarea-render.js";
 import { cloneFloorProbe, cloneOutlineOrigin, cloneOutlinePoint, defaultOutlineState, defaultWorkAreaView } from "./modules/state-defaults.js";
 import { createAppState } from "./modules/state.js";
@@ -132,6 +133,16 @@ const workareaInteractionCallbacks = [
   "updateSelectedFieldProbeDrag", "panWorkArea", "finishSelectedFieldProbeMove",
   "selectFieldProbePoint", "hideWorkAreaHoverPosition", "restoreSelectedFieldProbePosition",
   "renderWorkArea", "zoomWorkArea", "moveSelectedFieldProbePointBy",
+];
+const outlineCaptureOperationHelpers = new Set(["startOutlineCapture", "endOutlineCapture", "outlineCaptureMotionPending", "waitForOutlineCapturePosition", "processOutlinePointQueue", "failOutlineCaptureIntents", "requestOutlinePositionCapture", "addOutlinePoint"]);
+const outlineCaptureOperationCallbacks = [
+  "currentOutlineCapturePosition", "cancelOutlineCaptureIntents", "defaultOutlineState",
+  "markGcodeContextOverlayDirty", "finiteOr", "cloneFloorProbe", "cloneOutlineOrigin",
+  "currentWorkOrigin", "renderOutlineCapture", "renderWorkArea", "jogInputActive",
+  "tapMoveTargetBusy", "hasPendingOriginOperation", "jogEstimateActive",
+  "outlineCapturePositionsClose", "pushOutlineUndo", "newID", "clearFieldProbeData",
+  "clearNotice", "setStatusMessage", "resetJogInputSender", "sendJog", "setOutlineFeedback",
+  "resolveOutlineCaptureIntent", "confirm", "waitForOutlineCapturePosition",
 ];
 const fieldProbingHelpers = new Set(["probeZAtWorkPoint", "rebaseOutlineToFloor", "probeFloor", "runFieldProbe", "traceOutlineMachinePoints", "traceOutline"]);
 const fieldProbingCallbacks = [
@@ -631,7 +642,8 @@ function buildContext(functionNames, constNames = [], globals = {}) {
   const includesGamepadControls = functionNames.some((name) => gamepadControlHelpers.has(name));
   const includesWorkAreaInteractions = functionNames.some((name) => workareaInteractionHelpers.has(name));
   const includesFieldProbing = functionNames.some((name) => fieldProbingHelpers.has(name));
-  const code = constNames.map(extractConst).concat(functionNames.filter((name) => name !== "applyJogEvent" && !gamepadControlHelpers.has(name) && !workareaInteractionHelpers.has(name) && !fieldProbingHelpers.has(name)).map(extractFunction)).join("\n");
+  const includesOutlineCaptureOperations = functionNames.some((name) => outlineCaptureOperationHelpers.has(name));
+  const code = constNames.map(extractConst).concat(functionNames.filter((name) => name !== "applyJogEvent" && !gamepadControlHelpers.has(name) && !workareaInteractionHelpers.has(name) && !fieldProbingHelpers.has(name) && !outlineCaptureOperationHelpers.has(name)).map(extractFunction)).join("\n");
   vm.runInContext(code, context);
   if (includesJogEventHandler) {
     const callbacks = Object.fromEntries(jogEventCallbacks.map((name) => [name, context[name]]));
@@ -661,6 +673,11 @@ function buildContext(functionNames, constNames = [], globals = {}) {
     const callbacks = Object.fromEntries(fieldProbingCallbacks.map((name) => [name, context[name]]));
     const constants = Object.fromEntries(["DEFAULT_PROBE_DEPTH_MM", "DEFAULT_PROBE_FEED_MM"].map((name) => [name, context[name]]));
     Object.assign(context, createFieldProbing({ state: context.state, constants, callbacks }));
+  }
+  if (includesOutlineCaptureOperations) {
+    const callbacks = Object.fromEntries(outlineCaptureOperationCallbacks.map((name) => [name, context[name]]));
+    const constants = Object.fromEntries(["JOG_INPUT_DEADZONE", "OUTLINE_CAPTURE_SETTLE_MS", "OUTLINE_CAPTURE_POLL_MS", "OUTLINE_CAPTURE_TIMEOUT_MS"].map((name) => [name, context[name]]));
+    Object.assign(context, createOutlineCaptureOperations({ state: context.state, constants, callbacks, performanceRef: context.performance || { now: () => Date.now() }, setTimeoutRef: context.setTimeout || setTimeout }));
   }
   return context;
 }
@@ -4972,6 +4989,73 @@ test("outline gamepad button is inert outside capture and adds exactly one point
   assert.equal(points, 1);
 });
 
+test("outline capture start and end preserve the established floor and curve-fit state", () => {
+  let confirmEnd = false;
+  let cancelled = null;
+  let dirty = 0;
+  let outlineRenders = 0;
+  let workAreaRenders = 0;
+  const floorProbe = { machine_x: 1, machine_y: 2, machine_z: -4.2, verified: true };
+  const state = {
+    machine: {},
+    jog: { outlineCaptureIntents: [] },
+    outline: { active: false, curveFit: true, floorMachineZ: -4.2, floorProbe, points: [], origin: null },
+  };
+  const capture = createOutlineCaptureOperations({ state, callbacks: {
+    currentOutlineCapturePosition: () => ({ origin: { x: 10, y: 20, z: -3 } }),
+    cancelOutlineCaptureIntents: (outline) => { cancelled = outline; },
+    defaultOutlineState: () => ({ active: false, curveFit: false, floorMachineZ: null, floorProbe: null, points: [], feedback: "", feedbackKind: "", undo: [], redo: [] }),
+    markGcodeContextOverlayDirty: () => { dirty++; },
+    finiteOr: (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback,
+    cloneFloorProbe: (value) => value ? { ...value } : null,
+    cloneOutlineOrigin: (value) => value ? { ...value } : null,
+    currentWorkOrigin: () => ({ x: 0, y: 0, z: 0 }),
+    renderOutlineCapture: () => { outlineRenders++; }, renderWorkArea: () => { workAreaRenders++; },
+    confirm: () => confirmEnd,
+  } });
+  const old = state.outline;
+  capture.startOutlineCapture();
+  assert.equal(cancelled, old);
+  assert.equal(state.outline.active, true);
+  assert.equal(state.outline.curveFit, true);
+  assert.equal(state.outline.floorMachineZ, -4.2);
+  assert.equal(state.outline.origin.z, -4.2);
+  assert.deepEqual(state.outline.floorProbe, floorProbe);
+  assert.equal(state.outline.feedback, "Outline capture started.");
+  const active = state.outline;
+  active.points.push({ x: 1, y: 2 });
+  capture.endOutlineCapture();
+  assert.equal(state.outline, active, "cancelled confirmation retains the active outline");
+  confirmEnd = true;
+  capture.endOutlineCapture();
+  assert.equal(state.outline.active, false);
+  assert.equal(state.outline.curveFit, true);
+  assert.equal(state.outline.floorMachineZ, -4.2);
+  assert.deepEqual(state.outline.floorProbe, floorProbe);
+  assert.equal(state.outline.feedback, "Outline cleared.");
+  assert.equal(dirty, 2);
+  assert.equal(outlineRenders, 2);
+  assert.equal(workAreaRenders, 2);
+});
+
+test("outline capture queue reports motion timeout through forced bottom status feedback", async () => {
+  const status = [];
+  const state = { machine: {}, jog: { armed: false }, outline: { active: true, closed: false, fieldProbePending: false, addPointPending: false, addPointQueued: 0, points: [], feedback: "old", feedbackKind: "error" } };
+  const capture = createOutlineCaptureOperations({ state, callbacks: {
+    setOutlineFeedback: (message, kind) => { state.outline.feedback = message; state.outline.feedbackKind = kind; },
+    renderOutlineCapture: () => {}, renderWorkArea: () => {},
+    waitForOutlineCapturePosition: async () => { throw new Error("motion did not settle"); },
+    setStatusMessage: (...args) => status.push(args),
+  } });
+  capture.addOutlinePoint();
+  assert.equal(state.outline.addPointPending, true);
+  assert.equal(state.outline.feedback, "");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(state.outline.addPointQueued, 0);
+  assert.equal(state.outline.addPointPending, false);
+  assert.deepEqual(status, [["outline-point", "Add point failed: motion did not settle", "error", { force: true }]]);
+});
+
 test("armed outline capture waits for a fresh Idle position after queued motion", async () => {
   const clock = { value: 0 };
   const state = {
@@ -5158,6 +5242,34 @@ test("outline point presses queue while the prior position capture is pending", 
   assert.equal(state.outline.points.length, 2);
   assert.deepEqual(state.outline.points.map((point) => [point.machine_x, point.machine_y]), [[1, 2], [2, 3]]);
   assert.equal(undo, 2);
+});
+
+test("outline capture failure helper resolves every outstanding intent through its shared callback", () => {
+  const state = { jog: { outlineCaptureIntents: [{ seq: 7 }, { seq: 8 }] }, outline: {} };
+  const resolved = [];
+  const ctx = buildContext(["failOutlineCaptureIntents"], [], {
+    state,
+    resolveOutlineCaptureIntent: (...args) => { resolved.push(args); },
+  });
+  vm.runInContext('failOutlineCaptureIntents("socket closed")', ctx);
+  assert.deepEqual(resolved, [[7, null, "socket closed"], [8, null, "socket closed"]]);
+});
+
+test("outline capture request failure stays in the forced bottom status channel", () => {
+  const state = { jog: { armed: true, outlineCaptureIntents: [] }, outline: { active: true } };
+  const statuses = [];
+  let resets = 0;
+  const ctx = buildContext(["requestOutlinePositionCapture"], [], {
+    state,
+    sendJog: (message) => { assert.deepEqual(message, { type: "capture_position" }); return 0; },
+    resetJogInputSender: () => { resets++; },
+    setStatusMessage: (...args) => statuses.push(args),
+    renderOutlineCapture: () => { throw new Error("failed request should not render a pending capture"); },
+  });
+  assert.equal(vm.runInContext("requestOutlinePositionCapture(state.outline)", ctx), false);
+  assert.deepEqual(statuses, [["outline-point", "Add point failed: movement connection is unavailable", "error", { force: true }]]);
+  assert.equal(resets, 0);
+  assert.equal(state.jog.outlineCaptureIntents.length, 0);
 });
 
 test("armed outline capture preserves every rapid press as a server intent", () => {
