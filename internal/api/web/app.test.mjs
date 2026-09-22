@@ -50,6 +50,7 @@ import { createJogEventHandler } from "./modules/jog-events.js";
 import { createGamepadControls } from "./modules/gamepad-controls.js";
 import { createSurfaceControls } from "./modules/surface-controls.js";
 import { createWorkAreaInteractions } from "./modules/workarea-interactions.js";
+import { createFieldProbing } from "./modules/field-probing.js";
 import { createWorkareaRenderers, displayedFieldProbePoints } from "./modules/workarea-render.js";
 import { cloneFloorProbe, cloneOutlineOrigin, cloneOutlinePoint, defaultOutlineState, defaultWorkAreaView } from "./modules/state-defaults.js";
 import { createAppState } from "./modules/state.js";
@@ -131,6 +132,17 @@ const workareaInteractionCallbacks = [
   "updateSelectedFieldProbeDrag", "panWorkArea", "finishSelectedFieldProbeMove",
   "selectFieldProbePoint", "hideWorkAreaHoverPosition", "restoreSelectedFieldProbePosition",
   "renderWorkArea", "zoomWorkArea", "moveSelectedFieldProbePointBy",
+];
+const fieldProbingHelpers = new Set(["probeZAtWorkPoint", "rebaseOutlineToFloor", "probeFloor", "runFieldProbe", "traceOutlineMachinePoints", "traceOutline"]);
+const fieldProbingCallbacks = [
+  "cloneOutlineOrigin", "axisValue", "currentWorkOrigin", "normalizeMachineSettings", "finiteOr",
+  "safeZForTapMove", "request", "markGcodeContextOverlayDirty", "machineReadyForOriginSet",
+  "isProbeToolActive", "setOutlineFeedback", "confirmProbeAction", "renderOutlineCapture",
+  "renderJog", "pollMachine", "fmtCoord", "cancelOutlineFieldSpacingUpdate",
+  "commitOutlineFieldSpacingDraft", "clearControlDrafts", "updateFieldProbePreview",
+  "unprobedFieldProbePoints", "currentOutlineCapturePosition", "renderWorkArea",
+  "effectiveOutlineGeometry", "outlineWorkPoints", "workPointToMachinePoint",
+  "tapMoveTargetBusy", "currentTapFeed",
 ];
 const workareaRenderHelpers = new Set(["displayedFieldProbePoints"]);
 const stateDefaultsHelpers = new Set(["cloneFloorProbe", "cloneOutlineOrigin", "cloneOutlinePoint", "defaultOutlineState", "defaultWorkAreaView", "newID"]);
@@ -618,7 +630,8 @@ function buildContext(functionNames, constNames = [], globals = {}) {
   const includesJogEventHandler = functionNames.includes("applyJogEvent");
   const includesGamepadControls = functionNames.some((name) => gamepadControlHelpers.has(name));
   const includesWorkAreaInteractions = functionNames.some((name) => workareaInteractionHelpers.has(name));
-  const code = constNames.map(extractConst).concat(functionNames.filter((name) => name !== "applyJogEvent" && !gamepadControlHelpers.has(name) && !workareaInteractionHelpers.has(name)).map(extractFunction)).join("\n");
+  const includesFieldProbing = functionNames.some((name) => fieldProbingHelpers.has(name));
+  const code = constNames.map(extractConst).concat(functionNames.filter((name) => name !== "applyJogEvent" && !gamepadControlHelpers.has(name) && !workareaInteractionHelpers.has(name) && !fieldProbingHelpers.has(name)).map(extractFunction)).join("\n");
   vm.runInContext(code, context);
   if (includesJogEventHandler) {
     const callbacks = Object.fromEntries(jogEventCallbacks.map((name) => [name, context[name]]));
@@ -643,6 +656,11 @@ function buildContext(functionNames, constNames = [], globals = {}) {
       constants,
       callbacks,
     }));
+  }
+  if (includesFieldProbing) {
+    const callbacks = Object.fromEntries(fieldProbingCallbacks.map((name) => [name, context[name]]));
+    const constants = Object.fromEntries(["DEFAULT_PROBE_DEPTH_MM", "DEFAULT_PROBE_FEED_MM"].map((name) => [name, context[name]]));
+    Object.assign(context, createFieldProbing({ state: context.state, constants, callbacks }));
   }
   return context;
 }
@@ -4391,6 +4409,68 @@ test("constrained Delaunay replaces a poor interior diagonal but never a boundar
   assert.equal(edges.has("1:3"), false, "inferior ear-clipping diagonal is removed");
 });
 
+test("field-probing production module preserves probe Z request contract", async () => {
+  const requests = [];
+  const probing = createFieldProbing({
+    state: { outline: { origin: { x: 10, y: 20, z: 30 } }, points: [], fieldProbeResults: [], ui: { machine: {} } },
+    constants: { DEFAULT_PROBE_DEPTH_MM: 25, DEFAULT_PROBE_FEED_MM: 80 },
+    callbacks: {
+      cloneOutlineOrigin: (origin) => ({ ...origin }),
+      axisValue: (value, axis) => Number.isFinite(Number(value?.[axis])) ? Number(value[axis]) : null,
+      currentWorkOrigin: () => ({ x: 0, y: 0, z: 0 }),
+      normalizeMachineSettings: (machine) => machine,
+      finiteOr: (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback,
+      safeZForTapMove: () => 16,
+      request: async (path, options) => {
+        requests.push({ path, options });
+        return { json: async () => ({ machine: { x: 12, y: 17, z: 25 }, retract_z_mm: 16.5, output: "probe" }) };
+      },
+    },
+  });
+  const result = await probing.probeZAtWorkPoint({ x: 2, y: -3 }, { moveXY: false, depthMM: 300, feedMMMin: 0, safeZMM: 12, retractZMM: 16.5, retractAboveMM: NaN });
+  assert.equal(requests[0].path, "/api/probe/z");
+  assert.equal(requests[0].options.method, "POST");
+  assert.equal(requests[0].options.headers["Content-Type"], "application/json");
+  assert.deepEqual(JSON.parse(requests[0].options.body), {
+    machine_x: 12, machine_y: 17, move_xy: false, safe_z_mm: 12,
+    probe_depth_mm: 200, probe_feed_mm_min: 1, retract_z_mm: 16.5,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    x: 2, y: -3, z: -5, machine_x: 12, machine_y: 17, machine_z: 25, retract_z_mm: 16.5, output: "probe",
+  });
+});
+
+test("field-probing trace checks guards and preserves outline trace payload", async () => {
+  const state = { outline: { active: true, points: [{ x: 0, y: 0 }, { x: 4, y: 5 }], closed: true, curveFit: false, origin: { x: 10, y: 20, z: 3 }, fieldProbePending: false, tracePending: false, feedback: "", feedbackKind: "" }, jog: { armed: false }, ui: { machine: {} } };
+  const requests = [];
+  const probing = createFieldProbing({ state, callbacks: {
+    isProbeToolActive: () => true,
+    tapMoveTargetBusy: () => false,
+    cloneOutlineOrigin: (origin) => ({ ...origin }),
+    currentWorkOrigin: () => ({ x: 0, y: 0, z: 0 }),
+    axisValue: (value, axis) => Number.isFinite(Number(value?.[axis])) ? Number(value[axis]) : null,
+    effectiveOutlineGeometry: (points) => ({ points }),
+    outlineWorkPoints: () => state.outline.points,
+    workPointToMachinePoint: (point, origin) => ({ x: point.x + origin.x, y: point.y + origin.y }),
+    normalizeMachineSettings: (value) => value,
+    safeZForTapMove: () => 9,
+    currentTapFeed: () => 240,
+    request: async (path, options) => { requests.push({ path, options, pending: state.outline.tracePending }); return { json: async () => ({ verified: true, message: "traced" }) }; },
+    setOutlineFeedback: (message, kind) => { state.outline.feedback = message; state.outline.feedbackKind = kind; },
+    renderOutlineCapture: () => {}, pollMachine: () => {},
+  } });
+  await probing.traceOutline();
+  assert.equal(requests[0].path, "/api/outline/trace");
+  assert.equal(requests[0].options.method, "POST");
+  assert.equal(requests[0].options.headers["Content-Type"], "application/json");
+  assert.equal(requests[0].pending, true);
+  assert.deepEqual(JSON.parse(requests[0].options.body), { machine_points: [{ x: 10, y: 20 }, { x: 14, y: 25 }], safe_z_mm: 9, feed_mm_min: 240, closed: true });
+  assert.equal(state.outline.tracePending, false);
+  state.jog.armed = true;
+  await probing.traceOutline();
+  assert.equal(requests.length, 1, "armed movement blocks another machine trace");
+});
+
 test("Probe floor records the verified contact and rebases captured Z values", async () => {
   const state = {
     outline: {
@@ -4419,6 +4499,8 @@ test("Probe floor records the verified contact and rebases captured Z values", a
       machineReadyForOriginSet: () => true,
       isProbeToolActive: () => true,
       request: async (path, options) => {
+        assert.equal(state.outline.floorProbePending, true);
+        assert.equal(state.jog.zProbePending, true);
         requests.push({ path, options });
         return {
           json: async () => ({
@@ -4444,6 +4526,9 @@ test("Probe floor records the verified contact and rebases captured Z values", a
   assert.match(confirmation.warning, /update the current Z origin/);
   assert.match(confirmation.warning, /Safe Z/);
   assert.equal(requests[0].path, "/api/probe/floor");
+  assert.equal(requests[0].options.method, "POST");
+  assert.equal(requests[0].options.headers["Content-Type"], "application/json");
+  assert.equal(requests[0].options.body, "{}");
   assert.equal(state.outline.floorMachineZ, -12.5);
   assert.deepEqual(JSON.parse(JSON.stringify(state.outline.floorProbe)), {
     machine_x: 1,

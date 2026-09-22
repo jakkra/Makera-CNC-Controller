@@ -9,6 +9,7 @@ import {
   outlineStateFromJSON,
 } from "./modules/outline-io.js";
 import { createOutlineFilesFeature } from "./modules/outline-files.js";
+import { createFieldProbing } from "./modules/field-probing.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const outlineModuleSource = readFileSync(
@@ -239,6 +240,7 @@ test("field probing keeps every travel and retract at the starting machine Z", a
       feedbackKind: "",
     },
   };
+  state.ui = { machine: {} };
   const ctx = vm.createContext({
     state,
     isProbeToolActive: () => true,
@@ -258,27 +260,32 @@ test("field probing keeps every travel and retract at the starting machine Z", a
     confirmProbeAction: async () => true,
     fmtCoord: (value) => String(value),
     pollMachine: () => {},
-    probeZAtWorkPoint: async (point, opts) => {
-      calls.push({ point, opts });
-      return { x: point.x, y: point.y, z: -42, machine_x: point.x - 200, machine_y: point.y - 100, machine_z: -42 };
+    currentWorkOrigin: () => state.outline.origin,
+    normalizeMachineSettings: (machine) => machine,
+    safeZForTapMove: () => -41,
+    request: async (path, options) => {
+      const opts = JSON.parse(options.body);
+      calls.push({ path, opts });
+      return { json: async () => ({ machine: { x: opts.machine_x, y: opts.machine_y, z: -42 }, retract_z_mm: opts.retract_z_mm }) };
     },
   });
-  vm.runInContext(["axisValue", "finiteOr", "cloneOutlineOrigin", "fieldProbePlanPointMatchesResult", "unprobedFieldProbePoints", "runFieldProbe"].map(extractFunction).join("\n"), ctx);
-  await vm.runInContext("runFieldProbe()", ctx);
+  vm.runInContext(["axisValue", "finiteOr", "cloneOutlineOrigin", "fieldProbePlanPointMatchesResult", "unprobedFieldProbePoints"].map(extractFunction).join("\n"), ctx);
+  await createFieldProbing({ state, callbacks: ctx }).runFieldProbe();
 
   assert.equal(calls.length, 1, "only the point without a matching sample is probed");
-  assert.equal(calls[0].point.id, "second");
-  for (const { opts } of calls) {
-    assert.equal(opts.safeZMM, -41);
-    assert.equal(opts.retractZMM, -41);
-    assert.equal("retractAboveMM" in opts, false);
-  }
+  assert.equal(calls[0].path, "/api/probe/z");
+  assert.equal(calls[0].opts.machine_x, -197);
+  assert.equal(calls[0].opts.machine_y, -96);
+  assert.equal(calls[0].opts.safe_z_mm, -41);
+  assert.equal(calls[0].opts.retract_z_mm, -41);
+  assert.equal("retract_above_mm" in calls[0].opts, false);
   assert.ok(workAreaRenders.some((render) => render.pending && render.index === 1 && render.results === 1), "remaining target renders before its probe completes");
   assert.equal(state.outline.fieldProbeResults.length, 2, "existing and new samples are retained");
 });
 
 test("field probing without a floor confirms and uses the current Z origin", async () => {
   let confirmation = null;
+  const calls = [];
   const state = {
     jog: { armed: false },
     outline: {
@@ -296,6 +303,7 @@ test("field probing without a floor confirms and uses the current Z origin", asy
       feedbackKind: "",
     },
   };
+  state.ui = { machine: {} };
   const ctx = vm.createContext({
     state,
     isProbeToolActive: () => true,
@@ -314,18 +322,22 @@ test("field probing without a floor confirms and uses the current Z origin", asy
       return true;
     },
     fmtCoord: (value) => String(value),
-    probeZAtWorkPoint: async (point) => ({
-      x: point.x,
-      y: point.y,
-      z: 1.25,
-      machine_x: point.x - 200,
-      machine_y: point.y - 100,
-      machine_z: -38.75,
-    }),
+    currentWorkOrigin: () => state.outline.origin,
+    normalizeMachineSettings: (machine) => machine,
+    safeZForTapMove: () => -35,
+    request: async (_path, options) => {
+      const payload = JSON.parse(options.body);
+      calls.push(payload);
+      return { json: async () => ({ machine: { x: payload.machine_x, y: payload.machine_y, z: -38.75 }, retract_z_mm: payload.retract_z_mm }) };
+    },
   });
-  vm.runInContext(["axisValue", "finiteOr", "cloneOutlineOrigin", "fieldProbePlanPointMatchesResult", "unprobedFieldProbePoints", "runFieldProbe"].map(extractFunction).join("\n"), ctx);
-  await vm.runInContext("runFieldProbe()", ctx);
+  vm.runInContext(["axisValue", "finiteOr", "cloneOutlineOrigin", "fieldProbePlanPointMatchesResult", "unprobedFieldProbePoints"].map(extractFunction).join("\n"), ctx);
+  await createFieldProbing({ state, callbacks: ctx }).runFieldProbe();
 
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].safe_z_mm, -35);
+  assert.equal(calls[0].retract_z_mm, -35);
+  assert.equal("retract_above_mm" in calls[0], false);
   assert.equal(state.outline.fieldProbeResults.length, 1);
   assert.equal(state.outline.fieldReferenceMachineZ, -40);
   assert.equal(state.outline.fieldReferenceKind, "work_origin");

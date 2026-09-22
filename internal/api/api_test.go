@@ -1296,10 +1296,13 @@ func TestWebUIServed(t *testing.T) {
 	geometryModule := get(t, srv.URL+"/modules/outline-geometry.js")
 	geometryBody, _ := io.ReadAll(geometryModule.Body)
 	geometryModule.Body.Close()
+	fieldProbingModule := get(t, srv.URL+"/modules/field-probing.js")
+	fieldProbingBody, _ := io.ReadAll(fieldProbingModule.Body)
+	fieldProbingModule.Body.Close()
 	toolModule := get(t, srv.URL+"/modules/tool-actions.js")
 	toolBody, _ := io.ReadAll(toolModule.Body)
 	toolModule.Body.Close()
-	toolSource := string(jsBody) + string(toolBody)
+	toolSource := string(jsBody) + string(toolBody) + string(fieldProbingBody)
 	originModule := get(t, srv.URL+"/modules/origin-probing.js")
 	originBody, _ := io.ReadAll(originModule.Body)
 	originModule.Body.Close()
@@ -1376,13 +1379,13 @@ func TestWebUIServed(t *testing.T) {
 	workareaJogModule := get(t, srv.URL+"/modules/workarea-jog.js")
 	workareaJogBody, _ := io.ReadAll(workareaJogModule.Body)
 	workareaJogModule.Body.Close()
-	webSource := string(jsBody) + string(activeJobViewBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(dashboardTelemetryBody) + string(dashboardViewBody) + string(gcodeLogBody) + string(navigationBody) + string(surfaceJogBody) + string(jogBody) + string(jogViewBody) + string(jogEventsBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody) + string(outlineCaptureBody) + string(outlineDXFBody) + string(outlineFilesBody) + string(heightExportBody) + string(heightMeshBody) + string(heightTriangulationBody) + string(heightCoordinatesBody) + string(commandUIBody) + string(workareaJogBody)
+	webSource := string(jsBody) + string(activeJobViewBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(dashboardTelemetryBody) + string(dashboardViewBody) + string(gcodeLogBody) + string(navigationBody) + string(surfaceJogBody) + string(jogBody) + string(jogViewBody) + string(jogEventsBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody) + string(outlineCaptureBody) + string(outlineDXFBody) + string(outlineFilesBody) + string(heightExportBody) + string(heightMeshBody) + string(heightTriangulationBody) + string(heightCoordinatesBody) + string(commandUIBody) + string(workareaJogBody) + string(fieldProbingBody)
 	for _, want := range []string{"export function mountFilesCommands", "export function mountFilesTransitions", "export function mountFilesJobRefresh"} {
 		if filesModule.StatusCode != http.StatusOK || !strings.Contains(string(filesModuleBody), want) {
 			t.Errorf("modules/files.js missing %s (status=%d)", want, filesModule.StatusCode)
 		}
 	}
-	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`, `from "./modules/active-job-layout.js"`, `from "./modules/active-job-view.js"`, `from "./modules/camera.js"`, `from "./modules/dashboard-telemetry.js"`, `from "./modules/dashboard-view.js"`, `from "./modules/gcode-log.js"`, `from "./modules/navigation.js"`, `from "./modules/surface-routing.js"`, `from "./modules/surface-shell.js"`, `from "./modules/machine-reconciliation.js"`, `from "./modules/outline-io.js"`, `from "./modules/outline-capture.js"`, `from "./modules/outline-dxf.js"`, `from "./modules/outline-files.js"`, `from "./modules/height-export.js"`, `from "./modules/height-mesh.js"`, `from "./modules/height-triangulation.js"`, `from "./modules/command-ui.js"`, `from "./modules/workarea-jog.js"`, `from "./modules/jog.js"`, `from "./modules/jog-view.js"`, `from "./modules/jog-events.js"`, `from "./modules/gamepad-controls.js"`, `from "./modules/surface-controls.js"`, `from "./modules/workarea-interactions.js"`, `from "./modules/state.js"`} {
+	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`, `from "./modules/active-job-layout.js"`, `from "./modules/active-job-view.js"`, `from "./modules/camera.js"`, `from "./modules/dashboard-telemetry.js"`, `from "./modules/dashboard-view.js"`, `from "./modules/gcode-log.js"`, `from "./modules/navigation.js"`, `from "./modules/surface-routing.js"`, `from "./modules/surface-shell.js"`, `from "./modules/machine-reconciliation.js"`, `from "./modules/outline-io.js"`, `from "./modules/outline-capture.js"`, `from "./modules/outline-dxf.js"`, `from "./modules/outline-files.js"`, `from "./modules/height-export.js"`, `from "./modules/height-mesh.js"`, `from "./modules/height-triangulation.js"`, `from "./modules/command-ui.js"`, `from "./modules/workarea-jog.js"`, `from "./modules/jog.js"`, `from "./modules/jog-view.js"`, `from "./modules/jog-events.js"`, `from "./modules/gamepad-controls.js"`, `from "./modules/surface-controls.js"`, `from "./modules/workarea-interactions.js"`, `from "./modules/field-probing.js"`, `from "./modules/state.js"`} {
 		if !strings.Contains(string(jsBody), want) {
 			t.Errorf("app.js missing shared module import %s", want)
 		}
@@ -1441,6 +1444,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/gamepad-controls.js", "export function createGamepadControls"},
 		{"/modules/surface-controls.js", "export function createSurfaceControls"},
 		{"/modules/workarea-interactions.js", "export function createWorkAreaInteractions"},
+		{"/modules/field-probing.js", "export function createFieldProbing"},
 		{"/modules/ui-settings.js", "export function createUISettingsFeature"},
 		{"/modules/state-defaults.js", "export function defaultOutlineState"},
 		{"/modules/workarea-render.js", "export function createWorkareaRenderers"},
