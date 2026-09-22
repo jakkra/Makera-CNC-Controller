@@ -49,6 +49,7 @@ import { createJogView } from "./modules/jog-view.js";
 import { createJogEventHandler } from "./modules/jog-events.js";
 import { createGamepadControls } from "./modules/gamepad-controls.js";
 import { createSurfaceControls } from "./modules/surface-controls.js";
+import { createWorkAreaInteractions } from "./modules/workarea-interactions.js";
 import { createWorkareaRenderers, displayedFieldProbePoints } from "./modules/workarea-render.js";
 import { cloneFloorProbe, cloneOutlineOrigin, cloneOutlinePoint, defaultOutlineState, defaultWorkAreaView } from "./modules/state-defaults.js";
 import { createAppState } from "./modules/state.js";
@@ -115,6 +116,22 @@ const toolingHelpers = new Set(["fmtActiveTool", "toolDisplayName", "validToolID
 const domHelpers = new Set(["escapeHtml"]);
 const jogHelpers = new Set(["connectJog", "disableJogConnection", "scheduleJogReconnect", "sameJogInput", "jogInputActive", "sendJogInput", "sendJog", "sampleJog", "releaseJogInput", "scheduleJogSample", "surfaceMPGPointerSample", "surfaceMPGAngleDelta", "prepareSurfaceMPGFeedback", "playSurfaceMPGClick", "pulseSurfaceMPGDetent", "finishSurfaceMPGGesture", "bindSurfaceMPGWheel", "sameJogAxes"]);
 const workareaHelpers = new Set(["axisValue", "normalizeWorkAreaView", "workAreaViewCenter", "applyWorkAreaViewport", "resetWorkAreaView", "setWorkAreaZoom", "zoomWorkArea", "panWorkArea", "workAreaSVGPointFromClient", "workAreaLocalToContentPoint", "hideWorkAreaHoverPosition", "updateWorkAreaHoverPosition", "workAreaBounds", "workAreaRect", "workAreaMMToSVGUnits", "workAreaMMRadius", "machineToWorkAreaPoint", "workAreaToMachinePoint", "renderWorkArea", "outlineSnapshot", "restoreOutlineSnapshot", "outlineCapturePositionsClose", "outlineCaptureIntentCount", "cancelOutlineCaptureIntents", "appendOutlineCapturedPosition", "resolveOutlineCaptureIntent", "clearFieldProbeData", "outlineEditingMarkersVisible"]);
+const workareaInteractionHelpers = new Set([
+  "handleWorkAreaTap", "mobileWorkAreaJogEnabled", "mobileWorkAreaActionsOpen", "mobileWorkAreaJogReady",
+  "setMobileWorkAreaJogVisual", "resetMobileWorkAreaJog", "startMobileWorkAreaJog", "updateMobileWorkAreaJog",
+  "stopMobileWorkAreaJog", "handleWorkAreaPointerDown", "handleWorkAreaPointerMove", "clearWorkAreaPointer",
+  "handleWorkAreaPointerUp", "handleWorkAreaWheel", "bindWorkAreaInteractions",
+]);
+const workareaInteractionCallbacks = [
+  "workAreaToMachinePoint", "workAreaLocalToContentPoint", "sendTapMove",
+  "isMobileWorkAreaJogEnabled", "tapMoveTargetBusy", "hasPendingOriginOperation",
+  "mobileWorkAreaJogAxes", "mobileWorkAreaJogRadius", "clampNumber", "pathNum",
+  "sendJog", "setTapFeedback", "normalizeWorkAreaView", "renderJog", "jogInputActive",
+  "workAreaSVGPointFromClient", "selectedFieldProbePoint", "updateWorkAreaHoverPosition",
+  "updateSelectedFieldProbeDrag", "panWorkArea", "finishSelectedFieldProbeMove",
+  "selectFieldProbePoint", "hideWorkAreaHoverPosition", "restoreSelectedFieldProbePosition",
+  "renderWorkArea", "zoomWorkArea",
+];
 const workareaRenderHelpers = new Set(["displayedFieldProbePoints"]);
 const stateDefaultsHelpers = new Set(["cloneFloorProbe", "cloneOutlineOrigin", "cloneOutlinePoint", "defaultOutlineState", "defaultWorkAreaView", "newID"]);
 const dashboardProfilesHelpers = new Set(["defaultDashboardSettings", "normalizeDashboardSettings", "dashboardURLState", "dashboardProfileByID", "currentDashboardProfile", "isWideSurfaceOverview", "dashboardPanelVisible", "resolveDashboardProfile", "applyDashboardURLState", "syncDashboardProfileURL", "selectDashboardProfile", "renderDashboardProfileControls", "applyDashboardProfile", "dashboardProfileSlug", "renderDashboardPanelOrder", "refreshDashboardPanelOrderButtons", "openDashboardSettings", "closeDashboardSettings", "dashboardProfileFromForm", "saveDashboardProfile", "deleteDashboardProfile", "copyDashboardURL"]);
@@ -600,7 +617,8 @@ function buildContext(functionNames, constNames = [], globals = {}) {
   });
   const includesJogEventHandler = functionNames.includes("applyJogEvent");
   const includesGamepadControls = functionNames.some((name) => gamepadControlHelpers.has(name));
-  const code = constNames.map(extractConst).concat(functionNames.filter((name) => name !== "applyJogEvent" && !gamepadControlHelpers.has(name)).map(extractFunction)).join("\n");
+  const includesWorkAreaInteractions = functionNames.some((name) => workareaInteractionHelpers.has(name));
+  const code = constNames.map(extractConst).concat(functionNames.filter((name) => name !== "applyJogEvent" && !gamepadControlHelpers.has(name) && !workareaInteractionHelpers.has(name)).map(extractFunction)).join("\n");
   vm.runInContext(code, context);
   if (includesJogEventHandler) {
     const callbacks = Object.fromEntries(jogEventCallbacks.map((name) => [name, context[name]]));
@@ -612,6 +630,17 @@ function buildContext(functionNames, constNames = [], globals = {}) {
       state: context.state,
       navigatorRef: context.navigator,
       documentRef: context.document,
+      callbacks,
+    }));
+  }
+  if (includesWorkAreaInteractions) {
+    const callbacks = Object.fromEntries(workareaInteractionCallbacks.map((name) => [name, context[name]]));
+    const constants = Object.fromEntries(["WORKAREA_PAN_THRESHOLD_PX", "WORKAREA_ZOOM_STEP", "MOBILE_WORKAREA_MAX_WIDTH_PX"].map((name) => [name, context[name]]));
+    Object.assign(context, createWorkAreaInteractions({
+      state: context.state,
+      documentRef: context.document,
+      windowRef: context.window,
+      constants,
       callbacks,
     }));
   }
@@ -5735,6 +5764,170 @@ test("mobile work-area taps never become absolute spindle targets", () => {
   ctx.window.innerWidth = 900;
   vm.runInContext("handleWorkAreaTap(local)", ctx);
   assert.equal(targets, 1, "desktop click-to-target behavior remains available");
+});
+
+test("Work Area interactions capture only the owning pointer and distinguish a tap from a pan", () => {
+  const listeners = {};
+  let captured = null;
+  let released = null;
+  const classes = new Set();
+  const svg = {
+    dataset: {},
+    classList: { add: (name) => classes.add(name), remove: (name) => classes.delete(name) },
+    addEventListener: (type, fn) => { listeners[type] = fn; },
+    setPointerCapture: (id) => { captured = id; },
+    releasePointerCapture: (id) => { released = id; },
+  };
+  const state = {
+    activeTab: "control",
+    jog: { link: "online", armed: true, inputSuspended: false },
+    outline: { fieldProbePointMovePending: false, fieldProbePending: false },
+    workarea: {},
+  };
+  const calls = [];
+  const controls = createWorkAreaInteractions({ state, documentRef: { getElementById: (id) => id === "workarea-plot" ? svg : null }, windowRef: { innerWidth: 900, addEventListener() {} }, constants: { WORKAREA_PAN_THRESHOLD_PX: 4, WORKAREA_ZOOM_STEP: 1.25, MOBILE_WORKAREA_MAX_WIDTH_PX: 600 }, callbacks: {
+    workAreaToMachinePoint: (point) => point,
+    workAreaLocalToContentPoint: (point) => point,
+    sendTapMove: (point) => calls.push(["tap", point]),
+    isMobileWorkAreaJogEnabled,
+    tapMoveTargetBusy: () => false,
+    hasPendingOriginOperation: () => false,
+    normalizeWorkAreaView: () => state.workarea,
+    workAreaSVGPointFromClient: (e) => ({ x: e.clientX, y: e.clientY }),
+    selectedFieldProbePoint: () => null,
+    updateWorkAreaHoverPosition: (point) => calls.push(["hover", point]),
+    panWorkArea: (dx, dy) => calls.push(["pan", dx, dy]),
+    mobileWorkAreaJogAxes: () => ({ x: 0, y: 0, z: 0 }),
+    mobileWorkAreaJogRadius: () => 50,
+  } });
+  controls.bindWorkAreaInteractions();
+  const event = (pointerId, clientX, clientY) => ({ pointerId, button: 0, clientX, clientY, target: { dataset: {} }, preventDefault() { this.prevented = true; } });
+  listeners.pointerdown(event(11, 10, 10));
+  assert.equal(captured, 11);
+  listeners.pointermove(event(12, 40, 10));
+  assert.equal(state.workarea.pointerId, 11, "another pointer cannot take over the captured interaction");
+  assert.equal(calls.some(([kind]) => kind === "pan"), false);
+  listeners.pointerup(event(12, 40, 10));
+  assert.equal(state.workarea.pointerId, 11, "another pointer cannot end the interaction");
+  listeners.pointerup(event(11, 10, 10));
+  assert.equal(released, 11);
+  assert.deepEqual(calls.find(([kind]) => kind === "tap"), ["tap", { x: 10, y: 10 }]);
+
+  listeners.pointerdown(event(13, 0, 0));
+  listeners.pointermove(event(13, 20, 0));
+  assert.ok(calls.some(([kind]) => kind === "pan"), "a drag pans after the existing threshold");
+  const tapsBefore = calls.filter(([kind]) => kind === "tap").length;
+  listeners.pointerup(event(13, 20, 0));
+  assert.equal(calls.filter(([kind]) => kind === "tap").length, tapsBefore, "a pan never becomes a tap target");
+});
+
+test("Work Area probe drag hands off only the selected point and restores on pointer cancellation", () => {
+  const listeners = {};
+  const classes = new Set();
+  const svg = {
+    dataset: {},
+    classList: { add: (name) => classes.add(name), remove: (name) => classes.delete(name) },
+    addEventListener: (type, fn) => { listeners[type] = fn; },
+    setPointerCapture() {}, releasePointerCapture() {},
+  };
+  const state = {
+    activeTab: "control", jog: { link: "online", armed: false },
+    outline: { fieldProbePointMovePending: false, fieldProbePending: false }, workarea: {},
+  };
+  const calls = [];
+  const selected = { id: "p1", x: 4, y: 5 };
+  const controls = createWorkAreaInteractions({ state, documentRef: { getElementById: (id) => id === "workarea-plot" ? svg : null }, windowRef: { innerWidth: 900, addEventListener() {} }, constants: { WORKAREA_PAN_THRESHOLD_PX: 4, WORKAREA_ZOOM_STEP: 1.25, MOBILE_WORKAREA_MAX_WIDTH_PX: 600 }, callbacks: {
+    isMobileWorkAreaJogEnabled: () => false,
+    normalizeWorkAreaView: () => state.workarea,
+    workAreaSVGPointFromClient: (e) => ({ x: e.clientX, y: e.clientY }),
+    selectedFieldProbePoint: () => selected,
+    updateSelectedFieldProbeDrag: (point) => calls.push(["drag", point]),
+    finishSelectedFieldProbeMove: (original) => calls.push(["finish", original]),
+    restoreSelectedFieldProbePosition: (original) => calls.push(["restore", original]),
+    renderWorkArea: () => calls.push(["render"]),
+    updateWorkAreaHoverPosition: () => {},
+    hideWorkAreaHoverPosition: () => {},
+    panWorkArea: () => calls.push(["pan"]),
+    mobileWorkAreaJogAxes: () => ({ x: 0, y: 0, z: 0 }),
+    mobileWorkAreaJogRadius: () => 50,
+  } });
+  controls.bindWorkAreaInteractions();
+  const event = (pointerId, x, y) => ({ pointerId, button: 0, clientX: x, clientY: y, target: { dataset: { fieldProbeId: "p1" } }, preventDefault() {} });
+  controls.handleWorkAreaPointerDown(event(21, 1, 2));
+  controls.handleWorkAreaPointerMove(event(21, 10, 2));
+  assert.deepEqual(calls.find(([kind]) => kind === "drag"), ["drag", { x: 10, y: 2 }]);
+  const original = { id: "p1", x: 4, y: 5, fieldProbeComplete: false };
+  state.workarea.probeDragOriginal = original;
+  controls.handleWorkAreaPointerUp(event(21, 10, 2));
+  assert.deepEqual(calls.find(([kind]) => kind === "finish"), ["finish", original]);
+  assert.equal(calls.some(([kind]) => kind === "pan"), false);
+
+  controls.handleWorkAreaPointerDown(event(22, 1, 2));
+  state.workarea.probeDragOriginal = original;
+  listeners.pointercancel(event(22, 10, 2));
+  assert.deepEqual(calls.find(([kind]) => kind === "restore"), ["restore", original]);
+});
+
+test("mobile Work Area jog requires readiness and releases the deadman on its owned pointer", () => {
+  const listeners = {};
+  const svgClasses = new Set();
+  const attributes = {};
+  const group = {
+    setAttribute: (name, value) => { attributes[name] = value; },
+    removeAttribute: (name) => { delete attributes[name]; },
+    querySelector: (selector) => ({ setAttribute: (name, value) => { attributes[selector + ":" + name] = value; } }),
+  };
+  const svg = {
+    dataset: {},
+    classList: { add: (name) => svgClasses.add(name), remove: (name) => svgClasses.delete(name) },
+    addEventListener: (type, fn) => { listeners[type] = fn; },
+    getScreenCTM: () => ({ a: 1, b: 0 }),
+    setPointerCapture(id) { this.captured = id; },
+    releasePointerCapture(id) { this.released = id; },
+  };
+  const panel = { classList: { contains: () => false } };
+  const elements = { "workarea-plot": svg, "workarea-mobile-jog": group, "workarea-actions-panel": panel };
+  const state = {
+    activeTab: "control",
+    jog: { link: "online", armed: true, inputSuspended: false, pad: "", deadman: false, axes: { x: 0, y: 0, z: 0, a: 0 } },
+    outline: { fieldProbePointMovePending: false, fieldProbePending: false },
+    workarea: {},
+  };
+  const sent = [];
+  const controls = createWorkAreaInteractions({ state, documentRef: { getElementById: (id) => elements[id] }, windowRef: { innerWidth: 390, addEventListener() {} }, constants: { WORKAREA_PAN_THRESHOLD_PX: 4, WORKAREA_ZOOM_STEP: 1.25, MOBILE_WORKAREA_MAX_WIDTH_PX: 600 }, callbacks: {
+    isMobileWorkAreaJogEnabled,
+    tapMoveTargetBusy: () => false,
+    hasPendingOriginOperation: () => false,
+    normalizeWorkAreaView: () => state.workarea,
+    mobileWorkAreaJogAxes: (ox, oy, x, y, radius) => ({ x: Math.max(-1, Math.min(1, (x - ox) / radius)), y: Math.max(-1, Math.min(1, (oy - y) / radius)), z: 0 }),
+    mobileWorkAreaJogRadius: () => 50,
+    sendJog: (message) => { sent.push(message); return 1; },
+    setTapFeedback: () => {},
+    renderJog: () => {},
+    jogInputActive: (input) => Math.abs(input.axes?.x || 0) > 0.12 || Math.abs(input.axes?.y || 0) > 0.12,
+    workAreaSVGPointFromClient: (e) => ({ x: e.clientX, y: e.clientY }),
+    pathNum: (n) => String(n),
+    updateWorkAreaHoverPosition: () => {},
+  } });
+  assert.equal(controls.mobileWorkAreaJogReady(), true);
+  state.jog.armed = false;
+  assert.equal(controls.mobileWorkAreaJogReady(), false, "an unarmed controller cannot start a touch jog");
+  state.jog.armed = true;
+  const event = (pointerId, x, y) => ({ pointerId, button: 0, clientX: x, clientY: y, target: { closest: () => null }, preventDefault() { this.prevented = true; } });
+  controls.bindWorkAreaInteractions();
+  listeners.pointerdown(event(31, 100, 100));
+  assert.equal(state.workarea.mobileJogActive, true);
+  assert.equal(svg.captured, 31);
+  assert.deepEqual(sent[0], { type: "input", deadman: true, axes: { x: 0, y: 0, z: 0 } });
+  listeners.pointermove(event(32, 140, 100));
+  listeners.pointerup(event(32, 140, 100));
+  assert.equal(state.workarea.mobileJogActive, true, "unowned pointer events cannot release the mobile deadman");
+  listeners.pointermove(event(31, 125, 90));
+  listeners.pointerup(event(31, 125, 90));
+  assert.equal(state.workarea.mobileJogActive, false);
+  assert.equal(state.jog.deadman, false);
+  assert.equal(svg.released, 31);
+  assert.deepEqual(sent.at(-1), { type: "input", deadman: false, axes: { x: 0, y: 0, z: 0, a: 0 } });
 });
 
 test("the jog sampler heartbeats a held mobile work-area controller", () => {

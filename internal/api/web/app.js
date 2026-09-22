@@ -26,6 +26,7 @@ import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive, movementArmAvaila
 import { createJogView } from "./modules/jog-view.js";
 import { createGamepadControls } from "./modules/gamepad-controls.js";
 import { createSurfaceControls } from "./modules/surface-controls.js";
+import { createWorkAreaInteractions } from "./modules/workarea-interactions.js";
 import { createJogEventHandler } from "./modules/jog-events.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
 import { createSurfaceJogFeature, loadSurfaceViewPreferences, saveSurfaceViewPreferences as persistSurfaceViewPreferences, isSurfaceKiosk } from "./modules/surface-jog.js";
@@ -389,6 +390,7 @@ const gamepadControls = createGamepadControls({
   },
 });
 const { currentGamepad, buttonPressed, buttonStates, mappedAxis, captureGamepadOutlineButton, handleGamepadOutlineButton, handleGamepadMacroButtons, sameButtonStates, clampAxis } = gamepadControls;
+let workAreaInteractions = null;
 const jogFeature = createJogFeature({
   jogState: state.jog,
   surfaceState: state.surface,
@@ -430,6 +432,7 @@ const {
   connectJog, disableJogConnection, scheduleJogReconnect, sendJogInput, sendJog,
   sampleJog, releaseJogInput, scheduleJogSample, bindSurfaceMPGWheel,
 } = jogFeature;
+
 const surfaceControls = createSurfaceControls({
   state,
   documentRef: document,
@@ -1027,6 +1030,23 @@ const dashboardProfiles = createDashboardProfiles({
   scheduleDashboardGcodeRender: () => gcodeViewer.scheduleDashboardGcodeRender(),
 });
 const { dashboardURLState, dashboardProfileByID, currentDashboardProfile, isWideSurfaceOverview, dashboardPanelVisible, resolveDashboardProfile, applyDashboardURLState, syncDashboardProfileURL, selectDashboardProfile, renderDashboardProfileControls, applyDashboardProfile, dashboardProfileSlug, renderDashboardPanelOrder, refreshDashboardPanelOrderButtons, openDashboardSettings, closeDashboardSettings, dashboardProfileFromForm, saveDashboardProfile, deleteDashboardProfile, copyDashboardURL } = dashboardProfiles;
+
+workAreaInteractions = createWorkAreaInteractions({
+  state,
+  documentRef: document,
+  windowRef: window,
+  constants: { WORKAREA_PAN_THRESHOLD_PX, WORKAREA_ZOOM_STEP, MOBILE_WORKAREA_MAX_WIDTH_PX },
+  callbacks: {
+    workAreaToMachinePoint, workAreaLocalToContentPoint, sendTapMove,
+    isMobileWorkAreaJogEnabled, tapMoveTargetBusy,
+    hasPendingOriginOperation, mobileWorkAreaJogAxes, mobileWorkAreaJogRadius,
+    clampNumber, pathNum, sendJog, setTapFeedback, normalizeWorkAreaView, renderJog,
+    jogInputActive, workAreaSVGPointFromClient, selectedFieldProbePoint,
+    updateWorkAreaHoverPosition, updateSelectedFieldProbeDrag, panWorkArea,
+    finishSelectedFieldProbeMove, selectFieldProbePoint, hideWorkAreaHoverPosition,
+    restoreSelectedFieldProbePosition, renderWorkArea, zoomWorkArea,
+  },
+});
 
 function saveCommandHistory() {
   persistCommandHistory(state.commandHistory);
@@ -3583,327 +3603,30 @@ function stepZ(dir) {
   renderJog();
 }
 
-function handleWorkAreaTap(local) {
-  if (mobileWorkAreaJogEnabled()) return;
-  const target = workAreaToMachinePoint(workAreaLocalToContentPoint(local));
-  if (!target) return;
-  sendTapMove(target);
-}
-
-function mobileWorkAreaJogEnabled() {
-  return isMobileWorkAreaJogEnabled(window, MOBILE_WORKAREA_MAX_WIDTH_PX);
-}
-
-function mobileWorkAreaActionsOpen() {
-  return !!document.getElementById("workarea-actions-panel")?.classList.contains("is-open");
-}
-
-function mobileWorkAreaJogReady() {
-  return mobileWorkAreaJogEnabled() &&
-    !mobileWorkAreaActionsOpen() &&
-    state.activeTab === "control" &&
-    state.jog.link === "online" &&
-    state.jog.armed &&
-    !state.jog.inputSuspended &&
-    !tapMoveTargetBusy() &&
-    !state.jog.fieldProbeMovePending &&
-    !state.jog.zStepPending &&
-    !state.jog.zProbePending &&
-    !state.jog.probe3DPending &&
-    !hasPendingOriginOperation() &&
-    !state.outline.fieldProbePointMovePending &&
-    !state.outline.fieldProbePending;
-}
-
+function handleWorkAreaTap(local) { return workAreaInteractions.handleWorkAreaTap(local); }
+function mobileWorkAreaJogEnabled() { return workAreaInteractions.mobileWorkAreaJogEnabled(); }
+function mobileWorkAreaActionsOpen() { return workAreaInteractions.mobileWorkAreaActionsOpen(); }
+function mobileWorkAreaJogReady() { return workAreaInteractions.mobileWorkAreaJogReady(); }
 function mobileJogAxisForResponse(value) {
   return computeMobileJogAxisForResponse(value, clampAxis, JOG_INPUT_DEADZONE);
 }
-
 function mobileWorkAreaJogAxes(originX, originY, clientX, clientY, radiusPX) {
   return computeMobileWorkAreaJogAxes(originX, originY, clientX, clientY, radiusPX, clampAxis, JOG_INPUT_DEADZONE);
 }
-
 function mobileWorkAreaJogRadius(svg) {
   return computeMobileWorkAreaJogRadius(svg, clampNumber, MOBILE_JOG_RADIUS_MIN_PX, MOBILE_JOG_RADIUS_MAX_PX);
 }
-
-function setMobileWorkAreaJogVisual(origin, knob, radiusPX) {
-  const svg = document.getElementById("workarea-plot");
-  const group = document.getElementById("workarea-mobile-jog");
-  if (!svg || !group || !origin || !knob) return;
-  const ctm = svg.getScreenCTM?.();
-  const screenScale = ctm ? Math.hypot(Number(ctm.a) || 0, Number(ctm.b) || 0) : 0;
-  const radius = screenScale > 0 ? radiusPX / screenScale : 18;
-  const base = group.querySelector(".mobile-jog-base");
-  const line = group.querySelector(".mobile-jog-line");
-  const handle = group.querySelector(".mobile-jog-knob");
-  base?.setAttribute("cx", pathNum(origin.x));
-  base?.setAttribute("cy", pathNum(origin.y));
-  base?.setAttribute("r", pathNum(radius));
-  line?.setAttribute("x1", pathNum(origin.x));
-  line?.setAttribute("y1", pathNum(origin.y));
-  line?.setAttribute("x2", pathNum(knob.x));
-  line?.setAttribute("y2", pathNum(knob.y));
-  handle?.setAttribute("cx", pathNum(knob.x));
-  handle?.setAttribute("cy", pathNum(knob.y));
-  group.removeAttribute("display");
-  svg.classList.add("mobile-jogging");
-}
-
-function resetMobileWorkAreaJog(e = null) {
-  const v = normalizeWorkAreaView();
-  if (e && v.mobileJogPointerId !== e.pointerId) return false;
-  const wasActive = !!v.mobileJogActive;
-  const pointerId = v.mobileJogPointerId;
-  v.mobileJogPointerId = null;
-  v.mobileJogOriginClientX = 0;
-  v.mobileJogOriginClientY = 0;
-  v.mobileJogOriginLocal = null;
-  v.mobileJogKnobLocal = null;
-  v.mobileJogRadiusPX = 0;
-  v.mobileJogAxes = { x: 0, y: 0, z: 0 };
-  v.mobileJogActive = false;
-  const svg = document.getElementById("workarea-plot");
-  const group = document.getElementById("workarea-mobile-jog");
-  group?.setAttribute("display", "none");
-  svg?.classList.remove("mobile-jogging");
-  if (svg && pointerId !== null) {
-    try {
-      svg.releasePointerCapture(pointerId);
-    } catch {
-      // Pointer capture may already have been released by the browser.
-    }
-  }
-  return wasActive;
-}
-
-function startMobileWorkAreaJog(e, local) {
-  if (!mobileWorkAreaJogReady()) return false;
-  if (e.target?.closest?.("#workarea-actions-toggle, #workarea-actions-panel")) return false;
-  const svg = document.getElementById("workarea-plot");
-  if (!svg || !local) return false;
-  const stopped = { x: 0, y: 0, z: 0 };
-  if (!sendJog({ type: "input", deadman: true, axes: stopped }, true)) {
-    setTapFeedback("Jog service is not connected.", "error");
-    e.preventDefault();
-    return true;
-  }
-  const v = normalizeWorkAreaView();
-  v.mobileJogPointerId = e.pointerId;
-  v.mobileJogOriginClientX = e.clientX;
-  v.mobileJogOriginClientY = e.clientY;
-  v.mobileJogOriginLocal = { x: local.x, y: local.y };
-  v.mobileJogKnobLocal = { x: local.x, y: local.y };
-  v.mobileJogRadiusPX = mobileWorkAreaJogRadius(svg);
-  v.mobileJogAxes = stopped;
-  v.mobileJogActive = true;
-  state.jog.pad = "Touch";
-  state.jog.deadman = true;
-  state.jog.axes = stopped;
-  setMobileWorkAreaJogVisual(v.mobileJogOriginLocal, v.mobileJogKnobLocal, v.mobileJogRadiusPX);
-  try {
-    svg.setPointerCapture(e.pointerId);
-  } catch {
-    // Pointer capture is best-effort; cancellation paths still force a stop.
-  }
-  e.preventDefault();
-  renderJog();
-  return true;
-}
-
-function updateMobileWorkAreaJog(e) {
-  const v = state.workarea;
-  if (!v?.mobileJogActive || v.mobileJogPointerId !== e.pointerId) return false;
-  const wasMoving = jogInputActive({ deadman: true, axes: v.mobileJogAxes });
-  const axes = mobileWorkAreaJogAxes(
-    v.mobileJogOriginClientX,
-    v.mobileJogOriginClientY,
-    e.clientX,
-    e.clientY,
-    v.mobileJogRadiusPX,
-  );
-  const dx = e.clientX - v.mobileJogOriginClientX;
-  const dy = e.clientY - v.mobileJogOriginClientY;
-  const distance = Math.hypot(dx, dy);
-  const scale = distance > v.mobileJogRadiusPX ? v.mobileJogRadiusPX / distance : 1;
-  const knob = workAreaSVGPointFromClient({
-    clientX: v.mobileJogOriginClientX + dx * scale,
-    clientY: v.mobileJogOriginClientY + dy * scale,
-  });
-  v.mobileJogAxes = axes;
-  if (knob) v.mobileJogKnobLocal = knob;
-  state.jog.deadman = true;
-  state.jog.axes = axes;
-  sendJog({ type: "input", deadman: true, axes });
-  setMobileWorkAreaJogVisual(v.mobileJogOriginLocal, v.mobileJogKnobLocal, v.mobileJogRadiusPX);
-  e.preventDefault();
-  const moving = jogInputActive({ deadman: true, axes });
-  if (moving !== wasMoving) renderJog();
-  return true;
-}
-
-function stopMobileWorkAreaJog(e = null) {
-  const v = state.workarea;
-  if (!v?.mobileJogActive || (e && v.mobileJogPointerId !== e.pointerId)) return false;
-  resetMobileWorkAreaJog(e);
-  state.jog.pad = "";
-  state.jog.deadman = false;
-  state.jog.axes = { x: 0, y: 0, z: 0, a: 0 };
-  if (state.jog.armed) sendJog({ type: "input", deadman: false, axes: state.jog.axes }, true);
-  e?.preventDefault?.();
-  renderJog();
-  return true;
-}
-
-function handleWorkAreaPointerDown(e) {
-  if (typeof e.button === "number" && e.button !== 0) return;
-  const svg = document.getElementById("workarea-plot");
-  const local = workAreaSVGPointFromClient(e);
-  if (!svg || !local) return;
-  if (startMobileWorkAreaJog(e, local)) return;
-  updateWorkAreaHoverPosition(local);
-  const v = normalizeWorkAreaView();
-  v.pointerId = e.pointerId;
-  v.pointerStartX = local.x;
-  v.pointerStartY = local.y;
-  v.pointerLastX = local.x;
-  v.pointerLastY = local.y;
-  v.clientStartX = e.clientX;
-  v.clientStartY = e.clientY;
-  v.tapLocal = { x: local.x, y: local.y };
-  v.tapProbeID = String(e.target?.dataset?.fieldProbeId || "");
-  const selected = selectedFieldProbePoint();
-  v.probeDragID = selected && selected.id === v.tapProbeID && !state.outline.fieldProbePointMovePending && !state.outline.fieldProbePending
-    ? selected.id
-    : "";
-  v.probeDragOriginal = v.probeDragID ? { id: selected.id, x: selected.x, y: selected.y, fieldProbeComplete: !!state.outline.fieldProbeComplete } : null;
-  v.probeDragging = false;
-  v.dragging = false;
-  try {
-    svg.setPointerCapture(e.pointerId);
-  } catch {
-    // Pointer capture is best-effort; pointerup still handles ordinary clicks.
-  }
-  e.preventDefault();
-}
-
-function handleWorkAreaPointerMove(e) {
-  if (updateMobileWorkAreaJog(e)) return;
-  const v = state.workarea;
-  const svg = document.getElementById("workarea-plot");
-  const local = workAreaSVGPointFromClient(e);
-  if (!svg || !local) return;
-  if (!v || v.pointerId !== e.pointerId) {
-    updateWorkAreaHoverPosition(local);
-    return;
-  }
-  const moved = Math.hypot(e.clientX - v.clientStartX, e.clientY - v.clientStartY);
-  if (!v.dragging && moved > WORKAREA_PAN_THRESHOLD_PX) {
-    v.dragging = true;
-    v.probeDragging = !!v.probeDragID;
-    svg.classList.add(v.probeDragging ? "moving-probe" : "panning");
-  }
-  if (v.dragging) {
-    if (v.probeDragging) updateSelectedFieldProbeDrag(local);
-    else panWorkArea(local.x - v.pointerLastX, local.y - v.pointerLastY);
-    v.pointerLastX = local.x;
-    v.pointerLastY = local.y;
-    updateWorkAreaHoverPosition(local);
-    e.preventDefault();
-  } else {
-    updateWorkAreaHoverPosition(local);
-  }
-}
-
-function clearWorkAreaPointer(e) {
-  const v = state.workarea;
-  if (!v || (e && v.pointerId !== e.pointerId)) return;
-  const svg = document.getElementById("workarea-plot");
-  if (svg) {
-    svg.classList.remove("panning");
-    svg.classList.remove("moving-probe");
-    if (e) {
-      try {
-        svg.releasePointerCapture(e.pointerId);
-      } catch {
-        // The browser may already have released capture.
-      }
-    }
-  }
-  v.pointerId = null;
-  v.dragging = false;
-  v.tapLocal = null;
-  v.tapProbeID = "";
-  v.probeDragID = "";
-  v.probeDragOriginal = null;
-  v.probeDragging = false;
-}
-
-function handleWorkAreaPointerUp(e) {
-  if (stopMobileWorkAreaJog(e)) return;
-  const v = state.workarea;
-  if (!v || v.pointerId !== e.pointerId) return;
-  const wasDragging = !!v.dragging;
-  const wasProbeDrag = !!v.probeDragging;
-  const local = wasDragging ? workAreaSVGPointFromClient(e) : v.tapLocal;
-  const probeID = wasDragging ? "" : v.tapProbeID;
-  const probeOriginal = wasProbeDrag ? v.probeDragOriginal : null;
-  clearWorkAreaPointer(e);
-  updateWorkAreaHoverPosition(local);
-  e.preventDefault();
-  if (wasProbeDrag) finishSelectedFieldProbeMove(probeOriginal);
-  else if (!wasDragging && probeID) selectFieldProbePoint(probeID);
-  else if (!wasDragging && local) handleWorkAreaTap(local);
-}
-
-function handleWorkAreaWheel(e) {
-  const local = workAreaSVGPointFromClient(e);
-  if (!local) return;
-  e.preventDefault();
-  const multiplier = e.deltaY < 0 ? WORKAREA_ZOOM_STEP : 1 / WORKAREA_ZOOM_STEP;
-  zoomWorkArea(multiplier, local);
-}
-
-function bindWorkAreaInteractions() {
-  const svg = document.getElementById("workarea-plot");
-  if (!svg || svg.dataset.workareaBound === "true") return;
-  svg.dataset.workareaBound = "true";
-  svg.addEventListener("pointerdown", handleWorkAreaPointerDown);
-  svg.addEventListener("pointermove", handleWorkAreaPointerMove);
-  svg.addEventListener("pointerup", handleWorkAreaPointerUp);
-  svg.addEventListener("pointerleave", hideWorkAreaHoverPosition);
-  svg.addEventListener("pointercancel", (e) => {
-    if (stopMobileWorkAreaJog(e)) return;
-    const original = state.workarea?.probeDragOriginal;
-    if (original) {
-      restoreSelectedFieldProbePosition(original);
-      renderWorkArea();
-    }
-    clearWorkAreaPointer(e);
-    hideWorkAreaHoverPosition();
-  });
-  svg.addEventListener("lostpointercapture", (e) => {
-    if (state.workarea?.mobileJogPointerId === e.pointerId) stopMobileWorkAreaJog(e);
-  });
-  window.addEventListener("pointerup", stopMobileWorkAreaJog);
-  window.addEventListener("pointercancel", stopMobileWorkAreaJog);
-  svg.addEventListener("wheel", handleWorkAreaWheel, { passive: false });
-  svg.addEventListener("keydown", (e) => {
-    const probeID = String(e.target?.dataset?.fieldProbeId || "");
-    if (!probeID) return;
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      selectFieldProbePoint(probeID);
-      return;
-    }
-    if (probeID !== state.outline.fieldProbeSelectedID || !e.key.startsWith("Arrow")) return;
-    e.preventDefault();
-    const step = e.shiftKey ? 10 : 1;
-    const dx = e.key === "ArrowLeft" ? -step : (e.key === "ArrowRight" ? step : 0);
-    const dy = e.key === "ArrowDown" ? -step : (e.key === "ArrowUp" ? step : 0);
-    moveSelectedFieldProbePointBy(dx, dy);
-  });
-}
+function setMobileWorkAreaJogVisual(origin, knob, radiusPX) { return workAreaInteractions.setMobileWorkAreaJogVisual(origin, knob, radiusPX); }
+function resetMobileWorkAreaJog(e = null) { return workAreaInteractions?.resetMobileWorkAreaJog(e) ?? false; }
+function startMobileWorkAreaJog(e, local) { return workAreaInteractions.startMobileWorkAreaJog(e, local); }
+function updateMobileWorkAreaJog(e) { return workAreaInteractions.updateMobileWorkAreaJog(e); }
+function stopMobileWorkAreaJog(e = null) { return workAreaInteractions.stopMobileWorkAreaJog(e); }
+function handleWorkAreaPointerDown(e) { return workAreaInteractions.handleWorkAreaPointerDown(e); }
+function handleWorkAreaPointerMove(e) { return workAreaInteractions.handleWorkAreaPointerMove(e); }
+function clearWorkAreaPointer(e) { return workAreaInteractions.clearWorkAreaPointer(e); }
+function handleWorkAreaPointerUp(e) { return workAreaInteractions.handleWorkAreaPointerUp(e); }
+function handleWorkAreaWheel(e) { return workAreaInteractions.handleWorkAreaWheel(e); }
+function bindWorkAreaInteractions() { return workAreaInteractions.bindWorkAreaInteractions(); }
 
 function clearDisarmedMovementState() {
   state.jog.surfaceInput = null;
