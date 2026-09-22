@@ -1453,6 +1453,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/machine-status.js", "bindDataControlButtons"},
 		{"/modules/machine-status.js", "bindAttentionInteractions"},
 		{"/modules/navigation.js", "export function createNavigationFeature"},
+		{"/modules/navigation.js", "function bindInteractions"},
 		{"/modules/settings.js", "export function createSettingsFeature"},
 		{"/modules/workarea-outline.js", "export function mountWorkareaOutline"},
 		{"/modules/outline.js", "export function createOutlineFeature"},
@@ -1530,7 +1531,7 @@ func TestWebUIServed(t *testing.T) {
 	if !strings.Contains(string(liveBody), "/api/events?scope=control") || !strings.Contains(string(liveBody), "/api/events?scope=files") {
 		t.Errorf("app.js missing scoped event streams")
 	}
-	for _, want := range []string{`setAttribute("aria-selected", String(active))`, `if (e.key === "ArrowRight")`, `else if (e.key === "Home")`, `window.addEventListener("popstate"`, `showTab(viewTabFromURL(window.location`} {
+	for _, want := range []string{`setAttribute("aria-selected", String(active))`, `if (e.key === "ArrowRight")`, `else if (e.key === "Home")`, `window.addEventListener("popstate"`, `showTabCallback(viewTabFromURLCallback(window.location`} {
 		if !strings.Contains(webSource, want) {
 			t.Errorf("app.js missing accessible tab behavior %s", want)
 		}

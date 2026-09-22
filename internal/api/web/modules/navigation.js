@@ -39,6 +39,7 @@ export function createNavigationFeature({
   documentRef = globalThis.document,
   windowRef = globalThis.window,
   viewTabs = DEFAULT_VIEW_TABS,
+  navViewTabs = DEFAULT_NAV_VIEW_TABS,
   getActiveTab = () => "active-job",
   setActiveTab = () => {},
   getMachine = () => ({}),
@@ -104,7 +105,40 @@ export function createNavigationFeature({
     syncViewTabURL(name, urlMode, { windowRef: window });
   }
 
-  return { setHeaderCollapsed, showTab };
+  function bindInteractions({
+    showTab: showTabCallback = showTab,
+    setHeaderCollapsed: setHeaderCollapsedCallback = setHeaderCollapsed,
+    reloadPage = () => window?.location?.reload(),
+    applyDashboardURLState = () => {},
+    viewTabFromURL: viewTabFromURLCallback = viewTabFromURL,
+  } = {}) {
+    applyDashboardURLState();
+    document.getElementById("header-toggle").onclick = () => setHeaderCollapsedCallback(!document.body.classList.contains("header-collapsed"));
+    document.getElementById("development-refresh").onclick = reloadPage;
+    for (const [index, name] of navViewTabs.entries()) {
+      const tab = document.getElementById("tab-" + name);
+      tab.onclick = () => showTabCallback(name);
+      tab.onkeydown = (e) => {
+        let next = index;
+        if (e.key === "ArrowRight") next = (index + 1) % navViewTabs.length;
+        else if (e.key === "ArrowLeft") next = (index - 1 + navViewTabs.length) % navViewTabs.length;
+        else if (e.key === "Home") next = 0;
+        else if (e.key === "End") next = navViewTabs.length - 1;
+        else return;
+        e.preventDefault();
+        const nextTab = document.getElementById("tab-" + navViewTabs[next]);
+        showTabCallback(navViewTabs[next]);
+        nextTab.focus();
+      };
+    }
+    window.addEventListener("popstate", () => {
+      applyDashboardURLState();
+      showTabCallback(viewTabFromURLCallback(window.location, { viewTabs, windowRef: window }), "none");
+    });
+    showTabCallback(viewTabFromURLCallback(window.location, { viewTabs, windowRef: window }), "replace");
+  }
+
+  return { setHeaderCollapsed, showTab, bindInteractions };
 }
 
 export function pageScrollIsAtTop({ documentRef = globalThis.document, windowRef = globalThis.window } = {}) {

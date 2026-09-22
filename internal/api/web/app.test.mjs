@@ -2629,6 +2629,78 @@ test("top-level tabs resolve from canonical and legacy URLs", () => {
   assert.equal(viewTabFromURL({ pathname: "/", search: "" }, { viewTabs, windowRef: phoneWindow }), "dashboard", "phone fallback is monitoring-first");
 });
 
+test("top-level navigation wiring preserves keyboard routing and lifecycle callbacks", () => {
+  assert.match(navigationModuleSource, /function bindInteractions\(/);
+  assert.match(source, /bindNavigationInteractions\(\{ showTab, setHeaderCollapsed, reloadPage, applyDashboardURLState, viewTabFromURL \}\)/);
+  assert.doesNotMatch(source, /document\.getElementById\("header-toggle"\)\.onclick/);
+  assert.doesNotMatch(source, /for \(const \[index, name\] of NAV_VIEW_TABS\.entries\(\)/);
+  const viewTabs = ["dashboard", "active-job", "jog", "control", "files", "maintenance", "attention"];
+  const navTabs = ["dashboard", "active-job", "jog", "control", "files"];
+  let collapsed = false;
+  const focused = [];
+  const nodes = new Map();
+  const makeNode = (id) => ({
+    id,
+    hidden: false,
+    tabIndex: 0,
+    classList: { toggle() {} },
+    setAttribute() {},
+    focus: () => focused.push(id),
+  });
+  for (const name of viewTabs) nodes.set(name + "-view", makeNode(name + "-view"));
+  for (const name of navTabs) nodes.set("tab-" + name, makeNode("tab-" + name));
+  nodes.set("header-toggle", makeNode("header-toggle"));
+  nodes.set("development-refresh", makeNode("development-refresh"));
+  const documentListeners = [];
+  const windowListeners = [];
+  const body = {
+    dataset: {},
+    classList: {
+      contains: () => collapsed,
+      toggle: (name, value) => { if (name === "header-collapsed") collapsed = !!value; },
+    },
+  };
+  const location = { href: "http://cnc.local/active-job", pathname: "/active-job", search: "" };
+  const windowRef = {
+    location,
+    matchMedia: () => ({ matches: false }),
+    history: { replaceState() {}, pushState() {} },
+    addEventListener: (...args) => windowListeners.push(args),
+  };
+  const documentRef = {
+    body,
+    getElementById: (id) => nodes.get(id) || null,
+    querySelectorAll: () => [],
+    addEventListener: (...args) => documentListeners.push(args),
+  };
+  const activeTabs = [];
+  let applyCalls = 0;
+  let reloadCalls = 0;
+  const feature = createNavigationFeature({
+    documentRef,
+    windowRef,
+    viewTabs,
+    navViewTabs: navTabs,
+    setActiveTab: (name) => activeTabs.push(name),
+  });
+  feature.bindInteractions({ reloadPage: () => { reloadCalls++; }, applyDashboardURLState: () => { applyCalls++; } });
+  assert.equal(applyCalls, 1);
+  nodes.get("development-refresh").onclick();
+  nodes.get("header-toggle").onclick();
+  assert.equal(reloadCalls, 1);
+  assert.equal(collapsed, true);
+  nodes.get("tab-dashboard").onclick();
+  let prevented = 0;
+  nodes.get("tab-dashboard").onkeydown({ key: "ArrowRight", preventDefault: () => { prevented++; } });
+  assert.equal(prevented, 1);
+  assert.deepEqual(focused, ["tab-active-job"]);
+  assert.deepEqual(activeTabs.slice(-2), ["dashboard", "active-job"]);
+  location.pathname = "/files";
+  windowListeners.find(([type]) => type === "popstate")[1]();
+  assert.equal(applyCalls, 2);
+  assert.equal(activeTabs.at(-1), "files");
+});
+
 test("tab URL updates are canonical and avoid duplicate history entries", () => {
   const calls = [];
   const location = { href: "http://cnc.local/?tab=dashboard", pathname: "/", search: "?tab=dashboard" };

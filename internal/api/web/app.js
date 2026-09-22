@@ -687,8 +687,9 @@ const navigationFeature = createNavigationFeature({
   maintenanceLoad: () => maintenance.load(),
   clearNotice,
   syncDashboardCameras,
+  navViewTabs: NAV_VIEW_TABS,
 });
-const { setHeaderCollapsed } = navigationFeature;
+const { setHeaderCollapsed, bindInteractions: bindNavigationInteractions } = navigationFeature;
 showTab = navigationFeature.showTab;
 
 const lifecycleFeature = createLifecycleFeature({
@@ -2890,33 +2891,10 @@ function init() {
   maintenance.mount();
   mountMachineReadouts();
   initializeResponsiveControlSections();
-  applyDashboardURLState();
-  document.getElementById("header-toggle").onclick = () => setHeaderCollapsed(!document.body.classList.contains("header-collapsed"));
-  document.getElementById("development-refresh").onclick = reloadPage;
+  bindNavigationInteractions({ showTab, setHeaderCollapsed, reloadPage, applyDashboardURLState, viewTabFromURL });
   installPullToRefresh();
   initDashboardControlsMenu();
   initWorkAreaActionsMenu();
-  for (const [index, name] of NAV_VIEW_TABS.entries()) {
-    const tab = document.getElementById("tab-" + name);
-    tab.onclick = () => showTab(name);
-    tab.onkeydown = (e) => {
-      let next = index;
-      if (e.key === "ArrowRight") next = (index + 1) % NAV_VIEW_TABS.length;
-      else if (e.key === "ArrowLeft") next = (index - 1 + NAV_VIEW_TABS.length) % NAV_VIEW_TABS.length;
-      else if (e.key === "Home") next = 0;
-      else if (e.key === "End") next = NAV_VIEW_TABS.length - 1;
-      else return;
-      e.preventDefault();
-      const nextTab = document.getElementById("tab-" + NAV_VIEW_TABS[next]);
-      showTab(NAV_VIEW_TABS[next]);
-      nextTab.focus();
-    };
-  }
-  window.addEventListener("popstate", () => {
-    applyDashboardURLState();
-    showTab(viewTabFromURL(window.location, { viewTabs: VIEW_TABS, windowRef: window }), "none");
-  });
-  showTab(viewTabFromURL(window.location, { viewTabs: VIEW_TABS, windowRef: window }), "replace");
   document.getElementById("dashboard-profile").onchange = (e) => selectDashboardProfile(e.target.value);
   document.getElementById("dashboard-new").onclick = () => {
     setDashboardControlsOpen(false);
