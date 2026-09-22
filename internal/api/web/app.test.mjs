@@ -330,6 +330,27 @@ test("machine control interactions route hold, resume, and halt in order", () =>
   bound.slice(0, 3).forEach(([, action]) => action());
   assert.deepEqual(bound.slice(3), [["send", "hold"], ["send", "resume"], ["send", "halt"]]);
 });
+test("generic control interactions preserve confirmation and send routing", () => {
+  assert.match(machineStatusModuleSource, /function bindDataControlButtons\(/);
+  assert.match(source, /bindDataControlButtons\(\{ bindButtonAction, confirmControl, sendControl \}\)/);
+  assert.doesNotMatch(source, /function bindDataControlButtons\(/);
+  const buttons = [
+    { dataset: { controlAction: "hold" } },
+    { dataset: { controlAction: "recover" } },
+  ];
+  const feature = createMachineStatusFeature({ documentRef: { querySelectorAll: () => buttons } });
+  const handlers = [];
+  const events = [];
+  feature.bindDataControlButtons({
+    bindButtonAction: (button, handler) => handlers.push([button, handler]),
+    confirmControl: (action) => { events.push(["confirm", action]); return action === "hold"; },
+    sendControl: (action) => events.push(["send", action]),
+  });
+  let prevented = 0;
+  handlers.forEach(([, handler]) => handler({ preventDefault: () => { prevented++; } }));
+  assert.equal(prevented, 2);
+  assert.deepEqual(events, [["confirm", "hold"], ["send", "hold"], ["confirm", "recover"]]);
+});
 test("tool interactions route actions and tool selection through the production binder", async () => {
   assert.match(toolActionsModuleSource, /function bindInteractions\(\{ bindButtonAction \} = \{\}\)/);
   assert.match(source, /bindToolInteractions\(\{ bindButtonAction \}\)/);

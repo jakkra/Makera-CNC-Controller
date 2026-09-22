@@ -786,7 +786,7 @@ const {
   toolChangeAttentionDetail, machineReadoutModel, renderMachineReadouts, mountMachineReadouts, haltReason,
   recoveryText, machineActionState, jobControlModel, jobControlLabel, renderJobControls,
   renderMachine, renderAttention, attentionResumeAction, renderToolStatus,
-  renderAlarmPanel, recoveryButtonText, bindMachineControlInteractions, bindAttentionInteractions,
+  renderAlarmPanel, recoveryButtonText, bindMachineControlInteractions, bindDataControlButtons, bindAttentionInteractions,
 } = machineStatus;
 
 const gcodeViewer = mountGcodeViewer({
@@ -2308,16 +2308,6 @@ function confirmControl(action) {
   }
 }
 
-function bindDataControlButtons() {
-  document.querySelectorAll("[data-control-action]").forEach((btn) => {
-    bindButtonAction(btn, (e) => {
-      e.preventDefault();
-      const action = btn.dataset.controlAction;
-      if (confirmControl(action)) sendControl(action);
-    });
-  });
-}
-
 async function loadJogCapabilities() {
   try {
     const r = await request("/api/jog/capabilities");
@@ -3007,7 +2997,7 @@ function init() {
       if (releaseJogInput(true)) renderJog();
     }
   });
-  bindDataControlButtons();
+  bindDataControlButtons({ bindButtonAction, confirmControl, sendControl });
   initCommandPopouts();
   initializeSurfaceMobileOptions();
   window.matchMedia?.("(max-width: 600px)")?.addEventListener?.("change", (e) => initializeSurfaceMobileOptions(e.matches));

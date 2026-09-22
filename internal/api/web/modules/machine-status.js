@@ -487,6 +487,16 @@ function bindMachineControlInteractions({ bindButtonAction, sendControl } = {}) 
   bindButtonAction(document.getElementById("ctl-halt"), () => sendControl("halt"));
 }
 
+function bindDataControlButtons({ bindButtonAction, confirmControl, sendControl } = {}) {
+  document.querySelectorAll("[data-control-action]").forEach((btn) => {
+    bindButtonAction(btn, (e) => {
+      e.preventDefault();
+      const action = btn.dataset.controlAction;
+      if (confirmControl(action)) sendControl(action);
+    });
+  });
+}
+
 function bindAttentionInteractions({ bindButtonAction, showTab, runActiveJobControl, sendControl } = {}) {
   document.getElementById("attention-open-active-job").onclick = () => showTab("active-job");
   bindButtonAction(document.getElementById("attention-resume"), () => {
@@ -507,6 +517,6 @@ function bindAttentionInteractions({ bindButtonAction, showTab, runActiveJobCont
     gcodeToolMetadata, gcodeToolLabel, programToolListModel, renderProgramToolLists, toolChangeTargetLabel, toolChangeAttentionDetail,
     machineReadoutModel, renderMachineReadouts, mountMachineReadouts, haltReason, recoveryText, machineActionState, jobControlModel,
     jobControlLabel, renderJobControls, renderMachine, renderAttention, attentionResumeAction, renderToolStatus,
-    renderAlarmPanel, recoveryButtonText, machineFeedOverrideControlModel, bindMachineControlInteractions, bindAttentionInteractions,
+    renderAlarmPanel, recoveryButtonText, machineFeedOverrideControlModel, bindMachineControlInteractions, bindDataControlButtons, bindAttentionInteractions,
   };
 }

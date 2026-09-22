@@ -1450,6 +1450,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/dashboard-profiles.js", "export function createDashboardProfiles"},
 		{"/modules/machine-status.js", "export function createMachineStatusFeature"},
 		{"/modules/machine-status.js", "bindMachineControlInteractions"},
+		{"/modules/machine-status.js", "bindDataControlButtons"},
 		{"/modules/machine-status.js", "bindAttentionInteractions"},
 		{"/modules/navigation.js", "export function createNavigationFeature"},
 		{"/modules/settings.js", "export function createSettingsFeature"},
