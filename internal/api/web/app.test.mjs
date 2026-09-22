@@ -46,11 +46,13 @@ import { createMachineReconciliation } from "./modules/machine-reconciliation.js
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
 import { movementArmAvailable as movementArmAvailableState, movementArmLabel as movementArmLabelState, syncJogAvailabilityFromMachine as syncJogAvailabilityState } from "./modules/jog.js";
 import { createJogView } from "./modules/jog-view.js";
+import { createJogEventHandler } from "./modules/jog-events.js";
 import { createWorkareaRenderers, displayedFieldProbePoints } from "./modules/workarea-render.js";
 import { cloneFloorProbe, cloneOutlineOrigin, cloneOutlinePoint, defaultOutlineState, defaultWorkAreaView } from "./modules/state-defaults.js";
 import { createAppState } from "./modules/state.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
+const jogEventsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/jog-events.js"), "utf8");
 const filesModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/files.js"), "utf8");
 const activeJobViewModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/active-job-view.js"), "utf8");
 const cameraModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/camera.js"), "utf8");
@@ -544,6 +546,18 @@ function extractConst(name) {
   return m[0].replace(/^export /, "");
 }
 
+const jogEventCallbacks = [
+  "flushQueuedTapMoveArm", "resetJogInputSender", "clearDisarmedMovementState",
+  "clearNotice", "reconcileObservedMachineStatus", "mergeMachineStatusForDisplay",
+  "resolveOutlineCaptureIntent", "tapMoveArmSuccessText", "requestMovementDisarm",
+  "completeCommandDisarm", "finishSurfaceMPGGesture", "setStatusMessage",
+  "beginOriginVerification", "clearOriginVerification", "setOriginFeedback",
+  "handleOriginAck", "completeWorkCoordinateMove", "clearFieldProbeMove",
+  "renderJog", "renderOutlineCapture", "jogErrorText", "tapMoveArmFailureText",
+  "cancelWorkCoordinateMove", "originTargetLabel", "hasPendingOriginOperation",
+  "deferSurfaceMPGMachineRender", "renderSurfaceMPGWheel", "renderMachine",
+];
+
 function buildContext(functionNames, constNames = [], globals = {}) {
   const context = vm.createContext({
     documentRef: globals.document,
@@ -568,8 +582,13 @@ function buildContext(functionNames, constNames = [], globals = {}) {
     exportExtents: exportExtentsDocument,
     ...globals,
   });
-  const code = constNames.map(extractConst).concat(functionNames.map(extractFunction)).join("\n");
+  const includesJogEventHandler = functionNames.includes("applyJogEvent");
+  const code = constNames.map(extractConst).concat(functionNames.filter((name) => name !== "applyJogEvent").map(extractFunction)).join("\n");
   vm.runInContext(code, context);
+  if (includesJogEventHandler) {
+    const callbacks = Object.fromEntries(jogEventCallbacks.map((name) => [name, context[name]]));
+    context.applyJogEvent = createJogEventHandler({ state: context.state, documentRef: context.document, performanceRef: context.performance, callbacks });
+  }
   return context;
 }
 
@@ -6905,8 +6924,7 @@ test("Surface footer ignores transient Run while an armed MPG gesture is held", 
   state.machine.state = "Hold";
   assert.equal(vm.runInContext("surfaceJogDisplayState()", ctx), "Hold");
   assert.equal(vm.runInContext("deferSurfaceMPGMachineRender()", ctx), false, "attention states never defer rendering");
-  const applyJog = extractFunction("applyJogEvent");
-  assert.match(applyJog, /deferSurfaceMPGMachineRender\(\)\) renderSurfaceMPGWheel\(\);/);
+  assert.match(jogEventsModuleSource, /deferSurfaceMPGMachineRender\(\)\) renderSurfaceMPGWheel\(\);/);
   const binding = extractFunction("bindSurfaceMPGWheel");
   assert.match(binding, /lostpointercapture", retainPointerCapture/);
   assert.match(binding, /window\.addEventListener\("pointerup", release\)/);
