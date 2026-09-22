@@ -54,6 +54,7 @@ import { createJogView } from "./modules/jog-view.js";
 import { createJogEventHandler } from "./modules/jog-events.js";
 import { createGamepadControls } from "./modules/gamepad-controls.js";
 import { createSurfaceControls } from "./modules/surface-controls.js";
+import { createSurfaceJogFeature } from "./modules/surface-jog.js";
 import { createWorkAreaInteractions } from "./modules/workarea-interactions.js";
 import { createWorkMoveInteractions } from "./modules/work-move.js";
 import { createFieldProbing } from "./modules/field-probing.js";
@@ -994,6 +995,26 @@ test("responsive control sections are applied by the settings feature", () => {
   assert.match(source, /import \{[\s\S]*initializeResponsiveControlSections,[\s\S]*\} from "\.\/modules\/settings\.js";/);
   assert.match(source, /initializeResponsiveControlSections\(\{ documentRef: document, windowRef: window \}\)/);
   assert.doesNotMatch(source, /function initializeResponsiveControlSections\(/);
+});
+
+test("Surface mobile options own their viewport listener", () => {
+  assert.match(source, /surfaceJogFeature\.bindResponsiveInteractions\(\)/);
+  assert.match(surfaceJogModuleSource, /function bindResponsiveInteractions\(/);
+  assert.doesNotMatch(source, /window\.matchMedia\?\.\("\(max-width: 600px\)"\)\?\.addEventListener\?\.\("change", \(e\) => initializeSurfaceMobileOptions\(e\.matches\)\)/);
+
+  const options = { open: true };
+  let changeHandler;
+  const feature = createSurfaceJogFeature({
+    stateFacade: {},
+    documentRef: { getElementById: (id) => id === "surface-mobile-options" ? options : null },
+    windowRef: {
+      matchMedia: () => ({ matches: true, addEventListener: (_type, handler) => { changeHandler = handler; } }),
+    },
+  });
+  feature.bindResponsiveInteractions();
+  assert.equal(options.open, false);
+  changeHandler({ matches: false });
+  assert.equal(options.open, true);
 });
 
 function extractFunction(name) {

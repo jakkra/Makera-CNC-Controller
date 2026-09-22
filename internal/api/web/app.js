@@ -403,7 +403,7 @@ const {
   surfaceJogDisplayState, deferSurfaceMPGMachineRender,
   renderSurfaceJog, renderSurfaceMPGWheel, surfaceQuickActionState,
   renderSurfaceQuickActions, surfaceJogOptionsSummary,
-  initializeSurfaceMobileOptions, selectSurfaceJogMethod,
+  selectSurfaceJogMethod,
   selectSurfaceMPGAxis, selectSurfaceStep, selectSurfaceMotion,
   surfaceStepDistance, surfaceStepUnit,
 } = surfaceJogFeature;
@@ -2920,8 +2920,7 @@ function init() {
   workAreaInteractions.bindLifecycleInteractions({ mobileWorkAreaJogEnabled, releaseJogInput, renderJog });
   bindDataControlButtons({ bindButtonAction, confirmControl, sendControl });
   bindCommandUIInteractions();
-  initializeSurfaceMobileOptions();
-  window.matchMedia?.("(max-width: 600px)")?.addEventListener?.("change", (e) => initializeSurfaceMobileOptions(e.matches));
+  surfaceJogFeature.bindResponsiveInteractions();
   window.matchMedia?.("(min-width: 1320px)")?.addEventListener?.("change", () => applyDashboardProfile(currentDashboardProfile()));
   bindJogArmInteractions({ bindButtonAction, toggleTapMoveArm });
   surfaceControls.init();

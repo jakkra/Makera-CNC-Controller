@@ -235,6 +235,11 @@ export function createSurfaceJogFeature({
     if (options) options.open = !isMobile;
   }
 
+  function bindResponsiveInteractions({ initializeSurfaceMobileOptions: initialize = initializeSurfaceMobileOptions } = {}) {
+    initialize();
+    window?.matchMedia?.("(max-width: 600px)")?.addEventListener?.("change", (event) => initialize(event.matches));
+  }
+
   function selectSurfaceJogMethod(method) {
     state.surface.method = method === "mpg" ? "mpg" : "directional";
     if (window?.matchMedia?.("(max-width: 600px)")?.matches) {
@@ -282,6 +287,7 @@ export function createSurfaceJogFeature({
     renderSurfaceQuickActions,
     surfaceJogOptionsSummary,
     initializeSurfaceMobileOptions,
+    bindResponsiveInteractions,
     selectSurfaceJogMethod,
     selectSurfaceMPGAxis,
     selectSurfaceStep,
