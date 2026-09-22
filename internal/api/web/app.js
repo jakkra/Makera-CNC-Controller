@@ -27,6 +27,7 @@ import { createJogView } from "./modules/jog-view.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
 import { createSurfaceJogFeature, loadSurfaceViewPreferences, saveSurfaceViewPreferences as persistSurfaceViewPreferences, isSurfaceKiosk } from "./modules/surface-jog.js";
 import { createSurfaceRouting } from "./modules/surface-routing.js";
+import { createMachineReconciliation } from "./modules/machine-reconciliation.js";
 import { createOutlineFeature, workPointToMachinePoint } from "./modules/outline.js";
 import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
 import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dxf.js";
@@ -97,7 +98,6 @@ const GCODE_SEGMENT_PAGE_SIZE = 5000;
 const ACTIVE_JOB_SPLIT_DEFAULT_PERCENT = DEFAULT_ACTIVE_JOB_SPLIT_PERCENT;
 const VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files", "maintenance", "attention"];
 const NAV_VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files"];
-const JOG_PREDICTION_TOLERANCE_MM = 0.02;
 const MOBILE_WORKAREA_MAX_WIDTH_PX = 600;
 const MOBILE_JOG_RADIUS_MIN_PX = 56;
 const MOBILE_JOG_RADIUS_MAX_PX = 88;
@@ -137,6 +137,7 @@ const state = createAppState({
   defaultWorkAreaView,
   activeJobSplitDefaultPercent: ACTIVE_JOB_SPLIT_DEFAULT_PERCENT,
 });
+const machineReconciliation = createMachineReconciliation({ getState: () => state, performanceRef: performance, axisValue });
 
 const gcodeLog = createGcodeLogFeature({
   documentRef: document,
@@ -4169,15 +4170,8 @@ function applyJogEvent(ev) {
   }
 }
 
-function jogMotionAwaitingSettlement() {
-  return !!state.jog.motionRevisionKnown &&
-    Number(state.jog.motionRevision || 0) > Number(state.jog.settledMotionRevision || 0);
-}
-
-function jogEstimateActive() {
-  return !!state.jog.estimated &&
-    (jogMotionAwaitingSettlement() || Number(state.jog.estimatedUntil) > performance.now());
-}
+function jogMotionAwaitingSettlement() { return machineReconciliation.jogMotionAwaitingSettlement(); }
+function jogEstimateActive() { return machineReconciliation.jogEstimateActive(); }
 
 function currentGamepad() {
   if (!navigator.getGamepads) return null;
@@ -4361,56 +4355,9 @@ function setActiveJobSplitPercent(...args) { return activeJobLayout?.setActiveJo
 function bindActiveJobSplitter(...args) { return activeJobLayout?.bindActiveJobSplitter(...args); }
 
 
-function mergeMachineStatusForDisplay(next) {
-  if (!jogEstimateActive()) return next;
-  return {
-    ...next,
-    mpos: state.machine.mpos,
-    wpos: state.machine.wpos,
-    motion_estimated: !!state.machine.motion_estimated,
-  };
-}
-
-function shouldPreserveJogPrediction(next) {
-  if (!next?.mpos || !jogEstimateActive()) return false;
-  if (state.jog.motionRevisionKnown && !jogMotionAwaitingSettlement()) return false;
-  if (next.state && next.state !== "Idle" && next.state !== "Run") return false;
-  const predicted = state.jog.mpos;
-  if (!predicted) return false;
-  const target = state.jog.target || predicted;
-  let predictionIsAhead = false;
-  for (const axis of ["x", "y", "z"]) {
-    const observedAxis = axisValue(next.mpos, axis);
-    const predictedAxis = axisValue(predicted, axis);
-    if (observedAxis === null || predictedAxis === null) continue;
-    if (Math.abs(predictedAxis - observedAxis) <= JOG_PREDICTION_TOLERANCE_MM) continue;
-    const targetAxis = axisValue(target, axis);
-    if (targetAxis === null) {
-      predictionIsAhead = true;
-      continue;
-    }
-    const predictedRemaining = targetAxis - predictedAxis;
-    const observedRemaining = targetAxis - observedAxis;
-    const sameApproachSide = Math.abs(predictedRemaining) <= JOG_PREDICTION_TOLERANCE_MM ||
-      Math.sign(observedRemaining) === Math.sign(predictedRemaining);
-    if (sameApproachSide && Math.abs(observedRemaining) > Math.abs(predictedRemaining) + JOG_PREDICTION_TOLERANCE_MM) {
-      predictionIsAhead = true;
-    }
-  }
-  return predictionIsAhead;
-}
-
-function reconcileObservedMachineStatus(next) {
-  if (!next) return next;
-  state.jog.observed = next.mpos || state.jog.observed;
-  if (next.mpos && !shouldPreserveJogPrediction(next)) {
-    state.jog.mpos = next.mpos;
-    state.jog.wpos = next.wpos || state.jog.wpos;
-    state.jog.estimated = false;
-    state.jog.estimatedUntil = 0;
-  }
-  return mergeMachineStatusForDisplay(next);
-}
+function mergeMachineStatusForDisplay(...args) { return machineReconciliation.mergeMachineStatusForDisplay(...args); }
+function shouldPreserveJogPrediction(...args) { return machineReconciliation.shouldPreserveJogPrediction(...args); }
+function reconcileObservedMachineStatus(...args) { return machineReconciliation.reconcileObservedMachineStatus(...args); }
 
 function initializeResponsiveControlSections(isMobile = window.matchMedia?.("(max-width: 600px)")?.matches === true) {
   const sections = [

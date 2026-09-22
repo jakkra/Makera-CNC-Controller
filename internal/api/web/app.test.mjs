@@ -41,6 +41,7 @@ import { createProbeConfirmation } from "./modules/probe-confirm.js";
 import { createNavigationFeature, viewTabFromURL, syncViewTabURL } from "./modules/navigation.js";
 import { defaultSurfaceViewPreferences, isSurfaceKiosk, loadSurfaceViewPreferences, saveSurfaceViewPreferences, surfaceJogOptionsSummary, surfaceQuickActionState, surfaceStepDistance, surfaceStepUnit } from "./modules/surface-jog.js";
 import { createSurfaceRouting, externalJobState } from "./modules/surface-routing.js";
+import { createMachineReconciliation } from "./modules/machine-reconciliation.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
 import { movementArmAvailable as movementArmAvailableState, movementArmLabel as movementArmLabelState, syncJogAvailabilityFromMachine as syncJogAvailabilityState } from "./modules/jog.js";
 import { createJogView } from "./modules/jog-view.js";
@@ -4812,6 +4813,7 @@ test("an early outline point request remains latched until its motion revision s
       lastInput: null,
     },
   };
+  const machineReconciliation = createMachineReconciliation({ getState: () => state, performanceRef: { now: () => clock.value } });
   const ctx = buildContext([
     "axisValue",
     "finiteOr",
@@ -4830,6 +4832,7 @@ test("an early outline point request remains latched until its motion revision s
     state,
     clock,
     performance: { now: () => clock.value },
+    machineReconciliation,
     tapMoveTargetBusy: () => false,
     jogInputActive: () => false,
     hasPendingOriginOperation: () => false,
@@ -5325,6 +5328,29 @@ test("work-area spindle never falls back to the raw pre-jog observation", () => 
   });
 });
 
+function jogStatusContext(state, now) {
+  const reconciliation = createMachineReconciliation({
+    getState: () => state,
+    performanceRef: { now: () => now },
+    axisValue: (values, axis) => Number.isFinite(Number(values?.[axis])) ? Number(values[axis]) : null,
+  });
+  return buildContext([
+    "surfaceMPGGestureActive",
+    "deferSurfaceMPGMachineRender",
+    "applyJogEvent",
+  ], [], {
+    state,
+    performance: { now: () => now },
+    clearNotice: () => {},
+    renderMachine: () => {},
+    renderJog: () => {},
+    jogMotionAwaitingSettlement: (...args) => reconciliation.jogMotionAwaitingSettlement(...args),
+    jogEstimateActive: (...args) => reconciliation.jogEstimateActive(...args),
+    mergeMachineStatusForDisplay: (...args) => reconciliation.mergeMachineStatusForDisplay(...args),
+    shouldPreserveJogPrediction: (...args) => reconciliation.shouldPreserveJogPrediction(...args),
+    reconcileObservedMachineStatus: (...args) => reconciliation.reconcileObservedMachineStatus(...args),
+  });
+}
 test("lagging jog status does not pull an active prediction backward", () => {
   const state = {
     jog: {
@@ -5348,23 +5374,7 @@ test("lagging jog status does not pull an active prediction backward", () => {
       motion_estimated: true,
     },
   };
-  const ctx = buildContext([
-    "axisValue",
-    "jogMotionAwaitingSettlement",
-    "jogEstimateActive",
-    "shouldPreserveJogPrediction",
-    "mergeMachineStatusForDisplay",
-    "reconcileObservedMachineStatus",
-    "surfaceMPGGestureActive",
-    "deferSurfaceMPGMachineRender",
-    "applyJogEvent",
-  ], ["JOG_PREDICTION_TOLERANCE_MM"], {
-    state,
-    performance: { now: () => 600 },
-    clearNotice: () => {},
-    renderMachine: () => {},
-    renderJog: () => {},
-  });
+  const ctx = jogStatusContext(state, 600);
   vm.runInContext(
     "applyJogEvent({ type: 'status', status: { state: 'Idle', age_ms: 0, mpos: { x: 1.5, y: 2, z: 3 }, wpos: { x: 1.5, y: 2, z: 3 } } })",
     ctx,
@@ -5391,23 +5401,7 @@ test("jog status replaces a prediction once the machine catches up", () => {
     },
     machine: { state: "Run", mpos: { x: 4, y: 2, z: 3 }, wpos: { x: 4, y: 2, z: 3 }, motion_estimated: true },
   };
-  const ctx = buildContext([
-    "axisValue",
-    "jogMotionAwaitingSettlement",
-    "jogEstimateActive",
-    "shouldPreserveJogPrediction",
-    "mergeMachineStatusForDisplay",
-    "reconcileObservedMachineStatus",
-    "surfaceMPGGestureActive",
-    "deferSurfaceMPGMachineRender",
-    "applyJogEvent",
-  ], ["JOG_PREDICTION_TOLERANCE_MM"], {
-    state,
-    performance: { now: () => 100 },
-    clearNotice: () => {},
-    renderMachine: () => {},
-    renderJog: () => {},
-  });
+  const ctx = jogStatusContext(state, 100);
   vm.runInContext(
     "applyJogEvent({ type: 'status', status: { state: 'Run', age_ms: 0, mpos: { x: 4.01, y: 2, z: 3 }, wpos: { x: 4.01, y: 2, z: 3 } } })",
     ctx,
@@ -5434,23 +5428,7 @@ test("an expired jog prediction yields to a position that never caught up", () =
     },
     machine: { state: "Run", mpos: { x: 4, y: 2, z: 3 }, wpos: { x: 4, y: 2, z: 3 }, motion_estimated: true },
   };
-  const ctx = buildContext([
-    "axisValue",
-    "jogMotionAwaitingSettlement",
-    "jogEstimateActive",
-    "shouldPreserveJogPrediction",
-    "mergeMachineStatusForDisplay",
-    "reconcileObservedMachineStatus",
-    "surfaceMPGGestureActive",
-    "deferSurfaceMPGMachineRender",
-    "applyJogEvent",
-  ], ["JOG_PREDICTION_TOLERANCE_MM"], {
-    state,
-    performance: { now: () => 600 },
-    clearNotice: () => {},
-    renderMachine: () => {},
-    renderJog: () => {},
-  });
+  const ctx = jogStatusContext(state, 600);
   vm.runInContext(
     "applyJogEvent({ type: 'status', status: { state: 'Idle', age_ms: 0, mpos: { x: 1.5, y: 2, z: 3 }, wpos: { x: 1.5, y: 2, z: 3 } } })",
     ctx,

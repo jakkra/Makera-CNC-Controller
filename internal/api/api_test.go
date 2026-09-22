@@ -1379,7 +1379,7 @@ func TestWebUIServed(t *testing.T) {
 			t.Errorf("modules/files.js missing %s (status=%d)", want, filesModule.StatusCode)
 		}
 	}
-	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`, `from "./modules/active-job-layout.js"`, `from "./modules/active-job-view.js"`, `from "./modules/camera.js"`, `from "./modules/dashboard-telemetry.js"`, `from "./modules/dashboard-view.js"`, `from "./modules/gcode-log.js"`, `from "./modules/navigation.js"`, `from "./modules/surface-routing.js"`, `from "./modules/outline-io.js"`, `from "./modules/outline-capture.js"`, `from "./modules/outline-dxf.js"`, `from "./modules/outline-files.js"`, `from "./modules/height-export.js"`, `from "./modules/height-mesh.js"`, `from "./modules/height-triangulation.js"`, `from "./modules/command-ui.js"`, `from "./modules/workarea-jog.js"`, `from "./modules/jog.js"`, `from "./modules/jog-view.js"`, `from "./modules/state.js"`} {
+	for _, want := range []string{`from "./modules/api.js"`, `from "./modules/dom.js"`, `from "./modules/format.js"`, `from "./modules/maintenance.js"`, `from "./modules/files.js"`, `from "./modules/active-job.js"`, `from "./modules/active-job-layout.js"`, `from "./modules/active-job-view.js"`, `from "./modules/camera.js"`, `from "./modules/dashboard-telemetry.js"`, `from "./modules/dashboard-view.js"`, `from "./modules/gcode-log.js"`, `from "./modules/navigation.js"`, `from "./modules/surface-routing.js"`, `from "./modules/machine-reconciliation.js"`, `from "./modules/outline-io.js"`, `from "./modules/outline-capture.js"`, `from "./modules/outline-dxf.js"`, `from "./modules/outline-files.js"`, `from "./modules/height-export.js"`, `from "./modules/height-mesh.js"`, `from "./modules/height-triangulation.js"`, `from "./modules/command-ui.js"`, `from "./modules/workarea-jog.js"`, `from "./modules/jog.js"`, `from "./modules/jog-view.js"`, `from "./modules/state.js"`} {
 		if !strings.Contains(string(jsBody), want) {
 			t.Errorf("app.js missing shared module import %s", want)
 		}
@@ -1397,6 +1397,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/active-job.js", "export function mountActiveJobSelection"},
 		{"/modules/active-job-layout.js", "export function createActiveJobLayout"},
 		{"/modules/surface-routing.js", "export function createSurfaceRouting"},
+		{"/modules/machine-reconciliation.js", "export function createMachineReconciliation"},
 		{"/modules/active-job.js", "export function mountActiveJobLoader"},
 		{"/modules/active-job.js", "export function mountActiveJobRunner"},
 		{"/modules/active-job.js", "export function mountActiveJobControl"},
