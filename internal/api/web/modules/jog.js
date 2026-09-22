@@ -56,7 +56,7 @@ export function movementArmLabel(jog = {}) {
   return "Arm Movement";
 }
 
-export function createJogFeature({ jogState, surfaceState, documentRef = globalThis.document, windowRef = globalThis, WebSocketCtor = windowRef.WebSocket, performanceRef = globalThis.performance, setTimeoutRef = globalThis.setTimeout, clearTimeoutRef = globalThis.clearTimeout, renderJog, renderMachine, renderSurfaceMPGWheel, setStatusMessage, applyJogEvent, failOutlineCaptureIntents, completeCommandDisarm, cancelWorkCoordinateMove, clearFieldProbeMove, hasPendingOriginOperation, originTargetLabel, clearOriginVerification, setOriginFeedback, tapMoveArmFailureText, connectURL = null, clampAxis: clampAxisRef, currentGamepad, mappedAxis, buttonStates, buttonPressed, gamepadLabel, captureGamepadOutlineButton, handleGamepadOutlineButton, handleGamepadMacroButtons, sameButtonStates, resetMobileWorkAreaJog, getWorkarea, getUI, surfaceJogReady, sendSurfaceStep } = {}) {
+export function createJogFeature({ jogState, surfaceState, documentRef = globalThis.document, windowRef = globalThis, WebSocketCtor = windowRef.WebSocket, performanceRef = globalThis.performance, setTimeoutRef = globalThis.setTimeout, clearTimeoutRef = globalThis.clearTimeout, renderJog, renderMachine, renderSurfaceMPGWheel, setStatusMessage, applyJogEvent, failOutlineCaptureIntents, completeCommandDisarm, cancelWorkCoordinateMove, clearFieldProbeMove, hasPendingOriginOperation, originTargetLabel, clearOriginVerification, setOriginFeedback, tapMoveArmFailureText, connectURL = null, clampAxis: clampAxisRef, currentGamepad, mappedAxis, buttonStates, buttonPressed, gamepadLabel, captureGamepadOutlineButton, handleGamepadOutlineButton, handleGamepadMacroButtons, sameButtonStates, resetMobileWorkAreaJog, getWorkarea, getUI, surfaceJogReady, sendSurfaceStep, stepZ } = {}) {
   const state = { jog: jogState, surface: surfaceState, get ui() { return getUI?.() || {}; }, get workarea() { return getWorkarea?.() || {}; } }; const document = documentRef; const window = windowRef; const WebSocket = WebSocketCtor; const performance = performanceRef; const setTimeout = setTimeoutRef; const clearTimeout = clearTimeoutRef; const setStatus = setStatusMessage; const clampAxis = clampAxisRef || ((v) => Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0); const SURFACE_MPG_AUDIO_LOOKAHEAD_S = 0.01; const AudioContextCtor = windowRef.AudioContext || windowRef.webkitAudioContext; const navigatorRef = windowRef.navigator; let surfaceMPGAudioContext = null; let surfaceMPGAudioResume = null; let surfaceMPGNextClickTime = 0; let surfaceMPGFeedbackTimer = null;
   function jogURL() { return connectURL || ((window.location?.protocol === "https:" ? "wss:" : "ws:") + "//" + window.location?.host + "/api/jog/ws"); }
   function clearJogReconnect() { if (state.jog.reconnectTimer) { clearTimeout(state.jog.reconnectTimer); state.jog.reconnectTimer = null; } }
@@ -557,6 +557,11 @@ export function createJogFeature({ jogState, surfaceState, documentRef = globalT
       renderSurfaceMPGWheel();
     });
   }
-  return { connectJog, disableJogConnection, scheduleJogReconnect, resetJogInputSender, sendJogInput, sendJog, sampleJog, releaseJogInput, scheduleJogSample, finishSurfaceMPGGesture, bindSurfaceMPGWheel, cleanup() { releaseJogInput(true); disableJogConnection(); } };
+  function bindZStepInteractions({ bindButtonAction, stepZ: stepZHandler = stepZ } = {}) {
+    for (const btn of document.querySelectorAll("[data-z-step-dir]")) {
+      bindButtonAction(btn, () => stepZHandler(Number(btn.dataset.zStepDir) || 1));
+    }
+  }
+  return { connectJog, disableJogConnection, scheduleJogReconnect, resetJogInputSender, sendJogInput, sendJog, sampleJog, releaseJogInput, scheduleJogSample, finishSurfaceMPGGesture, bindSurfaceMPGWheel, bindZStepInteractions, cleanup() { releaseJogInput(true); disableJogConnection(); } };
 }
 

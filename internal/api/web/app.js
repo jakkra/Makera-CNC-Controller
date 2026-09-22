@@ -458,11 +458,11 @@ const jogFeature = createJogFeature({
   getUI: () => state.ui,
   getWorkarea: () => state.workarea,
   surfaceJogReady,
-  sendSurfaceStep,
+  sendSurfaceStep, stepZ,
 });
 const {
   connectJog, disableJogConnection, scheduleJogReconnect, sendJogInput, sendJog,
-  sampleJog, releaseJogInput, scheduleJogSample, bindSurfaceMPGWheel,
+  sampleJog, releaseJogInput, scheduleJogSample, bindSurfaceMPGWheel, bindZStepInteractions,
 } = jogFeature;
 
 const surfaceControls = createSurfaceControls({
@@ -2982,9 +2982,7 @@ function init() {
   }
   bindButtonAction(document.getElementById("work-move-send"), sendWorkCoordinateMove);
   document.getElementById("tap-safe-z-enabled").onchange = updateSafeZToggle;
-  for (const btn of document.querySelectorAll("[data-z-step-dir]")) {
-    bindButtonAction(btn, () => stepZ(Number(btn.dataset.zStepDir) || 1));
-  }
+  bindZStepInteractions({ bindButtonAction, stepZ });
   for (const btn of document.querySelectorAll("[data-origin-zero]")) {
     bindButtonAction(btn, () => setOriginAxis(btn.dataset.originZero));
   }

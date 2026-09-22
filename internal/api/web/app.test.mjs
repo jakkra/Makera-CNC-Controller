@@ -44,7 +44,7 @@ import { createSurfaceRouting, externalJobState } from "./modules/surface-routin
 import { createSurfaceShell } from "./modules/surface-shell.js";
 import { createMachineReconciliation } from "./modules/machine-reconciliation.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
-import { movementArmAvailable as movementArmAvailableState, movementArmLabel as movementArmLabelState, syncJogAvailabilityFromMachine as syncJogAvailabilityState } from "./modules/jog.js";
+import { createJogFeature, movementArmAvailable as movementArmAvailableState, movementArmLabel as movementArmLabelState, syncJogAvailabilityFromMachine as syncJogAvailabilityState } from "./modules/jog.js";
 import { createJogView } from "./modules/jog-view.js";
 import { createJogEventHandler } from "./modules/jog-events.js";
 import { createGamepadControls } from "./modules/gamepad-controls.js";
@@ -235,6 +235,12 @@ test("feed step interactions are wired through the settings feature binder", () 
   assert.match(settingsModuleSource, /Number\(btn\.dataset\.feedStep\) \|\| 0/);
   assert.match(source, /bindFeedStepInteractions\(\)/);
   assert.doesNotMatch(source, /querySelectorAll\("\[data-feed-step\]"\)/);
+});
+
+test("Z step interactions are wired through the Jog feature", () => {
+  assert.match(jogModuleSource, /function bindZStepInteractions\(/);
+  assert.match(source, /bindZStepInteractions\(\{ bindButtonAction, stepZ \}\)/);
+  assert.doesNotMatch(source, /querySelectorAll\("\[data-z-step-dir\]"\)/);
 });
 test("shared helpers are imported as production ES modules", async () => {
   assert.match(source, /import \{ createGamepadControls \} from "\.\/modules\/gamepad-controls\.js";/);
@@ -6243,6 +6249,32 @@ test("mobile work-area taps never become absolute spindle targets", () => {
   ctx.window.innerWidth = 900;
   vm.runInContext("handleWorkAreaTap(local)", ctx);
   assert.equal(targets, 1, "desktop click-to-target behavior remains available");
+});
+
+test("Jog feature Z step binder preserves direction and fallback", () => {
+  const buttons = [
+    { dataset: { zStepDir: "1" } },
+    { dataset: { zStepDir: "-1" } },
+    { dataset: { zStepDir: "invalid" } },
+  ];
+  const feature = createJogFeature({
+    jogState: {},
+    surfaceState: {},
+    documentRef: { querySelectorAll: (selector) => {
+      assert.equal(selector, "[data-z-step-dir]");
+      return buttons;
+    } },
+    windowRef: {},
+  });
+  const bindings = [];
+  const steps = [];
+  feature.bindZStepInteractions({
+    bindButtonAction: (button, action) => bindings.push([button, action]),
+    stepZ: (direction) => steps.push(direction),
+  });
+  assert.equal(bindings.length, 3);
+  bindings.forEach(([, action]) => action());
+  assert.deepEqual(steps, [1, -1, 1]);
 });
 
 test("Work Area zoom buttons are bound by the interactions feature", () => {
