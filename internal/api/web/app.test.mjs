@@ -176,13 +176,21 @@ const htmlSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "i
 
 test("G-code log actions are wired to the production feature module", () => {
   assert.match(source, /import \{ createGcodeLogFeature \} from "\.\/modules\/gcode-log\.js";/);
-  assert.match(gcodeLogModuleSource, /appendGcodeLine,\s*appendGcodeLineElement,\s*copyVisibleLog,\s*exportVisibleLog/);
+  assert.match(gcodeLogModuleSource, /appendGcodeLine,\s*appendGcodeLineElement,\s*bindInteractions,\s*copyVisibleLog,\s*exportVisibleLog/);
+  assert.match(gcodeLogModuleSource, /function bindInteractions\(/);
+  assert.match(gcodeLogModuleSource, /documentRef\.getElementById\("log-copy"\)\.onclick = copyVisibleLogHandler/);
+  assert.match(gcodeLogModuleSource, /documentRef\.getElementById\("log-export"\)\.onclick = exportVisibleLogHandler/);
+  assert.match(gcodeLogModuleSource, /documentRef\.getElementById\("log-clear"\)\.onclick = clearGcodeLogHandler/);
+  assert.match(source, /bindGcodeLogInteractions\(\{ copyVisibleLog, exportVisibleLog, clearGcodeLog \}\)/);
+  assert.doesNotMatch(source, /document\.getElementById\("log-filter"\)\.onchange/);
+  assert.doesNotMatch(source, /document\.getElementById\("log-search"\)\.oninput/);
+  assert.doesNotMatch(source, /document\.getElementById\("log-clear"\)\.onclick = clearGcodeLog/);
   assert.match(source, /appendGcodeLine\(ln\) \{ return appendGcodeLineOperation\(ln\); \}/);
   assert.match(source, /copyVisibleLog\(\) \{ return copyVisibleLogOperation\(\); \}/);
   assert.match(source, /exportVisibleLog\(\) \{ return exportVisibleLogOperation\(\); \}/);
   assert.match(source, /getPaused: \(\) => state\.logPaused/);
-  assert.match(source, /document\.getElementById\("log-copy"\)\.onclick = copyVisibleLog/);
-  assert.match(source, /document\.getElementById\("log-export"\)\.onclick = exportVisibleLog/);
+  assert.doesNotMatch(source, /document\.getElementById\("log-copy"\)\.onclick = copyVisibleLog/);
+  assert.doesNotMatch(source, /document\.getElementById\("log-export"\)\.onclick = exportVisibleLog/);
 });
 
 test("backup actions are wired to the production feature module", () => {

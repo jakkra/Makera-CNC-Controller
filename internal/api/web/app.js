@@ -161,6 +161,11 @@ const gcodeLog = createGcodeLogFeature({
   getSearch: () => state.logSearch,
   getAutoscroll: () => state.ui.log.autoscroll !== false,
   getPaused: () => state.logPaused,
+  setFilter: (value) => { state.logFilter = value; state.ui.log.filter = value; },
+  setSearch: (value) => { state.logSearch = value; },
+  setAutoscroll: (value) => { state.ui.log.autoscroll = value; },
+  setPaused: (value) => { state.logPaused = value; },
+  queueSaveUISettings: (...args) => queueSaveUISettings(...args),
   maxLines: GCODE_MAX_LINES,
   escapeHtml,
 });
@@ -168,6 +173,7 @@ const {
   appendGcodeLine: appendGcodeLineOperation,
   copyVisibleLog: copyVisibleLogOperation,
   exportVisibleLog: exportVisibleLogOperation,
+  bindInteractions: bindGcodeLogInteractions,
   clearGcodeLog,
   renderGcodeLog,
 } = gcodeLog;
@@ -2952,27 +2958,7 @@ function init() {
   filesFeature.mount();
 
   bindCommandInteractions({ submitGcode, navigateCommandHistory });
-  document.getElementById("log-filter").onchange = (e) => {
-    state.logFilter = e.target.value;
-    state.ui.log.filter = state.logFilter;
-    queueSaveUISettings();
-    renderGcodeLog();
-  };
-  document.getElementById("log-search").oninput = (e) => {
-    state.logSearch = e.target.value;
-    renderGcodeLog();
-  };
-  document.getElementById("log-autoscroll").onchange = (e) => {
-    state.ui.log.autoscroll = e.target.checked;
-    queueSaveUISettings();
-  };
-  document.getElementById("log-pause").onchange = (e) => {
-    state.logPaused = e.target.checked;
-    if (!state.logPaused) renderGcodeLog();
-  };
-  document.getElementById("log-copy").onclick = copyVisibleLog;
-  document.getElementById("log-export").onclick = exportVisibleLog;
-  document.getElementById("log-clear").onclick = clearGcodeLog;
+  bindGcodeLogInteractions({ copyVisibleLog, exportVisibleLog, clearGcodeLog });
   backupFeature.bindInteractions({ exportBackup, importBackupFile });
   document.getElementById("macro-new").onclick = newMacro;
   document.getElementById("macro-save").onclick = saveMacroFromForm;

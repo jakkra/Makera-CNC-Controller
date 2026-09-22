@@ -1423,6 +1423,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/gcode-log.js", "appendGcodeLine"},
 		{"/modules/gcode-log.js", "async function copyVisibleLog"},
 		{"/modules/gcode-log.js", "function exportVisibleLog"},
+		{"/modules/gcode-log.js", "function bindInteractions"},
 		{"/modules/backup.js", "export function createBackupFeature"},
 		{"/modules/backup.js", "Backup imported; reloading..."},
 		{"/modules/mdi-macros.js", "function bindCommandInteractions"},

@@ -43,6 +43,11 @@ export function createGcodeLogFeature({
   getSearch = () => "",
   getAutoscroll = () => true,
   getPaused = () => false,
+  setFilter = () => {},
+  setSearch = () => {},
+  setAutoscroll = () => {},
+  setPaused = () => {},
+  queueSaveUISettings = () => {},
   maxLines = 500,
   escapeHtml = (value) => String(value ?? ""),
 } = {}) {
@@ -106,6 +111,34 @@ export function createGcodeLogFeature({
     a.remove();
     setTimeoutRef(() => URLRef.revokeObjectURL(a.href), 1000);
   }
+
+  function bindInteractions({
+    copyVisibleLog: copyVisibleLogHandler = copyVisibleLog,
+    exportVisibleLog: exportVisibleLogHandler = exportVisibleLog,
+    clearGcodeLog: clearGcodeLogHandler = clearGcodeLog,
+  } = {}) {
+    documentRef.getElementById("log-filter").onchange = (e) => {
+      setFilter(e.target.value);
+      queueSaveUISettings();
+      renderGcodeLog();
+    };
+    documentRef.getElementById("log-search").oninput = (e) => {
+      setSearch(e.target.value);
+      renderGcodeLog();
+    };
+    documentRef.getElementById("log-autoscroll").onchange = (e) => {
+      setAutoscroll(e.target.checked);
+      queueSaveUISettings();
+    };
+    documentRef.getElementById("log-pause").onchange = (e) => {
+      setPaused(e.target.checked);
+      if (!e.target.checked) renderGcodeLog();
+    };
+    documentRef.getElementById("log-copy").onclick = copyVisibleLogHandler;
+    documentRef.getElementById("log-export").onclick = exportVisibleLogHandler;
+    documentRef.getElementById("log-clear").onclick = clearGcodeLogHandler;
+  }
+
   function renderGcodeLog() {
     const log = logElement();
     if (!log) return;
@@ -128,6 +161,7 @@ export function createGcodeLogFeature({
   return {
     appendGcodeLine,
     appendGcodeLineElement,
+    bindInteractions,
     copyVisibleLog,
     exportVisibleLog,
     clearGcodeLog,

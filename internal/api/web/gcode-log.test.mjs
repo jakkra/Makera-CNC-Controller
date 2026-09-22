@@ -183,3 +183,63 @@ test("export visible log preserves NDJSON bytes, filename, MIME type, and delaye
   action.exported.timer();
   assert.deepEqual(action.exported.revoked, ["blob:log"]);
 });
+
+test("gcode log binder preserves filter, search, pause, autoscroll, and action handlers", () => {
+  const dom = fakeDocument();
+  const controls = new Map([
+    ["log-filter", {}],
+    ["log-search", {}],
+    ["log-autoscroll", {}],
+    ["log-pause", {}],
+    ["log-copy", {}],
+    ["log-export", {}],
+    ["log-clear", {}],
+  ]);
+  const documentRef = {
+    getElementById(id) { return controls.get(id) || dom.documentRef.getElementById(id); },
+    createElement: dom.documentRef.createElement,
+  };
+  let filter = "all";
+  let search = "";
+  let autoscroll = true;
+  let paused = false;
+  const events = [];
+  const feature = createGcodeLogFeature({
+    documentRef,
+    getLines: () => lines,
+    getFilter: () => filter,
+    getSearch: () => search,
+    getAutoscroll: () => autoscroll,
+    getPaused: () => paused,
+    setFilter: (value) => { filter = value; events.push(["filter", value]); },
+    setSearch: (value) => { search = value; events.push(["search", value]); },
+    setAutoscroll: (value) => { autoscroll = value; events.push(["autoscroll", value]); },
+    setPaused: (value) => { paused = value; events.push(["paused", value]); },
+    queueSaveUISettings: () => events.push(["save"]),
+  });
+  const actions = {
+    copyVisibleLog: () => events.push(["copy"]),
+    exportVisibleLog: () => events.push(["export"]),
+    clearGcodeLog: () => events.push(["clear"]),
+  };
+  feature.bindInteractions(actions);
+
+  controls.get("log-filter").onchange({ target: { value: "error" } });
+  controls.get("log-search").oninput({ target: { value: "alarm" } });
+  controls.get("log-autoscroll").onchange({ target: { checked: false } });
+  controls.get("log-pause").onchange({ target: { checked: true } });
+  controls.get("log-pause").onchange({ target: { checked: false } });
+  controls.get("log-copy").onclick();
+  controls.get("log-export").onclick();
+  controls.get("log-clear").onclick();
+
+  assert.equal(filter, "error");
+  assert.equal(search, "alarm");
+  assert.equal(autoscroll, false);
+  assert.equal(paused, false);
+  assert.deepEqual(events, [
+    ["filter", "error"], ["save"], ["search", "alarm"],
+    ["autoscroll", false], ["save"], ["paused", true], ["paused", false],
+    ["copy"], ["export"], ["clear"],
+  ]);
+});
