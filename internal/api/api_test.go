@@ -1472,6 +1472,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/gamepad-controls.js", "export function createGamepadControls"},
 		{"/modules/surface-controls.js", "export function createSurfaceControls"},
 		{"/modules/workarea-interactions.js", "export function createWorkAreaInteractions"},
+		{"/modules/workarea-interactions.js", "bindZoomInteractions"},
 		{"/modules/field-probing.js", "export function createFieldProbing"},
 		{"/modules/field-probing.js", "function moveToSelectedFieldProbePoint()"},
 		{"/modules/field-probing.js", "function updateSelectedFieldProbeDrag(local)"},

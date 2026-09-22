@@ -8,7 +8,7 @@ export function createWorkAreaInteractions({ state, documentRef = globalThis.doc
     workAreaSVGPointFromClient, selectedFieldProbePoint, updateWorkAreaHoverPosition,
     updateSelectedFieldProbeDrag, panWorkArea, finishSelectedFieldProbeMove,
     selectFieldProbePoint, hideWorkAreaHoverPosition, restoreSelectedFieldProbePosition,
-    renderWorkArea, zoomWorkArea, moveSelectedFieldProbePointBy,
+    renderWorkArea, zoomWorkArea, resetWorkAreaView, moveSelectedFieldProbePointBy,
   } = callbacks;
 
   function handleWorkAreaTap(local) {
@@ -280,6 +280,12 @@ export function createWorkAreaInteractions({ state, documentRef = globalThis.doc
     zoomWorkArea(multiplier, local);
   }
 
+  function bindZoomInteractions({ bindButtonAction, zoomWorkArea: zoomWorkAreaHandler = zoomWorkArea, resetWorkAreaView: resetWorkAreaViewHandler = resetWorkAreaView } = {}) {
+    bindButtonAction(documentRef.getElementById("workarea-zoom-out"), () => zoomWorkAreaHandler(1 / WORKAREA_ZOOM_STEP));
+    bindButtonAction(documentRef.getElementById("workarea-zoom-reset"), resetWorkAreaViewHandler);
+    bindButtonAction(documentRef.getElementById("workarea-zoom-in"), () => zoomWorkAreaHandler(WORKAREA_ZOOM_STEP));
+  }
+
   function bindWorkAreaInteractions() {
     const svg = documentRef.getElementById("workarea-plot");
     if (!svg || svg.dataset.workareaBound === "true") return;
@@ -326,6 +332,6 @@ export function createWorkAreaInteractions({ state, documentRef = globalThis.doc
     mobileWorkAreaJogReady, setMobileWorkAreaJogVisual, resetMobileWorkAreaJog,
     startMobileWorkAreaJog, updateMobileWorkAreaJog, stopMobileWorkAreaJog,
     handleWorkAreaPointerDown, handleWorkAreaPointerMove, clearWorkAreaPointer,
-    handleWorkAreaPointerUp, handleWorkAreaWheel, bindWorkAreaInteractions,
+    handleWorkAreaPointerUp, handleWorkAreaWheel, bindZoomInteractions, bindWorkAreaInteractions,
   };
 }

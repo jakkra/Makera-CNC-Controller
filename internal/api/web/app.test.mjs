@@ -85,6 +85,7 @@ const outlineIOModuleSource = readFileSync(join(dirname(fileURLToPath(import.met
 const jogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/jog.js"), "utf8");
 const outlineModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline.js"), "utf8");
 const workareaModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/workarea-outline.js"), "utf8");
+const workareaInteractionsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/workarea-interactions.js"), "utf8");
 const workareaRenderModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/workarea-render.js"), "utf8");
 const stateDefaultsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/state-defaults.js"), "utf8").replace(/^import .*;\r?\n/, "");
 const stateModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/state.js"), "utf8");
@@ -6242,6 +6243,38 @@ test("mobile work-area taps never become absolute spindle targets", () => {
   ctx.window.innerWidth = 900;
   vm.runInContext("handleWorkAreaTap(local)", ctx);
   assert.equal(targets, 1, "desktop click-to-target behavior remains available");
+});
+
+test("Work Area zoom buttons are bound by the interactions feature", () => {
+  const nodes = {
+    "workarea-zoom-out": { id: "workarea-zoom-out" },
+    "workarea-zoom-reset": { id: "workarea-zoom-reset" },
+    "workarea-zoom-in": { id: "workarea-zoom-in" },
+  };
+  const bindings = [];
+  const controls = createWorkAreaInteractions({
+    state: {},
+    documentRef: { getElementById: (id) => nodes[id] || null },
+    constants: { WORKAREA_ZOOM_STEP: 1.25 },
+  });
+  controls.bindZoomInteractions({
+    bindButtonAction: (node, action) => bindings.push([node.id, action]),
+    zoomWorkArea: (multiplier) => bindings.push(["zoom", multiplier]),
+    resetWorkAreaView: () => bindings.push(["reset"]),
+  });
+  assert.deepEqual(bindings.map(([id]) => id), ["workarea-zoom-out", "workarea-zoom-reset", "workarea-zoom-in"]);
+  bindings[0][1]();
+  bindings[1][1]();
+  bindings[2][1]();
+  assert.deepEqual(bindings.slice(3), [["zoom", 0.8], ["reset"], ["zoom", 1.25]]);
+});
+
+test("Work Area zoom wiring is owned by the interactions feature", () => {
+  assert.match(workareaInteractionsModuleSource, /function bindZoomInteractions\(/);
+  assert.match(source, /bindWorkAreaZoomInteractions\(\{ bindButtonAction, zoomWorkArea, resetWorkAreaView \}\)/);
+  assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("workarea-zoom-out"\)/);
+  assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("workarea-zoom-reset"\)/);
+  assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("workarea-zoom-in"\)/);
 });
 
 test("Work Area interactions capture only the owning pointer and distinguish a tap from a pan", () => {

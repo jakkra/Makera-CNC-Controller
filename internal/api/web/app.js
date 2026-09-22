@@ -1110,7 +1110,7 @@ workAreaInteractions = createWorkAreaInteractions({
     jogInputActive, workAreaSVGPointFromClient, selectedFieldProbePoint,
     updateWorkAreaHoverPosition, updateSelectedFieldProbeDrag, panWorkArea,
     finishSelectedFieldProbeMove, selectFieldProbePoint, hideWorkAreaHoverPosition,
-    restoreSelectedFieldProbePosition, renderWorkArea, zoomWorkArea, moveSelectedFieldProbePointBy,
+    restoreSelectedFieldProbePosition, renderWorkArea, zoomWorkArea, resetWorkAreaView, moveSelectedFieldProbePointBy,
   },
 });
 
@@ -2755,6 +2755,7 @@ function clearWorkAreaPointer(e) { return workAreaInteractions.clearWorkAreaPoin
 function handleWorkAreaPointerUp(e) { return workAreaInteractions.handleWorkAreaPointerUp(e); }
 function handleWorkAreaWheel(e) { return workAreaInteractions.handleWorkAreaWheel(e); }
 function bindWorkAreaInteractions() { return workAreaInteractions.bindWorkAreaInteractions(); }
+function bindWorkAreaZoomInteractions(...args) { return workAreaInteractions.bindZoomInteractions(...args); }
 
 function clearDisarmedMovementState() {
   state.jog.surfaceInput = null;
@@ -2989,9 +2990,7 @@ function init() {
   }
   originProbing.bindInteractions({ bindButtonAction });
   bindWorkAreaInteractions();
-  bindButtonAction(document.getElementById("workarea-zoom-out"), () => zoomWorkArea(1 / WORKAREA_ZOOM_STEP));
-  bindButtonAction(document.getElementById("workarea-zoom-reset"), resetWorkAreaView);
-  bindButtonAction(document.getElementById("workarea-zoom-in"), () => zoomWorkArea(WORKAREA_ZOOM_STEP));
+  bindWorkAreaZoomInteractions({ bindButtonAction, zoomWorkArea, resetWorkAreaView });
   outlineView.bindInteractions({
     bindButtonAction,
     startOutlineCapture,
