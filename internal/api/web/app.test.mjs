@@ -212,6 +212,14 @@ test("manual G-code interactions are wired through the MDI feature binder", () =
   assert.doesNotMatch(source, /const form = document\.getElementById\("gcode-form"\);/);
   assert.doesNotMatch(source, /gcodeInput\.onkeydown =/);
 });
+
+test("gamepad settings interactions are wired through the gamepad feature binder", () => {
+  assert.match(gamepadControlsModuleSource, /function bindInteractions\(\)/);
+  assert.match(source, /bindGamepadInteractions\(\)/);
+  assert.match(gamepadControlsModuleSource, /outlineButtonInput\.oninput/);
+  assert.doesNotMatch(source, /document\.getElementById\("gamepad-axis-" \+ axis\)\.onchange/);
+  assert.doesNotMatch(source, /document\.getElementById\("gamepad-add-macro"\)\.onclick/);
+});
 test("shared helpers are imported as production ES modules", async () => {
   assert.match(source, /import \{ createGamepadControls \} from "\.\/modules\/gamepad-controls\.js";/);
   assert.match(gamepadControlsModuleSource, /export function createGamepadControls/);

@@ -1,6 +1,7 @@
 // Gamepad sampling and button actions, composed from the controller's shared state.
 export function createGamepadControls({ state = {}, navigatorRef, documentRef, callbacks = {} } = {}) {
-  const { clearControlDrafts, queueSaveUISettings, addOutlinePoint, macroByID, setNotice, clearNotice, runMacro } = callbacks;
+  const { clearControlDrafts, queueSaveUISettings, addOutlinePoint, macroByID, setNotice, clearNotice, runMacro,
+    updateGamepadAxis, updateGamepadButtons, markControlDirty, addGamepadMacroBinding } = callbacks;
 
   function currentGamepad() {
     if (!navigatorRef.getGamepads) return null;
@@ -90,7 +91,26 @@ export function createGamepadControls({ state = {}, navigatorRef, documentRef, c
     return Math.max(-1, Math.min(1, v));
   }
 
+  function bindInteractions() {
+    for (const axis of ["x", "y", "z"]) {
+      documentRef.getElementById("gamepad-axis-" + axis).onchange = () => updateGamepadAxis(axis);
+      documentRef.getElementById("gamepad-invert-" + axis).onchange = () => updateGamepadAxis(axis);
+      documentRef.getElementById("gamepad-speed-" + axis).oninput = () => updateGamepadAxis(axis);
+    }
+    documentRef.getElementById("gamepad-deadman-button").onchange = updateGamepadButtons;
+    documentRef.getElementById("gamepad-slow-button-0").onchange = updateGamepadButtons;
+    documentRef.getElementById("gamepad-slow-button-1").onchange = updateGamepadButtons;
+    const outlineButtonInput = documentRef.getElementById("gamepad-outline-button");
+    outlineButtonInput.oninput = () => markControlDirty(outlineButtonInput);
+    outlineButtonInput.onchange = () => {
+      clearControlDrafts(outlineButtonInput);
+      updateGamepadButtons();
+    };
+    documentRef.getElementById("gamepad-add-macro").onclick = addGamepadMacroBinding;
+  }
+
   return {
+    bindInteractions,
     currentGamepad,
     buttonPressed,
     buttonStates,

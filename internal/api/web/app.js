@@ -414,9 +414,13 @@ const gamepadControls = createGamepadControls({
     setNotice: (...args) => setNotice(...args),
     clearNotice: (...args) => clearNotice(...args),
     runMacro: (...args) => runMacro(...args),
+    updateGamepadAxis: (...args) => updateGamepadAxis(...args),
+    updateGamepadButtons: (...args) => updateGamepadButtons(...args),
+    markControlDirty: (...args) => markControlDirty(...args),
+    addGamepadMacroBinding: (...args) => addGamepadMacroBinding(...args),
   },
 });
-const { currentGamepad, buttonPressed, buttonStates, mappedAxis, captureGamepadOutlineButton, handleGamepadOutlineButton, handleGamepadMacroButtons, sameButtonStates, clampAxis } = gamepadControls;
+const { bindInteractions: bindGamepadInteractions, currentGamepad, buttonPressed, buttonStates, mappedAxis, captureGamepadOutlineButton, handleGamepadOutlineButton, handleGamepadMacroButtons, sameButtonStates, clampAxis } = gamepadControls;
 let workAreaInteractions = null;
 const jogFeature = createJogFeature({
   jogState: state.jog,
@@ -2967,21 +2971,7 @@ function init() {
   document.getElementById("macro-down").onclick = () => moveSelectedMacro(1);
   document.getElementById("macro-delete").onclick = deleteSelectedMacro;
   bindDirtyDraftControls(MACRO_EDITOR_IDS);
-  for (const axis of ["x", "y", "z"]) {
-    document.getElementById("gamepad-axis-" + axis).onchange = () => updateGamepadAxis(axis);
-    document.getElementById("gamepad-invert-" + axis).onchange = () => updateGamepadAxis(axis);
-    document.getElementById("gamepad-speed-" + axis).oninput = () => updateGamepadAxis(axis);
-  }
-  document.getElementById("gamepad-deadman-button").onchange = updateGamepadButtons;
-  document.getElementById("gamepad-slow-button-0").onchange = updateGamepadButtons;
-  document.getElementById("gamepad-slow-button-1").onchange = updateGamepadButtons;
-  const outlineButtonInput = document.getElementById("gamepad-outline-button");
-  outlineButtonInput.oninput = () => markControlDirty(outlineButtonInput);
-  outlineButtonInput.onchange = () => {
-    clearControlDrafts(outlineButtonInput);
-    updateGamepadButtons();
-  };
-  document.getElementById("gamepad-add-macro").onclick = addGamepadMacroBinding;
+  bindGamepadInteractions();
   bindDirtyDraftControls(MACHINE_SETTING_IDS);
   for (const id of MACHINE_SETTING_IDS) {
     document.getElementById(id).onchange = updateMachineSettings;
