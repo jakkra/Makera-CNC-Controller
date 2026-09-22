@@ -50,6 +50,7 @@ import { createJogEventHandler } from "./modules/jog-events.js";
 import { createGamepadControls } from "./modules/gamepad-controls.js";
 import { createSurfaceControls } from "./modules/surface-controls.js";
 import { createWorkAreaInteractions } from "./modules/workarea-interactions.js";
+import { createWorkMoveInteractions } from "./modules/work-move.js";
 import { createFieldProbing } from "./modules/field-probing.js";
 import { buildFieldProbePreview as computeFieldProbePreview } from "./modules/outline-geometry.js";
 import { createOutlineCaptureOperations } from "./modules/outline-capture-operations.js";
@@ -86,6 +87,7 @@ const jogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)
 const outlineModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline.js"), "utf8");
 const workareaModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/workarea-outline.js"), "utf8");
 const workareaInteractionsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/workarea-interactions.js"), "utf8");
+const workMoveModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/work-move.js"), "utf8");
 const workareaRenderModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/workarea-render.js"), "utf8");
 const stateDefaultsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/state-defaults.js"), "utf8").replace(/^import .*;\r?\n/, "");
 const stateModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/state.js"), "utf8");
@@ -241,6 +243,46 @@ test("Z step interactions are wired through the Jog feature", () => {
   assert.match(jogModuleSource, /function bindZStepInteractions\(/);
   assert.match(source, /bindZStepInteractions\(\{ bindButtonAction, stepZ \}\)/);
   assert.doesNotMatch(source, /querySelectorAll\("\[data-z-step-dir\]"\)/);
+});
+test("work-coordinate move binder preserves dirty, Enter, reset, and send behavior", () => {
+  const inputs = new Map(["x", "y", "z"].map((axis) => [axis, { dataset: {}, oninput: null, onkeydown: null }]));
+  const resets = [{ dataset: { workMoveReset: "x" } }, { dataset: { workMoveReset: "z" } }];
+  const sendButton = { id: "work-move-send" };
+  const documentRef = {
+    querySelectorAll: (selector) => {
+      assert.equal(selector, "[data-work-move-reset]");
+      return resets;
+    },
+    getElementById: (id) => id === "work-move-send" ? sendButton : null,
+  };
+  const feature = createWorkMoveInteractions({ documentRef });
+  const calls = [];
+  const bound = [];
+  feature.bindInteractions({
+    workMoveInput: (axis) => inputs.get(axis),
+    renderWorkMoveControls: () => calls.push("render"),
+    sendWorkCoordinateMove: () => calls.push("send"),
+    resetWorkMoveInput: (axis) => calls.push(["reset", axis]),
+    bindButtonAction: (node, action) => bound.push([node, action]),
+  });
+  inputs.get("x").oninput();
+  assert.equal(inputs.get("x").dataset.dirty, "1");
+  assert.deepEqual(calls, ["render"]);
+  const keydown = { key: "Enter", prevented: false, preventDefault() { this.prevented = true; } };
+  inputs.get("y").onkeydown(keydown);
+  assert.equal(keydown.prevented, true);
+  assert.equal(calls.at(-1), "send");
+  bound.find(([node]) => node === resets[0])[1]({ preventDefault() { this.prevented = true; } });
+  assert.deepEqual(calls.at(-1), ["reset", "x"]);
+  bound.find(([node]) => node === sendButton)[1]();
+  assert.equal(calls.at(-1), "send");
+});
+test("work-coordinate move wiring is owned by the work-move feature", () => {
+  assert.match(workMoveModuleSource, /function bindInteractions\(/);
+  assert.match(source, /workMoveInteractions\.bindInteractions\(\{ workMoveInput, renderWorkMoveControls, sendWorkCoordinateMove, resetWorkMoveInput, bindButtonAction \}\)/);
+  assert.doesNotMatch(source, /input\.oninput = \(\) => \{\s+input\.dataset\.dirty = "1";/);
+  assert.doesNotMatch(source, /input\.onkeydown = \(e\) => \{\s+if \(e\.key === "Enter"\)/);
+  assert.doesNotMatch(source, /querySelectorAll\("\[data-work-move-reset\]"\)/);
 });
 test("shared helpers are imported as production ES modules", async () => {
   assert.match(source, /import \{ createGamepadControls \} from "\.\/modules\/gamepad-controls\.js";/);

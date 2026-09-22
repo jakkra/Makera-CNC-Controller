@@ -28,6 +28,7 @@ import { createJogView } from "./modules/jog-view.js";
 import { createGamepadControls } from "./modules/gamepad-controls.js";
 import { createSurfaceControls } from "./modules/surface-controls.js";
 import { createWorkAreaInteractions } from "./modules/workarea-interactions.js";
+import { createWorkMoveInteractions } from "./modules/work-move.js";
 import { createFieldProbing } from "./modules/field-probing.js";
 import { createOutlineCaptureOperations } from "./modules/outline-capture-operations.js";
 import { createJogEventHandler } from "./modules/jog-events.js";
@@ -423,6 +424,7 @@ const gamepadControls = createGamepadControls({
 });
 const { bindInteractions: bindGamepadInteractions, currentGamepad, buttonPressed, buttonStates, mappedAxis, captureGamepadOutlineButton, handleGamepadOutlineButton, handleGamepadMacroButtons, sameButtonStates, clampAxis } = gamepadControls;
 let workAreaInteractions = null;
+const workMoveInteractions = createWorkMoveInteractions({ documentRef: document });
 const jogFeature = createJogFeature({
   jogState: state.jog,
   surfaceState: state.surface,
@@ -2961,26 +2963,7 @@ function init() {
   bindGamepadInteractions();
   bindMachineSettingsInteractions();
   bindFeedStepInteractions();
-  for (const axis of ["x", "y", "z"]) {
-    const input = workMoveInput(axis);
-    input.oninput = () => {
-      input.dataset.dirty = "1";
-      renderWorkMoveControls();
-    };
-    input.onkeydown = (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        sendWorkCoordinateMove();
-      }
-    };
-  }
-  for (const btn of document.querySelectorAll("[data-work-move-reset]")) {
-    bindButtonAction(btn, (e) => {
-      e.preventDefault();
-      resetWorkMoveInput(btn.dataset.workMoveReset);
-    });
-  }
-  bindButtonAction(document.getElementById("work-move-send"), sendWorkCoordinateMove);
+  workMoveInteractions.bindInteractions({ workMoveInput, renderWorkMoveControls, sendWorkCoordinateMove, resetWorkMoveInput, bindButtonAction });
   document.getElementById("tap-safe-z-enabled").onchange = updateSafeZToggle;
   bindZStepInteractions({ bindButtonAction, stepZ });
   for (const btn of document.querySelectorAll("[data-origin-zero]")) {
