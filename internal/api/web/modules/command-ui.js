@@ -178,11 +178,16 @@ export function createCommandUI({
     windowRef.visualViewport?.addEventListener("scroll", schedulePopoutPosition);
   }
 
+  function bindInteractions() {
+    initCommandPopouts();
+  }
+
   return {
     setDashboardControlsOpen,
     initDashboardControlsMenu,
     setWorkAreaActionsOpen,
     initWorkAreaActionsMenu,
     initCommandPopouts,
+    bindInteractions,
   };
 }

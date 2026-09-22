@@ -6446,6 +6446,26 @@ test("command popovers use the side with usable viewport height", () => {
   assert.ok(narrow.left >= 12 && narrow.left + narrow.width <= 228);
 });
 
+test("command popout initialization is owned by the command UI binder", () => {
+  assert.match(commandUIModuleSource, /function bindInteractions\(\)/);
+  assert.match(source, /bindCommandUIInteractions\(\)/);
+  assert.doesNotMatch(source, /initCommandPopouts\(\)/);
+  const documentListeners = [];
+  const windowListeners = [];
+  const feature = createCommandUI({
+    documentRef: {
+      querySelectorAll: () => [],
+      getElementById: () => null,
+      addEventListener: (...args) => documentListeners.push(args),
+    },
+    windowRef: { addEventListener: (...args) => windowListeners.push(args) },
+    requestAnimationFrameRef: () => 0,
+  });
+  feature.bindInteractions();
+  assert.deepEqual(documentListeners.map(([type]) => type), ["click", "keydown"]);
+  assert.deepEqual(windowListeners.map(([type]) => type), ["resize", "scroll"]);
+});
+
 test("Set XYZ leaves blank axes unchanged", () => {
   const values = {
     "origin-xyz-x": { value: "1.5" },

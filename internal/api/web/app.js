@@ -240,7 +240,7 @@ const {
   initDashboardControlsMenu,
   setWorkAreaActionsOpen,
   initWorkAreaActionsMenu,
-  initCommandPopouts,
+  bindInteractions: bindCommandUIInteractions,
 } = createCommandUI({
   documentRef: document,
   windowRef: window,
@@ -2998,7 +2998,7 @@ function init() {
     }
   });
   bindDataControlButtons({ bindButtonAction, confirmControl, sendControl });
-  initCommandPopouts();
+  bindCommandUIInteractions();
   initializeSurfaceMobileOptions();
   window.matchMedia?.("(max-width: 600px)")?.addEventListener?.("change", (e) => initializeSurfaceMobileOptions(e.matches));
   window.matchMedia?.("(min-width: 1320px)")?.addEventListener?.("change", () => applyDashboardProfile(currentDashboardProfile()));

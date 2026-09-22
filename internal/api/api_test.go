@@ -1472,6 +1472,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/height-triangulation.js", "export function constrainedOutlineTriangles"},
 		{"/modules/height-coordinates.js", "export function outlineExportPoints"},
 		{"/modules/command-ui.js", "export function createCommandUI"},
+		{"/modules/command-ui.js", "function bindInteractions"},
 		{"/modules/surface-jog.js", "export function createSurfaceJogFeature"},
 		{"/modules/workarea-jog.js", "export function mobileWorkAreaJogAxes"},
 		{"/modules/jog.js", "export function createJogFeature"},
