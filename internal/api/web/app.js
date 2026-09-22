@@ -2737,9 +2737,6 @@ function handleWorkAreaPointerMove(e) { return workAreaInteractions.handleWorkAr
 function clearWorkAreaPointer(e) { return workAreaInteractions.clearWorkAreaPointer(e); }
 function handleWorkAreaPointerUp(e) { return workAreaInteractions.handleWorkAreaPointerUp(e); }
 function handleWorkAreaWheel(e) { return workAreaInteractions.handleWorkAreaWheel(e); }
-function bindWorkAreaInteractions() { return workAreaInteractions.bindWorkAreaInteractions(); }
-function bindWorkAreaZoomInteractions(...args) { return workAreaInteractions.bindZoomInteractions(...args); }
-
 function clearDisarmedMovementState() {
   state.jog.surfaceInput = null;
   if (resetMobileWorkAreaJog()) {
@@ -2888,8 +2885,8 @@ function init() {
   bindSettingsInteractions({ bindButtonAction });
   bindZStepInteractions({ bindButtonAction, stepZ });
   originProbing.bindInteractions({ bindButtonAction, setOriginAxis });
-  bindWorkAreaInteractions();
-  bindWorkAreaZoomInteractions({ bindButtonAction, zoomWorkArea, resetWorkAreaView });
+  workAreaInteractions.bindWorkAreaInteractions();
+  workAreaInteractions.bindZoomInteractions({ bindButtonAction, zoomWorkArea, resetWorkAreaView });
   outlineView.bindInteractions({
     bindButtonAction,
     startOutlineCapture,

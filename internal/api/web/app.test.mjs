@@ -136,7 +136,7 @@ const workareaInteractionHelpers = new Set([
   "handleWorkAreaTap", "mobileWorkAreaJogEnabled", "mobileWorkAreaActionsOpen", "mobileWorkAreaJogReady",
   "setMobileWorkAreaJogVisual", "resetMobileWorkAreaJog", "startMobileWorkAreaJog", "updateMobileWorkAreaJog",
   "stopMobileWorkAreaJog", "handleWorkAreaPointerDown", "handleWorkAreaPointerMove", "clearWorkAreaPointer",
-  "handleWorkAreaPointerUp", "handleWorkAreaWheel", "bindWorkAreaInteractions",
+  "handleWorkAreaPointerUp", "handleWorkAreaWheel",
 ]);
 const workareaInteractionCallbacks = [
   "workAreaToMachinePoint", "workAreaLocalToContentPoint", "sendTapMove",
@@ -766,7 +766,7 @@ test("outline view preserves pending presentation while capture intents are in f
   assert.match(originProbingModuleSource, /function bindOriginZeroInteractions\(/);
   const originBinderAt = source.indexOf("originProbing.bindInteractions({ bindButtonAction, setOriginAxis });");
   assert.equal(source.indexOf('for (const btn of document.querySelectorAll("[data-origin-zero]"))'), -1, "origin-zero loop moved into the production feature");
-  assert.ok(originBinderAt < source.indexOf("bindWorkAreaInteractions();", originBinderAt), "origin binding remains before Work Area listeners");
+  assert.ok(originBinderAt < source.indexOf("workAreaInteractions.bindWorkAreaInteractions();", originBinderAt), "origin binding remains before Work Area listeners");
 });
 
 test("origin-zero interactions preserve button order and axis routing", () => {
@@ -6890,7 +6890,7 @@ test("Work Area zoom buttons are bound by the interactions feature", () => {
 
 test("Work Area zoom wiring is owned by the interactions feature", () => {
   assert.match(workareaInteractionsModuleSource, /function bindZoomInteractions\(/);
-  assert.match(source, /bindWorkAreaZoomInteractions\(\{ bindButtonAction, zoomWorkArea, resetWorkAreaView \}\)/);
+  assert.match(source, /workAreaInteractions\.bindZoomInteractions\(\{ bindButtonAction, zoomWorkArea, resetWorkAreaView \}\)/);
   assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("workarea-zoom-out"\)/);
   assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("workarea-zoom-reset"\)/);
   assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("workarea-zoom-in"\)/);
