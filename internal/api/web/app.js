@@ -13,6 +13,7 @@ import { mountDashboardCamera } from "./modules/camera.js";
 import { createDashboardTelemetry } from "./modules/dashboard-telemetry.js";
 import { createDashboardView } from "./modules/dashboard-view.js";
 import { createGcodeLogFeature } from "./modules/gcode-log.js";
+import { createBackupFeature } from "./modules/backup.js";
 import { mountGcodeViewer } from "./modules/gcode-viewer.js";
 import { createFeedback } from "./modules/feedback.js";
 import { createMdiMacros } from "./modules/mdi-macros.js";
@@ -214,6 +215,19 @@ const {
   setNotice,
   setStatusMessage,
 } = createFeedback({ documentRef: document, performanceRef: performance });
+
+const backupFeature = createBackupFeature({
+  request,
+  documentRef: document,
+  URLRef: URL,
+  BlobCtor: Blob,
+  setTimeoutRef: setTimeout,
+  locationRef: window.location,
+  confirmRef: (message) => window.confirm(message),
+  setStatusMessage,
+  setNotice,
+});
+const { exportBackup: exportBackupOperation, importBackupFile: importBackupFileOperation } = backupFeature;
 
 const {
   setDashboardControlsOpen,
@@ -2093,39 +2107,9 @@ async function copyVisibleLog() { return copyVisibleLogOperation(); }
 
 function exportVisibleLog() { return exportVisibleLogOperation(); }
 
-async function exportBackup() {
-  try {
-    const r = await request("/api/backup");
-    const blob = await r.blob();
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "cnc-proxy-backup.json";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    setStatusMessage("backup", "Backup exported.", "ok", { force: true });
-  } catch (e) {
-    setNotice("Backup export failed: " + e.message, "error", "backup");
-  }
-}
+async function exportBackup() { return exportBackupOperation(); }
 
-async function importBackupFile(file) {
-  if (!file) return;
-  if (!confirm("Import this CNC Proxy backup? This replaces local catalog, queue, UI settings, retained logs, and run history.")) return;
-  try {
-    const text = await file.text();
-    await request("/api/backup/import", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: text,
-    });
-    setStatusMessage("backup", "Backup imported; reloading...", "ok", { force: true });
-    setTimeout(() => location.reload(), 600);
-  } catch (e) {
-    setNotice("Backup import failed: " + e.message, "error", "backup");
-  }
-}
+async function importBackupFile(file) { return importBackupFileOperation(file); }
 
 
 

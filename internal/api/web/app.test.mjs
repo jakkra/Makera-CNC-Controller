@@ -68,6 +68,7 @@ const cameraModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.u
 const dashboardTelemetryModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/dashboard-telemetry.js"), "utf8");
 const dashboardViewModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/dashboard-view.js"), "utf8");
 const gcodeLogModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/gcode-log.js"), "utf8");
+const backupModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/backup.js"), "utf8");
 const geometryModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/outline-geometry.js"), "utf8").replace(/^export /gm, "");
 const geometryHelpers = new Set(["triangulationEdgeKey","triangleCross","pointInTriangle2D","triangleCCW","pointInPolygonOrBoundary","effectiveOutlineGeometry","flattenCurveSegment","flattenCubic","cubicFlatEnough","midpoint","buildFieldProbePreview","normalizedClosedPolygon","buildBoundaryProbePoints","buildCornerPartitionedBoundary","buildClosedMinimaxBoundary","buildOutlineEdgeProbePoints","projectPointToProbePath","closedPathSegments","sampleClosedPath","sampleClosedPathAtDistance","closedPathMaxSampleGap","createProbeSpacingIndex","addProbeSpacingPoint","probeSpacingIndexAllows","buildRelaxedProbePoints","optimizeProbeMesh","buildBoundaryInteriorTargets","selectGapSafeBoundaryInteriorSeeds","projectBoundaryInteriorTarget","largestExactFeasibleProbeHole","improveProbeCovering","probeCoverageCertificateBetter","buildProbeDomainSamples","buildBestProbeLattice","buildProbeLatticeCandidate","probeCoverageScore","probeCoverageCertificate","probeMeshQualityCertificate","probeBoundaryLayerCertificate","probeDelaunayTriangles","probePointInCircumcircle","triangleCircumcenter","nearestProbeSet","exactBoundaryProbeCriticalPoints","largestProbeCoverageHole","relaxProbeDistribution","createProbeNearestIndex","nearestIndexedProbe","projectProbeSpacingConstraints","probePointInsideAlongMove","probeDistributionValid","pointBounds","probeSpotFitsPolygon","distancePointToSegment","polygonCentroid","averagePoint","distance2","pointInPolygon"]);
 const feedbackModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/feedback.js"), "utf8");
@@ -182,6 +183,16 @@ test("G-code log actions are wired to the production feature module", () => {
   assert.match(source, /getPaused: \(\) => state\.logPaused/);
   assert.match(source, /document\.getElementById\("log-copy"\)\.onclick = copyVisibleLog/);
   assert.match(source, /document\.getElementById\("log-export"\)\.onclick = exportVisibleLog/);
+});
+
+test("backup actions are wired to the production feature module", () => {
+  assert.match(source, /import \{ createBackupFeature \} from "\.\/modules\/backup\.js";/);
+  assert.match(backupModuleSource, /export function createBackupFeature/);
+  assert.match(source, /exportBackup\(\) \{ return exportBackupOperation\(\); \}/);
+  assert.match(source, /importBackupFile\(file\) \{ return importBackupFileOperation\(file\); \}/);
+  assert.match(source, /document\.getElementById\("backup-export"\)\.onclick = exportBackup/);
+  assert.match(source, /document\.getElementById\("backup-import"\)\.onclick = \(\) => document\.getElementById\("backup-file"\)\.click\(\)/);
+  assert.match(source, /document\.getElementById\("backup-file"\)\.onchange/);
 });
 test("shared helpers are imported as production ES modules", async () => {
   assert.match(source, /import \{ createGamepadControls \} from "\.\/modules\/gamepad-controls\.js";/);
