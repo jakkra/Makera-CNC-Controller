@@ -388,6 +388,12 @@ export function createSettingsFeature({
       btn.onclick = () => stepTapFeedHandler(Number(btn.dataset.feedStep) || 0);
     }
   }
+  function bindSettingsInteractions({ bindButtonAction } = {}) {
+    document.getElementById("tap-safe-z-enabled").onchange = updateSafeZToggle;
+    bindButtonAction(document.getElementById("machine-settings-open"), openMachineSettings);
+    bindButtonAction(document.getElementById("machine-settings-close"), closeMachineSettings);
+    bindButtonAction(document.getElementById("machine-learn"), learnMachineParameters);
+  }
 
   function renderMachineLearnedSummary(learned) {
     const box = document?.getElementById("machine-learned-summary");
@@ -472,5 +478,5 @@ export function createSettingsFeature({
   function updateGamepadButtons() { const gp = local.ui.gamepad; gp.deadman_button = readInt(document.getElementById("gamepad-deadman-button").value, gp.deadman_button, 0, 63); gp.slow_buttons = [document.getElementById("gamepad-slow-button-0").value, document.getElementById("gamepad-slow-button-1").value].filter((v) => v !== "").map((v) => readInt(v, 0, 0, 63)); gp.outline_button = readInt(document.getElementById("gamepad-outline-button").value, gp.outline_button, 0, 63); (queueSaveUISettings || (() => {}))(); }
   function addGamepadMacroBinding() { const macro = macroByID(getSelectedMacroId()) || local.ui.macros?.[0]; if (!macro) { setNotice("Create a macro before assigning a gamepad button.", "error", "gamepad-macro-binding"); return; } const used = new Set(local.ui.gamepad.macro_buttons.map((b) => b.button)); let button = 1; while (used.has(button) && button < 64) button++; local.ui.gamepad.macro_buttons.push({ id: newID("gamepad-macro"), button, macro_id: macro.id }); normalizeGamepadMacroOrder(); renderGamepadMacroBindings({ force: true }); clearNotice("gamepad-macro-binding"); (queueSaveUISettings || (() => {}))(); }
 
-  return { defaultGamepadSettings, defaultMachineSettings, normalizeMachineLearned, normalizeSavedOrigins, normalizeGamepadSettings: normalizeGamepad, normalizeMachineSettings: normalizeMachine, normalizeUISettings: (ui, opts = {}) => normalizeUISettings(ui, { ...opts, newID }), feedBoundsFor, safeZForTapMove, safeZCeiling, machineLearnedSummaryLines, controlLocallyOwned, markControlDirty, clearControlDrafts, setInputValue, setControlValueIfIdle, setCheckedIfIdle, bindDirtyDraftControls, bindMachineSettingsInteractions, bindFeedStepInteractions, renderMachineLearnedSummary, renderMachineSettings, refreshMachineLearnedSettings, learnMachineParameters, openMachineSettings, closeMachineSettings, updateMachineSettings, stepTapFeed, updateSafeZToggle, renderGamepadSettings, renderGamepadMacroBindings, gamepadMacroBindingsLocallyOwned, updateGamepadAxis, updateGamepadButtons, addGamepadMacroBinding, normalizeGamepadMacroOrder };
+  return { defaultGamepadSettings, defaultMachineSettings, normalizeMachineLearned, normalizeSavedOrigins, normalizeGamepadSettings: normalizeGamepad, normalizeMachineSettings: normalizeMachine, normalizeUISettings: (ui, opts = {}) => normalizeUISettings(ui, { ...opts, newID }), feedBoundsFor, safeZForTapMove, safeZCeiling, machineLearnedSummaryLines, controlLocallyOwned, markControlDirty, clearControlDrafts, setInputValue, setControlValueIfIdle, setCheckedIfIdle, bindDirtyDraftControls, bindMachineSettingsInteractions, bindFeedStepInteractions, bindSettingsInteractions, renderMachineLearnedSummary, renderMachineSettings, refreshMachineLearnedSettings, learnMachineParameters, openMachineSettings, closeMachineSettings, updateMachineSettings, stepTapFeed, updateSafeZToggle, renderGamepadSettings, renderGamepadMacroBindings, gamepadMacroBindingsLocallyOwned, updateGamepadAxis, updateGamepadButtons, addGamepadMacroBinding, normalizeGamepadMacroOrder };
 }

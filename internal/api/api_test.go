@@ -1431,6 +1431,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/gamepad-controls.js", "function bindInteractions"},
 		{"/modules/settings.js", "bindMachineSettingsInteractions"},
 		{"/modules/settings.js", "bindFeedStepInteractions"},
+		{"/modules/settings.js", "bindSettingsInteractions"},
 		{"/modules/backup.js", "export function createBackupFeature"},
 		{"/modules/backup.js", "Backup imported; reloading..."},
 		{"/modules/mdi-macros.js", "function bindCommandInteractions"},

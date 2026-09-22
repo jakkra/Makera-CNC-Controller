@@ -157,6 +157,23 @@ test("feed step binder preserves button values and zero fallback", () => {
   assert.deepEqual(deltas, [500, -500, 0]);
 });
 
+test("settings binder installs safe-Z and dialog actions in order", () => {
+  const nodes = new Map([
+    ["tap-safe-z-enabled", element()],
+    ["machine-settings-open", element()],
+    ["machine-settings-close", element()],
+    ["machine-learn", element()],
+  ]);
+  const feature = createSettingsFeature({ documentRef: { getElementById: (id) => nodes.get(id) || null } });
+  const bound = [];
+  feature.bindSettingsInteractions({ bindButtonAction: (node, action) => bound.push([node, action]) });
+  assert.equal(nodes.get("tap-safe-z-enabled").onchange, feature.updateSafeZToggle);
+  assert.deepEqual(bound.map(([node]) => [...nodes.entries()].find(([, value]) => value === node)?.[0]), [
+    "machine-settings-open", "machine-settings-close", "machine-learn",
+  ]);
+  assert.deepEqual(bound.map(([, action]) => action), [feature.openMachineSettings, feature.closeMachineSettings, feature.learnMachineParameters]);
+});
+
 test("learned summary remains concise and data-derived", () => {
   const lines = machineLearnedSummaryLines({
     identity: { model: "Z1", version: "1.2", file_type: "gcode" },

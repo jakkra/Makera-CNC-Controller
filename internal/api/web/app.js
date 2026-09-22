@@ -315,6 +315,7 @@ const {
   bindDirtyDraftControls,
   bindMachineSettingsInteractions,
   bindFeedStepInteractions,
+  bindSettingsInteractions,
 } = settingsFeature;
 
 const mdiMacros = createMdiMacros({
@@ -2964,7 +2965,7 @@ function init() {
   bindMachineSettingsInteractions();
   bindFeedStepInteractions();
   workMoveInteractions.bindInteractions({ workMoveInput, renderWorkMoveControls, sendWorkCoordinateMove, resetWorkMoveInput, bindButtonAction });
-  document.getElementById("tap-safe-z-enabled").onchange = updateSafeZToggle;
+  bindSettingsInteractions({ bindButtonAction });
   bindZStepInteractions({ bindButtonAction, stepZ });
   for (const btn of document.querySelectorAll("[data-origin-zero]")) {
     bindButtonAction(btn, () => setOriginAxis(btn.dataset.originZero));
@@ -3001,10 +3002,6 @@ function init() {
     e.preventDefault();
     settleProbeConfirmation(false);
   });
-  bindButtonAction(document.getElementById("machine-settings-open"), openMachineSettings);
-  bindButtonAction(document.getElementById("machine-settings-close"), closeMachineSettings);
-  bindButtonAction(document.getElementById("machine-learn"), learnMachineParameters);
-
   bindButtonAction(document.getElementById("ctl-hold"), () => sendControl("hold"));
   bindButtonAction(document.getElementById("ctl-resume"), () => sendControl("resume"));
   bindButtonAction(document.getElementById("ctl-halt"), () => sendControl("halt"));

@@ -244,6 +244,14 @@ test("Z step interactions are wired through the Jog feature", () => {
   assert.match(source, /bindZStepInteractions\(\{ bindButtonAction, stepZ \}\)/);
   assert.doesNotMatch(source, /querySelectorAll\("\[data-z-step-dir\]"\)/);
 });
+test("settings dialog interactions are wired through the settings feature", () => {
+  assert.match(settingsModuleSource, /function bindSettingsInteractions\(/);
+  assert.match(source, /bindSettingsInteractions\(\{ bindButtonAction \}\)/);
+  assert.doesNotMatch(source, /document\.getElementById\("tap-safe-z-enabled"\)\.onchange = updateSafeZToggle/);
+  assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("machine-settings-open"\)/);
+  assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("machine-settings-close"\)/);
+  assert.doesNotMatch(source, /bindButtonAction\(document\.getElementById\("machine-learn"\)/);
+});
 test("work-coordinate move binder preserves dirty, Enter, reset, and send behavior", () => {
   const inputs = new Map(["x", "y", "z"].map((axis) => [axis, { dataset: {}, oninput: null, onkeydown: null }]));
   const resets = [{ dataset: { workMoveReset: "x" } }, { dataset: { workMoveReset: "z" } }];
