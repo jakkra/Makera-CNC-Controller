@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildHeightPGM, buildInterpolatedHeightGrid, interpolateZ } from "./modules/height-export.js";
+import { buildHeightOBJ, buildHeightPGM, buildInterpolatedHeightGrid, interpolateZ } from "./modules/height-export.js";
 
 function deps(overrides = {}) {
   const outline = overrides.outline || {
@@ -111,4 +111,71 @@ test("height builders fail before geometry work for invalid outline and missing 
     ...noSamples,
     buildInterpolatedHeightGrid: () => ({ points: [[null]], rows: 1, cols: 1 }),
   }), /field probe has no samples inside the outline/);
+});
+
+test("OBJ builder preserves metadata, ordering, dedup tolerance, and exact bytes", () => {
+  const outline = { closed: true, points: [{ x: 0 }, { x: 4 }, { x: 4 }] };
+  const samples = [{ x: 0, y: 0, z: 1 }, { x: 4, y: 0, z: 2 }, { x: 4, y: 4, z: 3 }, { x: 0, y: 4, z: Infinity }];
+  const meshVertices = [
+    { x: 0, y: 0, z: 1 }, { x: 4, y: 0, z: 2 }, { x: 4, y: 4, z: 3 },
+    { x: 4.0000005, y: 0, z: 2 },
+  ];
+  const calls = [];
+  const obj = buildHeightOBJ({
+    getOutline: () => outline,
+    requireHeightExportOutline: (value) => assert.equal(value, outline),
+    exportWorkOrigin: () => ({ x: 10, y: 20 }),
+    outlineEffectiveExportPoints: () => [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 4 }],
+    fieldProbeExportPoints: () => samples,
+    buildHeightMeshVertices: () => meshVertices,
+    constrainedOutlineTriangles: (points) => { calls.push(["triangulate", points.length]); return [[0, 1, 2]]; },
+    orderedOutlineBoundaryIndices: (points) => { calls.push(["boundary", points.length]); return [0, 1, 2]; },
+    solidifyHeightMesh: (...args) => { calls.push(["solidify", args[1], args[2], args[3]]); return { vertices: meshVertices, undersideFaces: [[2, 1, 0]], wallFaces: [[0, 1, 2]] }; },
+    fieldProbeHeightReference: () => ({ label: "probed floor", machineZ: -10 }),
+    pathNum: (value) => Number(value).toFixed(4).replace(/0+$/, "").replace(/\.$/, ""),
+  });
+  assert.equal(obj, [
+    "# CNC Proxy outline field Z probe",
+    "# units: millimeters (OBJ is unitless; choose Millimeter in Fusion Insert Mesh)",
+    "# coordinate system: CNC work coordinates, right-handed Z-up",
+    "# axis mapping: OBJ X=CNC X, OBJ Y=CNC Y, OBJ Z=CNC Z",
+    "# triangulation: constrained Delaunay with locked outline edges",
+    "# xy coordinates: CNC work coordinates",
+    "# cnc_xy_origin_machine_mm: 10 20",
+    "# CNC Z coordinates: probed floor",
+    "# z_reference_machine_mm: -10",
+    "# solid: sampled top, vertical outline walls, flat underside at Z=0",
+    "# sample_count: 3",
+    "# mesh_vertex_count: 4",
+    "# solid_vertex_count: 4",
+    "o outline_field_probe", "s off",
+    "v 0 0 1", "v 4 0 2", "v 4 4 3", "v 4 0 2",
+    "# faces: top", "f 1 2 3",
+    "# faces: underside", "f 3 2 1",
+    "# faces: perimeter", "f 1 2 3",
+    "# points: unused coincident probe samples", "p 4", "",
+  ].join("\n"));
+  assert.deepEqual(calls, [["triangulate", 3], ["boundary", 3], ["solidify", [[0, 1, 2]], [0, 1, 2], 0]]);
+});
+
+test("OBJ builder keeps sample, distinct-position, and triangulation failures", () => {
+  const base = {
+    getOutline: () => ({ closed: true, points: [{}, {}, {}] }),
+    requireHeightExportOutline: () => {},
+    exportWorkOrigin: () => ({}),
+    outlineEffectiveExportPoints: () => [],
+    fieldProbeExportPoints: () => [{ x: 0, y: 0, z: 1 }, { x: 1, y: 0, z: 2 }],
+  };
+  assert.throws(() => buildHeightOBJ(base), /field probe needs at least three samples/);
+  assert.throws(() => buildHeightOBJ({
+    ...base,
+    fieldProbeExportPoints: () => [{ x: 0, y: 0, z: 1 }, { x: 1, y: 0, z: 2 }, { x: 0, y: 1, z: 3 }],
+    buildHeightMeshVertices: () => [{ x: 0, y: 0 }, { x: 0.0000005, y: 0 }, { x: 0, y: 0.0000005 }],
+  }), /field probe needs at least three distinct XY sample positions/);
+  assert.throws(() => buildHeightOBJ({
+    ...base,
+    fieldProbeExportPoints: () => [{ x: 0, y: 0, z: 1 }, { x: 1, y: 0, z: 2 }, { x: 0, y: 1, z: 3 }],
+    buildHeightMeshVertices: () => [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }],
+    constrainedOutlineTriangles: () => [],
+  }), /field probe samples could not form a mesh inside the outline/);
 });

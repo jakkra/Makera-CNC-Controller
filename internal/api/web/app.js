@@ -45,7 +45,7 @@ import { createUISettingsFeature } from "./modules/ui-settings.js";
 import { createOutlineView } from "./modules/outline-view.js";
 import { createProbeConfirmation } from "./modules/probe-confirm.js";
 import { createAppState } from "./modules/state.js";
-import { buildHeightPGM as buildHeightPGMDocument, buildInterpolatedHeightGrid as buildInterpolatedHeightGridDocument, interpolateZ as interpolateZDocument } from "./modules/height-export.js";
+import { buildHeightOBJ as buildHeightOBJDocument, buildHeightPGM as buildHeightPGMDocument, buildInterpolatedHeightGrid as buildInterpolatedHeightGridDocument, interpolateZ as interpolateZDocument } from "./modules/height-export.js";
 import { buildHeightMeshVertices as buildHeightMeshVerticesDocument, solidifyHeightMesh as solidifyHeightMeshDocument } from "./modules/height-mesh.js";
 import { constrainedOutlineTriangles as constrainedOutlineTrianglesDocument, orderedOutlineBoundaryIndices as orderedOutlineBoundaryIndicesDocument } from "./modules/height-triangulation.js";
 import { exportExtents as exportExtentsDocument, fieldProbeExportPoints as fieldProbeExportPointsDocument, fieldProbeHeightReference as fieldProbeHeightReferenceDocument, outlineEffectiveExportPoints as outlineEffectiveExportPointsDocument, outlineExportPoints as outlineExportPointsDocument } from "./modules/height-coordinates.js";
@@ -1625,62 +1625,20 @@ function exportHeightOBJ() {
 }
 
 function buildHeightOBJ() {
-  requireHeightExportOutline();
-  const origin = exportWorkOrigin();
-  const outline = outlineEffectiveExportPoints(origin);
-  const samples = fieldProbeExportPoints(origin).filter((point) => [point.x, point.y, point.z].every(Number.isFinite));
-  if (samples.length < 3) throw new Error("field probe needs at least three samples");
-  const meshVertices = buildHeightMeshVertices(samples, outline);
-  const triangulationPoints = [];
-  const triangulationVertexIndices = [];
-  for (let index = 0; index < meshVertices.length; index++) {
-    const point = meshVertices[index];
-    if (triangulationPoints.some((seen) => Math.hypot(seen.x - point.x, seen.y - point.y) <= 0.000001)) continue;
-    triangulationPoints.push(point);
-    triangulationVertexIndices.push(index);
-  }
-  if (triangulationPoints.length < 3) throw new Error("field probe needs at least three distinct XY sample positions");
-  const topFaces = constrainedOutlineTriangles(triangulationPoints, outline)
-    .map((face) => face.map((index) => triangulationVertexIndices[index]));
-  if (!topFaces.length) throw new Error("field probe samples could not form a mesh inside the outline");
-  const boundary = orderedOutlineBoundaryIndices(triangulationPoints, outline)
-    .map((index) => triangulationVertexIndices[index]);
-  const solid = solidifyHeightMesh(meshVertices, topFaces, boundary, 0);
-  const reference = fieldProbeHeightReference(origin);
-  const originX = axisValue(origin, "x") ?? 0;
-  const originY = axisValue(origin, "y") ?? 0;
-  const lines = [
-    "# CNC Proxy outline field Z probe",
-    "# units: millimeters (OBJ is unitless; choose Millimeter in Fusion Insert Mesh)",
-    "# coordinate system: CNC work coordinates, right-handed Z-up",
-    "# axis mapping: OBJ X=CNC X, OBJ Y=CNC Y, OBJ Z=CNC Z",
-    "# triangulation: constrained Delaunay with locked outline edges",
-    "# xy coordinates: CNC work coordinates",
-    "# cnc_xy_origin_machine_mm: " + pathNum(originX) + " " + pathNum(originY),
-    "# CNC Z coordinates: " + reference.label,
-    "# z_reference_machine_mm: " + pathNum(reference.machineZ),
-    "# solid: sampled top, vertical outline walls, flat underside at Z=0",
-    "# sample_count: " + samples.length,
-    "# mesh_vertex_count: " + meshVertices.length,
-    "# solid_vertex_count: " + solid.vertices.length,
-    "o outline_field_probe",
-    "s off",
-  ];
-  for (const point of solid.vertices) {
-    lines.push("v " + pathNum(point.x) + " " + pathNum(point.y) + " " + pathNum(point.z));
-  }
-  lines.push("# faces: top");
-  for (const face of topFaces) lines.push("f " + face.map((index) => index + 1).join(" "));
-  lines.push("# faces: underside");
-  for (const face of solid.undersideFaces) lines.push("f " + face.map((index) => index + 1).join(" "));
-  lines.push("# faces: perimeter");
-  for (const face of solid.wallFaces) lines.push("f " + face.map((index) => index + 1).join(" "));
-  const used = new Set(topFaces.flat());
-  lines.push("# points: unused coincident probe samples");
-  for (let index = 0; index < meshVertices.length; index++) {
-    if (!used.has(index)) lines.push("p " + (index + 1));
-  }
-  return lines.join("\n") + "\n";
+  return buildHeightOBJDocument({
+    getOutline: () => state.outline,
+    requireHeightExportOutline: (outline) => requireHeightExportOutline(outline),
+    exportWorkOrigin: () => exportWorkOrigin(),
+    outlineEffectiveExportPoints: (origin, outline) => outlineEffectiveExportPoints(origin, outline),
+    fieldProbeExportPoints: (origin, outline) => fieldProbeExportPoints(origin, outline),
+    buildHeightMeshVertices: (samples, outline) => buildHeightMeshVertices(samples, outline),
+    constrainedOutlineTriangles: (points, outline) => constrainedOutlineTriangles(points, outline),
+    orderedOutlineBoundaryIndices: (points, outline) => orderedOutlineBoundaryIndices(points, outline),
+    solidifyHeightMesh: (...args) => solidifyHeightMesh(...args),
+    fieldProbeHeightReference: (origin, outline) => fieldProbeHeightReference(origin, outline),
+    axisValue: (...args) => axisValue(...args),
+    pathNum: (...args) => pathNum(...args),
+  });
 }
 
 function solidifyHeightMesh(...args) {

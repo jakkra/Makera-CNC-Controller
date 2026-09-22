@@ -29,7 +29,7 @@ import { fmtActiveTool, toolDisplayName, validToolID } from "./modules/tooling.j
 import { capturedOutlinePosition as normalizeCapturedOutlinePosition } from "./modules/outline-capture.js";
 import { buildOutlineDXF as buildOutlineDXFDocument } from "./modules/outline-dxf.js";
 import { createOutlineFilesFeature } from "./modules/outline-files.js";
-import { buildHeightPGM as buildHeightPGMDocument, buildInterpolatedHeightGrid as buildInterpolatedHeightGridDocument, interpolateZ as interpolateZDocument } from "./modules/height-export.js";
+import { buildHeightOBJ as buildHeightOBJDocument, buildHeightPGM as buildHeightPGMDocument, buildInterpolatedHeightGrid as buildInterpolatedHeightGridDocument, interpolateZ as interpolateZDocument } from "./modules/height-export.js";
 import { buildHeightMeshVertices as buildHeightMeshVerticesDocument, solidifyHeightMesh as solidifyHeightMeshDocument } from "./modules/height-mesh.js";
 import { constrainedOutlineTriangles as constrainedOutlineTrianglesDocument, orderedOutlineBoundaryIndices as orderedOutlineBoundaryIndicesDocument } from "./modules/height-triangulation.js";
 import { exportExtents as exportExtentsDocument, fieldProbeExportPoints as fieldProbeExportPointsDocument, fieldProbeHeightReference as fieldProbeHeightReferenceDocument, outlineEffectiveExportPoints as outlineEffectiveExportPointsDocument, outlineExportPoints as outlineExportPointsDocument } from "./modules/height-coordinates.js";
@@ -249,10 +249,12 @@ test("shared helpers are imported as production ES modules", async () => {
   assert.equal(typeof createCommandUI, "function");
   assert.match(source, /import \{ createCommandUI \} from "\.\/modules\/command-ui\.js";/);
   assert.match(commandUIModuleSource, /export function createCommandUI/);
+  assert.equal(typeof buildHeightOBJDocument, "function");
   assert.equal(typeof buildHeightPGMDocument, "function");
   assert.equal(typeof buildInterpolatedHeightGridDocument, "function");
   assert.equal(typeof interpolateZDocument, "function");
   assert.match(source, /from "\.\/modules\/height-export\.js";/);
+  assert.match(heightExportModuleSource, /export function buildHeightOBJ/);
   assert.match(heightExportModuleSource, /export function buildHeightPGM/);
   assert.match(heightExportModuleSource, /export function buildInterpolatedHeightGrid/);
   assert.match(heightExportModuleSource, /export function interpolateZ/);
@@ -625,6 +627,7 @@ function buildContext(functionNames, constNames = [], globals = {}) {
     computeMobileWorkAreaJogAxes,
     isMobileWorkAreaJogEnabled,
     computeMobileWorkAreaJogRadius,
+    buildHeightOBJDocument,
     buildHeightPGMDocument,
     buildInterpolatedHeightGridDocument,
     interpolateZDocument,

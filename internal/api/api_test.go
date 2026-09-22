@@ -1439,6 +1439,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/outline-dxf.js", "export function buildOutlineDXF"},
 		{"/modules/outline-files.js", "export function createOutlineFilesFeature"},
 		{"/modules/outline-files.js", "function exportOutline()"},
+		{"/modules/height-export.js", "export function buildHeightOBJ"},
 		{"/modules/height-export.js", "export function buildHeightPGM"},
 		{"/modules/height-mesh.js", "export function buildHeightMeshVertices"},
 		{"/modules/height-triangulation.js", "export function constrainedOutlineTriangles"},
