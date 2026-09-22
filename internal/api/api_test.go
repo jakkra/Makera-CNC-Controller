@@ -1334,6 +1334,9 @@ func TestWebUIServed(t *testing.T) {
 	jogViewModule := get(t, srv.URL+"/modules/jog-view.js")
 	jogViewBody, _ := io.ReadAll(jogViewModule.Body)
 	jogViewModule.Body.Close()
+	jogEventsModule := get(t, srv.URL+"/modules/jog-events.js")
+	jogEventsBody, _ := io.ReadAll(jogEventsModule.Body)
+	jogEventsModule.Body.Close()
 	settingsModule := get(t, srv.URL+"/modules/settings.js")
 	settingsBody, _ := io.ReadAll(settingsModule.Body)
 	settingsModule.Body.Close()
@@ -1373,7 +1376,7 @@ func TestWebUIServed(t *testing.T) {
 	workareaJogModule := get(t, srv.URL+"/modules/workarea-jog.js")
 	workareaJogBody, _ := io.ReadAll(workareaJogModule.Body)
 	workareaJogModule.Body.Close()
-	webSource := string(jsBody) + string(activeJobViewBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(dashboardTelemetryBody) + string(dashboardViewBody) + string(gcodeLogBody) + string(navigationBody) + string(surfaceJogBody) + string(jogBody) + string(jogViewBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody) + string(outlineCaptureBody) + string(outlineDXFBody) + string(outlineFilesBody) + string(heightExportBody) + string(heightMeshBody) + string(heightTriangulationBody) + string(heightCoordinatesBody) + string(commandUIBody) + string(workareaJogBody)
+	webSource := string(jsBody) + string(activeJobViewBody) + string(toolBody) + string(originBody) + string(filesModuleBody) + string(gcodeModuleBody) + string(machineStatusBody) + string(dashboardTelemetryBody) + string(dashboardViewBody) + string(gcodeLogBody) + string(navigationBody) + string(surfaceJogBody) + string(jogBody) + string(jogViewBody) + string(jogEventsBody) + string(settingsBody) + string(workareaBody) + string(outlineBody) + string(outlineIOBody) + string(outlineCaptureBody) + string(outlineDXFBody) + string(outlineFilesBody) + string(heightExportBody) + string(heightMeshBody) + string(heightTriangulationBody) + string(heightCoordinatesBody) + string(commandUIBody) + string(workareaJogBody)
 	for _, want := range []string{"export function mountFilesCommands", "export function mountFilesTransitions", "export function mountFilesJobRefresh"} {
 		if filesModule.StatusCode != http.StatusOK || !strings.Contains(string(filesModuleBody), want) {
 			t.Errorf("modules/files.js missing %s (status=%d)", want, filesModule.StatusCode)
@@ -1617,8 +1620,8 @@ func TestWebUIServed(t *testing.T) {
 		}
 	}
 	for _, want := range []string{"jogEstimateActive", "estimatedUntil", "shouldPreserveJogPrediction", "reconcileObservedMachineStatus", "mergeMachineStatusForDisplay"} {
-		if !strings.Contains(string(jsBody), want) {
-			t.Errorf("app.js missing jog estimate display behavior %s", want)
+		if !strings.Contains(webSource, want) {
+			t.Errorf("served UI missing jog estimate display behavior %s", want)
 		}
 	}
 }
