@@ -1455,6 +1455,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/origin-probing.js", "function bindOriginZeroInteractions"},
 		{"/modules/dashboard-profiles.js", "export function createDashboardProfiles"},
 		{"/modules/dashboard-profiles.js", "function bindInteractions"},
+		{"/modules/dashboard-profiles.js", "function bindResponsiveInteractions"},
 		{"/modules/machine-status.js", "export function createMachineStatusFeature"},
 		{"/modules/machine-status.js", "bindMachineControlInteractions"},
 		{"/modules/machine-status.js", "bindDataControlButtons"},

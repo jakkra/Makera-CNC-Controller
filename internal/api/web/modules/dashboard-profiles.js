@@ -417,5 +417,15 @@ export function createDashboardProfiles({
     });
   }
 
-  return { dashboardURLState, dashboardProfileByID, currentDashboardProfile, isWideSurfaceOverview, dashboardPanelVisible, resolveDashboardProfile, applyDashboardURLState, syncDashboardProfileURL, selectDashboardProfile, renderDashboardProfileControls, applyDashboardProfile, dashboardProfileSlug, renderDashboardPanelOrder, refreshDashboardPanelOrderButtons, openDashboardSettings, closeDashboardSettings, dashboardProfileFromForm, saveDashboardProfile, deleteDashboardProfile, copyDashboardURL, bindInteractions };
+  function bindResponsiveInteractions({
+    applyDashboardProfile: applyProfile = applyDashboardProfile,
+    currentDashboardProfile: currentProfile = currentDashboardProfile,
+    windowRef = window,
+  } = {}) {
+    windowRef?.matchMedia?.("(min-width: 1320px)")?.addEventListener?.("change", () => {
+      applyProfile(currentProfile());
+    });
+  }
+
+  return { dashboardURLState, dashboardProfileByID, currentDashboardProfile, isWideSurfaceOverview, dashboardPanelVisible, resolveDashboardProfile, applyDashboardURLState, syncDashboardProfileURL, selectDashboardProfile, renderDashboardProfileControls, applyDashboardProfile, dashboardProfileSlug, renderDashboardPanelOrder, refreshDashboardPanelOrderButtons, openDashboardSettings, closeDashboardSettings, dashboardProfileFromForm, saveDashboardProfile, deleteDashboardProfile, copyDashboardURL, bindInteractions, bindResponsiveInteractions };
 }

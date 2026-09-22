@@ -2921,7 +2921,7 @@ function init() {
   bindDataControlButtons({ bindButtonAction, confirmControl, sendControl });
   bindCommandUIInteractions();
   surfaceJogFeature.bindResponsiveInteractions();
-  window.matchMedia?.("(min-width: 1320px)")?.addEventListener?.("change", () => applyDashboardProfile(currentDashboardProfile()));
+  dashboardProfiles.bindResponsiveInteractions({ applyDashboardProfile, currentDashboardProfile, windowRef: window });
   bindJogArmInteractions({ bindButtonAction, toggleTapMoveArm });
   surfaceControls.init();
   surfaceShell.bindInteractions({ bindButtonAction });

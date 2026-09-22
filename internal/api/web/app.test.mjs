@@ -1017,6 +1017,38 @@ test("Surface mobile options own their viewport listener", () => {
   assert.equal(options.open, true);
 });
 
+test("dashboard profiles own their wide viewport listener", () => {
+  assert.match(source, /dashboardProfiles\.bindResponsiveInteractions\(\{ applyDashboardProfile, currentDashboardProfile, windowRef: window \}\)/);
+  assert.match(dashboardProfilesModuleSource, /function bindResponsiveInteractions\(/);
+  assert.doesNotMatch(source, /window\.matchMedia\?\.\("\(min-width: 1320px\)"\)\?\.addEventListener/);
+
+  let changeHandler;
+  let applied = 0;
+  const profile = { id: "overview" };
+  const feature = createDashboardProfiles({
+    dashboardState: {},
+    documentRef: { getElementById: () => null },
+    windowRef: {}, navigatorRef: {}, confirmRef: () => true,
+    normalizeDashboardSettings: () => ({}), viewTabFromURL: () => "dashboard",
+    setDashboardControlsOpen: () => {}, renderDashboard: () => {}, newID: () => "id",
+    saveUISettings: async () => true, setNotice: () => {}, getDashboardGcodeView: () => null,
+    scheduleDashboardGcodeRender: () => {},
+  });
+  feature.bindResponsiveInteractions({
+    applyDashboardProfile: (value) => { applied++; assert.equal(value, profile); },
+    currentDashboardProfile: () => profile,
+    windowRef: {
+      matchMedia: (query) => {
+        assert.equal(query, "(min-width: 1320px)");
+        return { addEventListener: (_type, handler) => { changeHandler = handler; } };
+      },
+    },
+  });
+  assert.equal(applied, 0);
+  changeHandler();
+  assert.equal(applied, 1);
+});
+
 function extractFunction(name) {
   const source = feedbackHelpers.has(name) ? feedbackModuleSource.replace(/^  /gm, "") : mdiMacrosHelpers.has(name) ? mdiModuleSource.replace(/^  /gm, "") : toolActionsHelpers.has(name) ? toolActionsModuleSource.replace(/^  /gm, "") : originProbingHelpers.has(name) ? originProbingModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : machineStatusHelpers.has(name) ? machineStatusModuleSource.replace(/^  /gm, "") : outlineHelpers.has(name) ? outlineModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : outlineIOHelpers.has(name) ? outlineIOModuleSource.replace(/^export /gm, "") : navigationHelpers.has(name) ? navigationModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : settingsHelpers.has(name) ? settingsModuleSource.replace(/^export /gm, "") : toolingHelpers.has(name) ? "\n" + toolingModuleSource.replace(/^export /gm, "") : domHelpers.has(name) ? "\n" + domModuleSource.replace(/^export /gm, "") : jogHelpers.has(name) ? jogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : workareaHelpers.has(name) ? workareaModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : workareaRenderHelpers.has(name) ? "\n" + workareaRenderModuleSource.replace(/^export /gm, "") : stateDefaultsHelpers.has(name) ? "\n" + stateDefaultsModuleSource.replace(/^export /gm, "") : dashboardProfilesHelpers.has(name) ? dashboardProfilesModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : dashboardTelemetryHelpers.has(name) ? dashboardTelemetryModuleSource.replace(/^export /gm, "") : dashboardViewHelpers.has(name) ? dashboardViewModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : gcodeLogHelpers.has(name) ? gcodeLogModuleSource.replace(/^export /gm, "") : activeJobViewHelpers.has(name) ? activeJobViewModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : geometryHelpers.has(name) ? geometryModuleSource : gcodeHelpers.has(name) ? gcodeModuleSource.replace(/^  /gm, "") : outlineCaptureHelpers.has(name) ? outlineCaptureModuleSource.replace(/^export /gm, "") : outlineDXFHelpers.has(name) ? outlineDXFModuleSource.replace(/^export /gm, "") : surfaceJogHelpers.has(name) ? surfaceJogModuleSource.replace(/^export /gm, "").replace(/^  /gm, "") : globalSource();
   let start = source.indexOf("\nfunction " + name + "(");
