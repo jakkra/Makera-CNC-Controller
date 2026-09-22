@@ -2175,8 +2175,35 @@ test("active job left tab binder preserves keyboard navigation and focus order",
 
 test("active job left tab wiring is owned by the layout feature", () => {
   assert.match(activeJobLayoutModuleSource, /function bindActiveJobLeftTabs\(/);
-  assert.match(source, /bindActiveJobLeftTabs\(\)/);
+  assert.match(activeJobLayoutModuleSource, /function bindInteractions\(/);
+  assert.match(source, /activeJobLayout\.bindInteractions\(\{[\s\S]*showActiveJobLeftTab,[\s\S]*setActiveJobSplitPercent,[\s\S]*getActiveJobSplitPercent/);
+  assert.doesNotMatch(source, /bindActiveJobLeftTabs\(\);\s*showActiveJobLeftTab\(state\.activeJobLeftTab\);\s*bindActiveJobSplitter\(\);/);
+  assert.doesNotMatch(source, /window\.addEventListener\("resize", \(\) => setActiveJobSplitPercent\(state\.activeJobSplitPercent\)\)/);
   assert.doesNotMatch(source, /const activeJobLeftTabs = \["source", "console"\]/);
+});
+
+test("active job layout binder applies the selected tab and owns split resize", () => {
+  const state = { activeJobLeftTab: "console", activeJobSplitPercent: 37 };
+  const tabs = {
+    "active-job-left-tab-source": { focus() {} },
+    "active-job-left-tab-console": { focus() {} },
+  };
+  const listeners = [];
+  const calls = [];
+  const layout = createActiveJobLayout({
+    getState: () => state,
+    documentRef: { getElementById: (id) => tabs[id] || null, querySelector: () => null },
+    windowRef: { addEventListener: (type, handler) => listeners.push([type, handler]) },
+  });
+  layout.bindInteractions({
+    showActiveJobLeftTab: (name) => calls.push(["tab", name]),
+    setActiveJobSplitPercent: (value) => calls.push(["split", value]),
+    getActiveJobSplitPercent: () => state.activeJobSplitPercent,
+  });
+  assert.deepEqual(calls, [["tab", "console"]]);
+  assert.deepEqual(listeners.map(([type]) => type), ["resize"]);
+  listeners[0][1]();
+  assert.deepEqual(calls, [["tab", "console"], ["split", 37]]);
 });
 
 test("active job splitter clamps both panes and updates its accessible value", () => {

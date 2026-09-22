@@ -24,6 +24,7 @@ export function activeJobSplitBounds(width, {
 
 export function createActiveJobLayout({
   documentRef = globalThis.document,
+  windowRef = globalThis.window,
   getState = () => ({}),
   scheduleActiveGcodeSourceRender = () => {},
   scheduleGcodeRender = () => {},
@@ -35,6 +36,7 @@ export function createActiveJobLayout({
   splitterPx = ACTIVE_JOB_SPLITTER_PX,
 } = {}) {
   const document = documentRef;
+  const window = windowRef;
   const state = getState();
   const boundsFor = (width) => activeJobSplitBounds(width, { minLeftPx, minPreviewPx, splitterPx });
 
@@ -72,14 +74,14 @@ export function createActiveJobLayout({
     scheduleGcodeRender();
   }
 
-  function bindActiveJobSplitter() {
+  function bindActiveJobSplitter({ setActiveJobSplitPercent: setSplitHandler = setActiveJobSplitPercent } = {}) {
     const workspace = document.querySelector(".active-gcode-workspace");
     const splitter = document.getElementById("active-gcode-splitter");
     if (!workspace || !splitter) return;
     const setFromClientX = (clientX) => {
       const rect = workspace.getBoundingClientRect();
       if (!(rect.width > 0)) return;
-      setActiveJobSplitPercent(((clientX - rect.left) / rect.width) * 100);
+      setSplitHandler(((clientX - rect.left) / rect.width) * 100);
     };
     splitter.onpointerdown = (event) => {
       if (event.button !== 0) return;
@@ -108,9 +110,9 @@ export function createActiveJobLayout({
       else if (event.key === "End") next = bounds.max;
       else return;
       event.preventDefault();
-      setActiveJobSplitPercent(next);
+      setSplitHandler(next);
     };
-    setActiveJobSplitPercent(state.activeJobSplitPercent);
+    setSplitHandler(state.activeJobSplitPercent);
   }
 
   function bindActiveJobLeftTabs({ showActiveJobLeftTab: showTabHandler = showActiveJobLeftTab } = {}) {
@@ -133,5 +135,16 @@ export function createActiveJobLayout({
     }
   }
 
-  return { showActiveJobLeftTab, activeJobSplitBounds: boundsFor, setActiveJobSplitPercent, bindActiveJobSplitter, bindActiveJobLeftTabs };
+  function bindInteractions({
+    showActiveJobLeftTab: showTabHandler = showActiveJobLeftTab,
+    setActiveJobSplitPercent: setSplitHandler = setActiveJobSplitPercent,
+    getActiveJobSplitPercent = () => state.activeJobSplitPercent,
+  } = {}) {
+    bindActiveJobLeftTabs({ showActiveJobLeftTab: showTabHandler });
+    showTabHandler(state.activeJobLeftTab);
+    bindActiveJobSplitter({ setActiveJobSplitPercent: setSplitHandler });
+    window?.addEventListener?.("resize", () => setSplitHandler(getActiveJobSplitPercent()));
+  }
+
+  return { showActiveJobLeftTab, activeJobSplitBounds: boundsFor, setActiveJobSplitPercent, bindActiveJobSplitter, bindActiveJobLeftTabs, bindInteractions };
 }

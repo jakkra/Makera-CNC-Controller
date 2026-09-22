@@ -878,6 +878,7 @@ dashboardView = createDashboardView({
 
 activeJobLayout = createActiveJobLayout({
   documentRef: document,
+  windowRef: window,
   getState: () => state,
   scheduleActiveGcodeSourceRender: (...args) => scheduleActiveGcodeSourceRender(...args),
   scheduleGcodeRender: (...args) => scheduleGcodeRender(...args),
@@ -2896,9 +2897,11 @@ function init() {
   initDashboardControlsMenu();
   initWorkAreaActionsMenu();
   bindDashboardInteractions({ setDashboardControlsOpen, openDashboardSettings, copyDashboardURL, closeDashboardSettings, saveDashboardProfile, deleteDashboardProfile, selectDashboardProfile });
-  bindActiveJobLeftTabs();
-  showActiveJobLeftTab(state.activeJobLeftTab);
-  bindActiveJobSplitter();
+  activeJobLayout.bindInteractions({
+    showActiveJobLeftTab,
+    setActiveJobSplitPercent,
+    getActiveJobSplitPercent: () => state.activeJobSplitPercent,
+  });
   filesFeature.bind();
   filesFeature.mount();
 
@@ -2942,7 +2945,6 @@ function init() {
   bindToolInteractions({ bindButtonAction });
   bindActiveJobInteractions({ documentRef: document, bindButtonAction, runActiveGcode, runJobControl, adjustFeedOverride, setFeedOverride, runPausedJobCommand });
   gcodeViewer.bindInteractions({ clearControlDrafts });
-  window.addEventListener("resize", () => setActiveJobSplitPercent(state.activeJobSplitPercent));
   window.addEventListener("resize", () => {
     if (!mobileWorkAreaJogEnabled() && state.workarea?.mobileJogActive) {
       if (releaseJogInput(true)) renderJog();

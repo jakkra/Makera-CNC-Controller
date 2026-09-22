@@ -1409,6 +1409,7 @@ func TestWebUIServed(t *testing.T) {
 		{"/modules/active-job.js", "export function mountActiveJobSelection"},
 		{"/modules/active-job-layout.js", "export function createActiveJobLayout"},
 		{"/modules/active-job-layout.js", "bindActiveJobLeftTabs"},
+		{"/modules/active-job-layout.js", "function bindInteractions"},
 		{"/modules/surface-routing.js", "export function createSurfaceRouting"},
 		{"/modules/surface-shell.js", "export function createSurfaceShell"},
 		{"/modules/surface-shell.js", "function bindInteractions"},
