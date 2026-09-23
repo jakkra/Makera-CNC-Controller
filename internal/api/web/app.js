@@ -1773,18 +1773,6 @@ function dashboardGcodeWindow(...args) { return gcodeViewer.dashboardGcodeWindow
 
 function renderDashboardGcodeStream(...args) { return gcodeViewer.renderDashboardGcodeStream(...args); }
 
-function dashboardCameraShouldRun() {
-  return dashboardCamera.dashboardCameraShouldRun();
-}
-
-function dashboardCameraPrimary() {
-  return dashboardCamera.dashboardCameraPrimary();
-}
-
-function renderDashboardCameraConfig() {
-  return dashboardCamera.renderDashboardCameraConfig();
-}
-
 function syncDashboardCameras() {
   return dashboardCamera.syncDashboardCameras();
 }
