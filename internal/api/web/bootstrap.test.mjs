@@ -19,6 +19,7 @@ test("production entrypoint links and composes once without starting resources b
       matchMedia: () => ({ matches: false }),
       location: { href: "http://localhost/active-job", pathname: "/active-job", search: "" },
     };
+    globalThis.navigator = {};
     globalThis.localStorage = { getItem: () => null };
     globalThis.fetch = () => assert.fail("fetch before DOM readiness");
     globalThis.WebSocket = class { constructor() { assert.fail("WebSocket before DOM readiness"); } };
