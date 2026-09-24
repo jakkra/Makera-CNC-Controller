@@ -119,6 +119,25 @@ test("viewer owns the rendering constants used by its extracted scene builders",
   assert.doesNotMatch(appSource, /const VIEWCUBE_FACES\s*=/);
 });
 
+test("viewer receives outline geometry and feedback boundaries through composition", () => {
+  let geometryCalls = 0;
+  const feature = viewer({
+    getOutline: () => ({ active: true, closed: true, curveFit: false, points: [{ x: 1, y: 2, z: 3 }] }),
+    deps: {
+      effectiveOutlineGeometry: (points, closed, curveFit) => {
+        geometryCalls++;
+        assert.equal(closed, true);
+        assert.equal(curveFit, false);
+        return { points, limited: false };
+      },
+    },
+  });
+  assert.equal(feature.activeJobContextOverlayData({ active: true, closed: true, points: [{ x: 1, y: 2, z: 3 }] }, { x: 0, y: 0, z: 0 }).outline.length, 1);
+  assert.equal(geometryCalls, 1);
+  assert.match(appSource, /setConnectivityIssue,\s*\n\s*clearNotice,\s*\n\s*setNotice,/);
+  assert.match(appSource, /interpolateZ,\s*\n\s*effectiveOutlineGeometry,/);
+});
+
 test("production G-code viewer keeps dashboard windows bounded around the current line", () => {
   const { dashboardGcodeWindow } = viewer();
   assert.deepEqual(dashboardGcodeWindow(100, 0, 9), { start: 0, end: 9, current: 0 });

@@ -74,7 +74,9 @@ export function mountGcodeViewer({
     setElementBusy = () => {},
     currentDashboardProfile = () => ({}),
     clearConnectivityIssue = () => {},
+    setConnectivityIssue = () => {},
     clearNotice = () => {},
+    setNotice = () => {},
     renderActiveGcode = () => {},
     activeGcodeDisplaySegments = (active) => active?.preview?.overview_segments || [],
     axisValue = (values, axis) => {
@@ -86,6 +88,7 @@ export function mountGcodeViewer({
     buildHeightMeshVertices = () => [],
     constrainedOutlineTriangles = () => [],
     interpolateZ = () => 0,
+    effectiveOutlineGeometry = (points, closed) => ({ points, limited: !closed }),
     getOutlineContextRevision = () => 0,
     clearThreeGroup = clearThreeGroupDefault,
     disposeObject = disposeObjectDefault,
