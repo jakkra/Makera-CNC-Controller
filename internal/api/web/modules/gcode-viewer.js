@@ -86,6 +86,7 @@ export function mountGcodeViewer({
     buildHeightMeshVertices = () => [],
     constrainedOutlineTriangles = () => [],
     interpolateZ = () => 0,
+    getOutlineContextRevision = () => 0,
     clearThreeGroup = clearThreeGroupDefault,
     disposeObject = disposeObjectDefault,
     panGcodeCamera = () => {},
@@ -867,7 +868,7 @@ function activeJobContextOverlayKey(origin) {
     const value = axisValue(origin, axis);
     return value === null ? "-" : Number(value).toFixed(4);
   };
-  return `${outlineContextRevision}:${coord("x")}:${coord("y")}:${coord("z")}`;
+  return `${getOutlineContextRevision()}:${coord("x")}:${coord("y")}:${coord("z")}`;
 }
 
 function syncGcodeContextOverlay() {

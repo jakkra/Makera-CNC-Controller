@@ -951,6 +951,7 @@ const gcodeViewer = mountGcodeViewer({
     buildHeightMeshVertices,
     constrainedOutlineTriangles,
     interpolateZ,
+    getOutlineContextRevision: () => outlineContextRevision,
     panGcodeCamera,
     updateGcodeProgress,
     toolDisplayName,

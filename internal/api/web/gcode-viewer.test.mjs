@@ -105,6 +105,14 @@ test("clearThreeGroup removes and disposes every child", () => {
   assert.deepEqual(disposed.sort(), ["first", "second"]);
 });
 
+test("context overlay keys use the injected outline revision", () => {
+  let revision = 3;
+  const feature = viewer({ deps: { getOutlineContextRevision: () => revision } });
+  assert.equal(feature.activeJobContextOverlayKey({ x: 1, y: 2, z: 3 }), "3:1.0000:2.0000:3.0000");
+  revision = 4;
+  assert.equal(feature.activeJobContextOverlayKey({ x: 1, y: 2, z: 3 }), "4:1.0000:2.0000:3.0000");
+});
+
 test("production G-code viewer keeps dashboard windows bounded around the current line", () => {
   const { dashboardGcodeWindow } = viewer();
   assert.deepEqual(dashboardGcodeWindow(100, 0, 9), { start: 0, end: 9, current: 0 });
