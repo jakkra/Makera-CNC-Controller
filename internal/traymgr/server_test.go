@@ -273,6 +273,9 @@ func TestManagerLogCanBeCleared(t *testing.T) {
 }
 
 func TestServerWebDAVRemountEndpointUsesFreshMount(t *testing.T) {
+	if !WebDAVMountSupported() {
+		t.Skip("native WebDAV remount is not supported on this platform")
+	}
 	path := filepath.Join(t.TempDir(), "tray.json")
 	cfg := DefaultConfig()
 	cfg.WebDAVMount.Enabled = true
