@@ -1,3 +1,5 @@
+const MACRO_EDITOR_IDS = ["macro-name", "macro-description", "macro-color", "macro-lines", "macro-placement"];
+
 export function createMdiMacros({
   documentRef = document, getUI, setUI = () => {}, newID, escapeHtml, bindButtonAction,
   clearControlDrafts, setControlValueIfIdle, setSoftDisabled, setNotice, clearNotice,

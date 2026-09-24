@@ -4,6 +4,38 @@ const GCODE_SOURCE_PAGE_SIZE = 500;
 const GCODE_SOURCE_MAX_PAGES = 8;
 const GCODE_SEGMENT_PAGE_SIZE = 5000;
 
+export function disposeObject(obj) {
+  if (!obj) return;
+  if (obj.parent && typeof obj.parent.remove === "function") obj.parent.remove(obj);
+  const disposeNode = (node) => {
+    if (!node) return;
+    if (node.geometry && typeof node.geometry.dispose === "function") node.geometry.dispose();
+    const materials = Array.isArray(node.material) ? node.material : node.material ? [node.material] : [];
+    for (const material of materials) {
+      if (material.map && typeof material.map.dispose === "function") material.map.dispose();
+      if (typeof material.dispose === "function") material.dispose();
+    }
+  };
+  if (typeof obj.traverse === "function") obj.traverse(disposeNode);
+  else {
+    disposeNode(obj);
+    for (const child of obj.children || []) disposeObject(child);
+  }
+}
+
+export function clearThreeGroup(group) {
+  if (!group) return;
+  while (group.children?.length) {
+    const child = group.children[group.children.length - 1];
+    if (typeof group.remove === "function") group.remove(child);
+    else group.children.pop();
+    disposeObject(child);
+  }
+}
+
+const clearThreeGroupDefault = clearThreeGroup;
+const disposeObjectDefault = disposeObject;
+
 export function mountGcodeViewer({
   THREE,
   documentRef = globalThis.document,
@@ -54,8 +86,8 @@ export function mountGcodeViewer({
     buildHeightMeshVertices = () => [],
     constrainedOutlineTriangles = () => [],
     interpolateZ = () => 0,
-    clearThreeGroup = () => {},
-    disposeObject = () => {},
+    clearThreeGroup = clearThreeGroupDefault,
+    disposeObject = disposeObjectDefault,
     panGcodeCamera = () => {},
     updateGcodeProgress = () => {},
     toolDisplayName = (tool) => `T${tool}`,

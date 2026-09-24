@@ -15,7 +15,7 @@ import { request } from "./modules/api.js";
 import { bindActiveJobInteractions, gcodeCursorForPlayedLine, mountActiveJobControl, mountActiveJobDispatch, mountFeedOverride, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountActiveJobSelection, mountPausedJobCommand, previewBoundsText } from "./modules/active-job.js";
 import { createActiveJobView } from "./modules/active-job-view.js";
 import { activeJobSplitBounds, createActiveJobLayout } from "./modules/active-job-layout.js";
-import { escapeHtml, setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
+import { bindButtonAction, escapeHtml, setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtActiveFeed, fmtAge, fmtCoord, fmtDashboardFeed, fmtDashboardSpindle, fmtDuration, fmtPos, fmtSize, fmtSpindle, fmtTemperature, fmtTime } from "./modules/format.js";
 import { runHistoryEvents } from "./modules/maintenance.js";
 import { dashboardExternalCameraIsSnapshot, normalizeDashboardExternalCameraView } from "./modules/camera.js";
@@ -54,18 +54,22 @@ import { createJogView } from "./modules/jog-view.js";
 import { createJogEventHandler } from "./modules/jog-events.js";
 import { createGamepadControls } from "./modules/gamepad-controls.js";
 import { createSurfaceControls } from "./modules/surface-controls.js";
+import { createSurfaceActions } from "./modules/surface-actions.js";
 import { createSurfaceJogFeature } from "./modules/surface-jog.js";
 import { createWorkAreaInteractions } from "./modules/workarea-interactions.js";
 import { createWorkMoveInteractions } from "./modules/work-move.js";
 import { createFieldProbing } from "./modules/field-probing.js";
 import { buildFieldProbePreview as computeFieldProbePreview } from "./modules/outline-geometry.js";
 import { createOutlineCaptureOperations } from "./modules/outline-capture-operations.js";
+import { createOutlineCoordination, OUTLINE_FIELD_SPACING_DEBOUNCE_MS } from "./modules/outline-coordination.js";
 import { createWorkareaRenderers, displayedFieldProbePoints } from "./modules/workarea-render.js";
 import { cloneFloorProbe, cloneOutlineOrigin, cloneOutlinePoint, defaultOutlineState, defaultWorkAreaView } from "./modules/state-defaults.js";
 import { createAppState } from "./modules/state.js";
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const surfaceControlsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-controls.js"), "utf8");
+const surfaceActionsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-actions.js"), "utf8");
+const machineCommandsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/machine-commands.js"), "utf8");
 const surfaceShellModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/surface-shell.js"), "utf8");
 const jogEventsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/jog-events.js"), "utf8");
 const gamepadControlsModuleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/gamepad-controls.js"), "utf8");
@@ -521,11 +525,15 @@ test("work-coordinate move binder preserves dirty, Enter, reset, and send behavi
   assert.equal(calls.at(-1), "send");
 });
 test("work-coordinate move wiring is owned by the work-move feature", () => {
-  assert.match(workMoveModuleSource, /function bindInteractions\(/);
-  assert.match(source, /workMoveInteractions\.bindInteractions\(\{ workMoveInput, renderWorkMoveControls, sendWorkCoordinateMove, resetWorkMoveInput, bindButtonAction \}\)/);
+  assert.match(workMoveModuleSource, /export function createWorkMoveInteractions\(/);
+  assert.match(workMoveModuleSource, /function sendWorkCoordinateMove\(/);
+  assert.match(workMoveModuleSource, /function sendTapMove\(/);
+  assert.match(workMoveModuleSource, /function stepZ\(/);
+  assert.match(source, /workMoveInteractions\.bindInteractions\(\{ bindButtonAction \}\)/);
   assert.doesNotMatch(source, /input\.oninput = \(\) => \{\s+input\.dataset\.dirty = "1";/);
-  assert.doesNotMatch(source, /input\.onkeydown = \(e\) => \{\s+if \(e\.key === "Enter"\)/);
-  assert.doesNotMatch(source, /querySelectorAll\("\[data-work-move-reset\]"\)/);
+  assert.doesNotMatch(source, /function sendWorkCoordinateMove\(/);
+  assert.doesNotMatch(source, /function sendTapMove\(/);
+  assert.doesNotMatch(source, /function stepZ\(/);
 });
 test("shared helpers are imported as production ES modules", async () => {
   assert.match(source, /import \{ createGamepadControls \} from "\.\/modules\/gamepad-controls\.js";/);
@@ -581,7 +589,7 @@ test("shared helpers are imported as production ES modules", async () => {
   setSoftDisabled(node, false);
   setElementBusy(node, false);
   assert.equal(attributes.size, 0);
-  for (const [module, names] of [["api", "request"], ["dom", "escapeHtml, setElementBusy, setSoftDisabled, setTextIfChanged"], ["format", "fmtActiveFeed, fmtAge, fmtCoord, fmtDashboardFeed, fmtDashboardSpindle, fmtDuration, fmtPos, fmtSize, fmtSpindle, fmtTemperature, fmtTime"]]) {
+  for (const [module, names] of [["api", "request"], ["dom", "bindButtonAction, escapeHtml, setElementBusy, setSoftDisabled, setTextIfChanged"], ["format", "fmtActiveFeed, fmtAge, fmtCoord, fmtDashboardFeed, fmtDashboardSpindle, fmtDuration, fmtPos, fmtSize, fmtSpindle, fmtTemperature, fmtTime"]]) {
     assert.match(source, new RegExp(`import \\{ ${names} \\} from "\\.\\/modules\\/${module}\\.js";`));
   }
   assert.match(source, /from "\.\/modules\/file-paths\.js";/);
@@ -1550,7 +1558,8 @@ test("stale machine snapshots never expose machine actions", () => {
 
 test("Surface footer includes one stateful Auto Vacuum control", () => {
   assert.match(htmlSource, /id="surface-footer-vacuum"/);
-  assert.match(source, /request\("\/api\/outputs\/auto-vacuum"/);
+  assert.match(source, /createSurfaceActions\(/);
+  assert.match(surfaceActionsModuleSource, /request\("\/api\/outputs\/auto-vacuum"/);
   assert.match(surfaceJogModuleSource, /Auto Vacuum · \$\{vacuumEnabled \? "On" : "Off"\}/);
 });
 
@@ -2440,7 +2449,7 @@ test("manual G-code owns a stable pending lifecycle and bottom-bar feedback", as
   assert.equal(input.disabled, false);
   assert.equal(button.disabled, false);
   assert.deepEqual(messages.at(-1), ["Manual command sent: G53 G0 Z-5", "ok"]);
-  assert.match(extractFunction("sendGcode"), /Manual command failed:/);
+  assert.match(machineCommandsModuleSource, /Manual command failed:/);
 });
 
 test("movement arm stays locked until status is fresh Idle but disarm remains available", () => {
@@ -2562,17 +2571,15 @@ test("Surface MPG preserves A-axis selection and exposes rotary controls in degr
   assert.match(htmlSource, /data-surface-a-sign="1"/);
   assert.match(htmlSource, /data-surface-a-turn="360"/);
   assert.match(htmlSource, /10 mm \/ 10°/);
-  assert.match(source, /a: axis === "a" \? \(sign < 0 \? -1 : 1\) : 0/, "A hold must stay in the continuous deadman input");
+  assert.match(surfaceActionsModuleSource, /a: axis === "a" \? \(sign < 0 \? -1 : 1\) : 0/, "A hold must stay in the continuous deadman input");
 });
 
 test("Surface full-turn control sends one positive 360-degree A jog", () => {
   const sent = [];
-  const state = {
-    surface: { step_mm: 1 },
-    jog: { surfaceStepPending: 0, surfaceStepSource: "", surfaceWheel: { gestureSteps: 0 } },
-  };
-  const ctx = buildContext(["surfaceStepDistance", "surfaceStepUnit", "sendSurfaceStep"], [], {
-    state,
+  const jog = { surfaceStepPending: 0, surfaceStepSource: "", surfaceWheel: { gestureSteps: 0 } };
+  const actions = createSurfaceActions({
+    request: async () => ({ json: async () => ({}) }),
+    getJog: () => jog,
     surfaceJogBaseReady: () => true,
     sendJog: (message) => { sent.push(message); return 17; },
     setStatusMessage: () => {},
@@ -2580,9 +2587,9 @@ test("Surface full-turn control sends one positive 360-degree A jog", () => {
     renderSurfaceMPGWheel: () => {},
     connectJog: () => {},
   });
-  assert.equal(vm.runInContext('sendSurfaceStep("a", 1, "button", 360)', ctx), true);
-  assert.equal(JSON.stringify(sent), JSON.stringify([{ type: "step", axis: "a", distance: 360 }]));
-  assert.equal(state.jog.zStepLabel, "A+ 360°");
+  assert.equal(actions.sendSurfaceStep("a", 1, "button", 360), true);
+  assert.deepEqual(sent, [{ type: "step", axis: "a", distance: 360 }]);
+  assert.equal(jog.zStepLabel, "A+ 360°");
 });
 
 test("virtual MPG binding keeps clockwise steps positive through a full circular gesture", () => {
@@ -2785,15 +2792,16 @@ test("Surface kiosk motion buttons stop held input before changing mode", () => 
 test("Surface movement takeover requires confirmation before disarming another controller", () => {
   let confirmed = false;
   let toggled = 0;
-  const ctx = buildContext(["toggleSurfaceMovementArm"], [], {
+  const actions = createSurfaceActions({
+    request: async () => ({ json: async () => ({}) }),
     movementOwnedElsewhere: () => true,
-    confirm: () => confirmed,
+    confirmRef: () => confirmed,
     toggleTapMoveArm: () => { toggled++; },
   });
-  assert.equal(vm.runInContext(`toggleSurfaceMovementArm()`, ctx), false);
+  assert.equal(actions.toggleSurfaceMovementArm(), false);
   assert.equal(toggled, 0);
   confirmed = true;
-  assert.equal(vm.runInContext(`toggleSurfaceMovementArm()`, ctx), true);
+  assert.equal(actions.toggleSurfaceMovementArm(), true);
   assert.equal(toggled, 1);
   assert.ok(surfaceControlsModuleSource.includes('bindButtonAction(documentRef.getElementById("surface-jog-arm"), toggleSurfaceMovementArm)'), "the guarded takeover helper is bound to the shipped Surface arm button");
   assert.ok(source.includes("surfaceControls.init();"), "the production module is mounted during app initialization");
@@ -4795,36 +4803,30 @@ test("spot-gap spinner changes debounce expensive preview regeneration", () => {
   let outlineRenders = 0;
   let workAreaRenders = 0;
   const state = { outline: { fieldSpotGapMM: 8 } };
-  const ctx = buildContext([
-    "commitOutlineFieldSpacingDraft",
-    "cancelOutlineFieldSpacingUpdate",
-    "flushOutlineFieldSpacingUpdate",
-    "scheduleOutlineFieldSpacingUpdate",
-  ], ["OUTLINE_FIELD_SPACING_DEBOUNCE_MS"], {
-    state,
-    outlineFieldSpacingTimer: null,
-    document: { getElementById: () => input },
-    setTimeout: (callback, delay) => {
+  const coordination = createOutlineCoordination({
+    getOutline: () => state.outline,
+    documentRef: { getElementById: () => input },
+    setTimeoutRef: (callback, delay) => {
       const id = nextTimer++;
       pending.set(id, callback);
       delays.push(delay);
       return id;
     },
-    clearTimeout: (id) => pending.delete(id),
+    clearTimeoutRef: (id) => pending.delete(id),
     clearControlDrafts: () => { delete input.dataset.dirty; },
     clearFieldProbeData: () => { clears++; },
     updateFieldProbePreview: () => { previews++; },
-    renderOutlineCapture: () => { outlineRenders++; },
+    renderOutlineCaptureView: () => { outlineRenders++; },
     renderWorkArea: () => { workAreaRenders++; },
   });
   for (const value of ["8.1", "8.2", "8.3"]) {
     input.value = value;
     input.dataset.dirty = "1";
-    assert.equal(vm.runInContext("scheduleOutlineFieldSpacingUpdate()", ctx), true);
+    assert.equal(coordination.scheduleOutlineFieldSpacingUpdate(), true);
   }
   assert.equal(state.outline.fieldSpotGapMM, 8.3, "the latest draft value is committed immediately");
   assert.equal(pending.size, 1, "rapid spinner events retain only one pending calculation");
-  assert.deepEqual(delays, [450, 450, 450]);
+  assert.deepEqual(delays, Array(3).fill(OUTLINE_FIELD_SPACING_DEBOUNCE_MS));
   assert.equal(previews, 0, "the expensive preview is not regenerated during the input burst");
   const [timerID, timerCallback] = [...pending.entries()][0];
   pending.delete(timerID);
@@ -4837,7 +4839,7 @@ test("spot-gap spinner changes debounce expensive preview regeneration", () => {
   assert.equal(input.dataset.dirty, undefined);
 
   input.value = "";
-  assert.equal(vm.runInContext("scheduleOutlineFieldSpacingUpdate()", ctx), false);
+  assert.equal(coordination.scheduleOutlineFieldSpacingUpdate(), false);
   assert.equal(input.validityMessage, "Enter a number.");
   assert.equal(previews, 1, "an invalid draft never starts another preview calculation");
   assert.match(outlineViewModuleSource, /outlineSpacing\.oninput = \(\) => \{[\s\S]{0,160}scheduleOutlineFieldSpacingUpdate\(\);/);
@@ -6233,22 +6235,78 @@ test("focusing the outline button field captures the next gamepad press", () => 
   assert.equal(saves, 1);
 });
 
+function makeWorkMoveFeature({ state, document, origin = { x: 10, y: 20, z: 30 }, sendJog = () => 1, renderJog = () => {}, connectJog = () => {}, feedback = null } = {}) {
+  const formatOriginValue = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n) || Math.abs(n) < 0.00005) return "0";
+    return n.toFixed(4).replace(/\.?0+$/, "");
+  };
+  const axisValue = (position, axis) => Number.isFinite(Number(position?.[axis])) ? Number(position[axis]) : null;
+  return createWorkMoveInteractions({
+    documentRef: document,
+    getCurrentAxisValues: () => ({ mpos: state.machine?.mpos || null, wpos: state.jog?.wpos || state.machine?.wpos || null }),
+    getCurrentWorkOrigin: () => origin,
+    getMachineSettings: () => state.ui?.machine || {},
+    getDefaultMachineSettings: () => ({ tap_feed_mm_min: 600 }),
+    normalizeMachineSettings: (machine) => ({ ...machine }),
+    getJogCaps: () => state.jog.caps,
+    getJogLink: () => state.jog.link,
+    getJogArmed: () => state.jog.armed,
+    getJogTargetPending: () => state.jog.targetPending,
+    getJogTargetMotionPending: () => state.jog.targetMotionPending,
+    getJogZStepPending: () => state.jog.zStepPending,
+    getJogWorkMovePending: () => state.jog.workMovePending,
+    setJogWorkMovePending: (value) => { state.jog.workMovePending = value; },
+    getJogTarget: () => state.jog.target,
+    getJogObserved: () => state.jog.observed,
+    getJogMpos: () => state.jog.mpos,
+    getMachineMpos: () => state.machine?.mpos,
+    setJogTarget: (value) => { state.jog.target = value; },
+    setJogTargetPending: (value) => { state.jog.targetPending = value; },
+    setJogTargetMotionPending: (value) => { state.jog.targetMotionPending = value; },
+    setJogTargetLabel: (value) => { state.jog.targetLabel = value; },
+    setJogZStepPending: (value) => { state.jog.zStepPending = value; },
+    setJogZStepLabel: (value) => { state.jog.zStepLabel = value; },
+    setJogFeedback: (text, kind) => {
+      state.jog.tapFeedback = text;
+      state.jog.tapFeedbackKind = kind;
+      feedback?.push?.([text, kind]);
+    },
+    axisValue,
+    formatOriginValue,
+    finiteOr: (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback,
+    feedBoundsFor: () => ({ min: 100, max: 1200 }),
+    clampNumber: (value, min, max) => Math.max(min, Math.min(max, value)),
+    safeZForTapMove: () => 5,
+    controlLocallyOwned: () => false,
+    clearControlDrafts: (...ids) => ids.forEach((id) => {
+      const input = document.getElementById(id);
+      if (input?.dataset) delete input.dataset.dirty;
+    }),
+    hasPendingOriginOperation: () => false,
+    jogErrorText: (error) => error,
+    setTapFeedback: (text, kind) => {
+      state.jog.tapFeedback = text;
+      state.jog.tapFeedbackKind = kind;
+    },
+    setSoftDisabled: () => {},
+    connectJog,
+    sendJog,
+    renderJog,
+  });
+}
+
 test("Tap Move ignores a second tap until the first target is observed", () => {
   let sent = 0;
-  const ctx = buildContext(["tapMoveTargetBusy", "sendTapMove"], [], {
-    state: {
-      jog: {
-        link: "online",
-        armed: true,
-        targetPending: 0,
-        targetMotionPending: 42,
-        zStepPending: 0,
-      },
-    },
-    hasPendingOriginOperation: () => false,
+  const state = { ui: { machine: {} }, machine: {}, jog: {
+    link: "online", armed: true, targetPending: 0, targetMotionPending: 42, zStepPending: 0,
+  } };
+  const feature = makeWorkMoveFeature({
+    state,
+    document: { getElementById: (id) => id === "tap-feed-mm-min" ? { value: "600" } : null, querySelector: () => null },
     sendJog: () => { sent++; return 1; },
   });
-  vm.runInContext("sendTapMove({ x: 12, y: -4 })", ctx);
+  feature.sendTapMove({ x: 12, y: -4 });
   assert.equal(sent, 0);
 });
 
@@ -6277,21 +6335,24 @@ test("disarming Movement clears a pending tap target so re-arm can recover", () 
       lastInputSentAt: 50,
     },
   };
+  const document = {
+    getElementById: (id) => id === "tap-feed-mm-min" ? { value: "600", setCustomValidity() {} } : { textContent: "" },
+    querySelector: () => null,
+  };
+  const workMove = makeWorkMoveFeature({ state, document, sendJog: (message) => { sent.push(message); return 9; } });
   const ctx = buildContext(
-    ["tapMoveTargetBusy", "cancelWorkCoordinateMove", "clearFieldProbeMove", "completeCommandDisarm", "tapMoveArmSuccessText", "tapTargetLabel", "sendTapMove", "resetJogInputSender", "clearDisarmedMovementState", "applyJogEvent"],
+    ["clearFieldProbeMove", "completeCommandDisarm", "tapMoveArmSuccessText", "resetJogInputSender", "clearDisarmedMovementState", "applyJogEvent"],
     [],
     {
       state,
-      document: { getElementById: () => ({ textContent: "" }) },
+      document,
       performance: { now: () => 100 },
-      currentTapFeed: () => 600,
-      normalizeMachineSettings: (machine) => ({ ...machine, safe_z_disabled: true }),
-      safeZForTapMove: () => 0,
+      currentTapFeed: workMove.currentTapFeed,
+      tapMoveTargetBusy: workMove.tapMoveTargetBusy,
+      cancelWorkCoordinateMove: workMove.cancelWorkCoordinateMove,
+      tapTargetLabel: workMove.tapTargetLabel,
+      sendTapMove: workMove.sendTapMove,
       hasPendingOriginOperation: () => false,
-      sendJog: (message) => {
-        sent.push(message);
-        return 9;
-      },
       setTapFeedback: (message, kind) => {
         state.jog.tapFeedback = message;
         state.jog.tapFeedbackKind = kind;
@@ -6319,8 +6380,8 @@ test("disarming Movement clears a pending tap target so re-arm can recover", () 
   vm.runInContext("applyJogEvent({ type: 'ack', seq: 8 })", ctx);
   assert.equal(state.jog.armed, true);
   assert.equal(state.jog.lastInput, null, "re-arm must send current gamepad intent immediately instead of waiting for a stale heartbeat");
-  assert.equal(vm.runInContext("tapMoveTargetBusy()", ctx), false);
-  vm.runInContext("sendTapMove({ x: 20, y: 5 })", ctx);
+  assert.equal(workMove.tapMoveTargetBusy(), false);
+  workMove.sendTapMove({ x: 20, y: 5 });
   assert.equal(sent.length, 1);
   assert.equal(sent[0].type, "target");
   assert.equal(state.jog.targetMotionPending, 9);
@@ -6352,21 +6413,24 @@ test("a terminal target error releases Tap Move without disarming", () => {
       errorCode: "",
     },
   };
+  const document = {
+    getElementById: (id) => id === "tap-feed-mm-min" ? { value: "600", setCustomValidity() {} } : { textContent: "" },
+    querySelector: () => null,
+  };
+  const workMove = makeWorkMoveFeature({ state, document, sendJog: (message) => { sent.push(message); return 13; } });
   const ctx = buildContext(
-    ["tapMoveTargetBusy", "cancelWorkCoordinateMove", "clearFieldProbeMove", "completeCommandDisarm", "tapTargetLabel", "sendTapMove", "applyJogEvent"],
+    ["clearFieldProbeMove", "completeCommandDisarm", "applyJogEvent"],
     [],
     {
       state,
-      document: { getElementById: () => ({ textContent: "" }) },
+      document,
       performance: { now: () => 100 },
-      currentTapFeed: () => 600,
-      normalizeMachineSettings: (machine) => ({ ...machine, safe_z_disabled: true }),
-      safeZForTapMove: () => 0,
+      currentTapFeed: workMove.currentTapFeed,
+      tapMoveTargetBusy: workMove.tapMoveTargetBusy,
+      cancelWorkCoordinateMove: workMove.cancelWorkCoordinateMove,
+      tapTargetLabel: workMove.tapTargetLabel,
+      sendTapMove: workMove.sendTapMove,
       hasPendingOriginOperation: () => false,
-      sendJog: (message) => {
-        sent.push(message);
-        return 13;
-      },
       setTapFeedback: (message, kind) => {
         state.jog.tapFeedback = message;
         state.jog.tapFeedbackKind = kind;
@@ -6389,9 +6453,9 @@ test("a terminal target error releases Tap Move without disarming", () => {
   assert.equal(state.jog.armed, true);
   assert.equal(state.jog.targetPending, 0);
   assert.equal(state.jog.targetMotionPending, 0);
-  assert.equal(vm.runInContext("tapMoveTargetBusy()", ctx), false);
+  assert.equal(workMove.tapMoveTargetBusy(), false);
 
-  vm.runInContext("sendTapMove({ x: 20, y: 5 })", ctx);
+  workMove.sendTapMove({ x: 20, y: 5 });
   assert.equal(sent.length, 1);
   assert.equal(sent[0].type, "target");
   assert.equal(state.jog.targetMotionPending, 13);
@@ -6406,7 +6470,7 @@ test("active gcode render does not publish warnings before the operator tries to
 test("Trace outline waits for a pending Tap Move target", async () => {
   let feedback = null;
   let requests = 0;
-  const ctx = buildContext(["tapMoveTargetBusy", "traceOutline"], [], {
+  const ctx = buildContext(["traceOutline"], [], {
     state: {
       outline: {
         active: true,
@@ -6417,6 +6481,7 @@ test("Trace outline waits for a pending Tap Move target", async () => {
       jog: { armed: false, targetPending: 0, targetMotionPending: 42 },
     },
     isProbeToolActive: () => true,
+    tapMoveTargetBusy: () => true,
     setOutlineFeedback: (message, kind) => { feedback = { message, kind }; },
     request: () => { requests++; },
   });
@@ -6430,31 +6495,72 @@ test("Trace outline waits for a pending Tap Move target", async () => {
 
 test("completed Move To Work returns its coordinate fields to live values", () => {
   const inputs = {
-    "work-move-x": { value: "stale", dataset: { dirty: "1" }, setCustomValidity: () => {} },
-    "work-move-y": { value: "stale", dataset: { dirty: "1" }, setCustomValidity: () => {} },
-    "work-move-z": { value: "stale", dataset: { dirty: "1" }, setCustomValidity: () => {} },
+    "work-move-x": { value: "stale", dataset: { dirty: "1" } },
+    "work-move-y": { value: "stale", dataset: { dirty: "1" } },
+    "work-move-z": { value: "stale", dataset: { dirty: "1" } },
   };
   const state = {
     jog: { workMovePending: 42, armed: true, wpos: { x: 1.25, y: -2.5, z: 0 } },
     machine: { wpos: { x: 99, y: 99, z: 99 } },
   };
-  const ctx = buildContext(["axisValue", "currentAxisValues", "workMoveInput", "workMoveInputIsLive", "formatOriginValue", "completeWorkCoordinateMove"], [], {
-    state,
-    document: { getElementById: (id) => inputs[id] || null },
-    clearControlDrafts: (...ids) => {
-      for (const id of ids) delete inputs[id].dataset.dirty;
-    },
-  });
-  assert.equal(vm.runInContext("completeWorkCoordinateMove(42)", ctx), true);
+  const document = {
+    getElementById: (id) => inputs[id] || null,
+    querySelector: () => null,
+  };
+  const feature = makeWorkMoveFeature({ state, document });
+  assert.equal(feature.completeWorkCoordinateMove(42), true);
   assert.equal(state.jog.workMovePending, 0);
   for (const input of Object.values(inputs)) {
-    assert.equal(ctx.workMoveInputIsLive(input), true);
+    assert.equal(feature.workMoveInputIsLive(input), true);
   }
   assert.deepEqual(Object.fromEntries(Object.entries(inputs).map(([id, input]) => [id, input.value])), {
     "work-move-x": "1.25",
     "work-move-y": "-2.5",
     "work-move-z": "0",
   });
+});
+
+test("work and Z move commands preserve payloads and pending state", () => {
+  const inputs = {
+    "tap-feed-mm-min": { value: "600", setCustomValidity() {} },
+    "work-move-x": { value: "2", dataset: {} },
+    "work-move-y": { value: "", dataset: {} },
+    "work-move-z": { value: "-1.5", dataset: {} },
+    "z-step-distance": { value: "0.1" },
+  };
+  const state = {
+    ui: { machine: { safe_z_disabled: false, safe_z_mm: 5 } },
+    machine: { mpos: { x: 1, y: 2, z: 3 } },
+    jog: {
+      caps: { enabled: true }, link: "online", armed: true,
+      targetPending: 0, targetMotionPending: 0, zStepPending: 0, workMovePending: 0,
+      target: null,
+    },
+  };
+  const sent = [];
+  const document = {
+    getElementById: (id) => inputs[id] || null,
+    querySelector: () => null,
+  };
+  const feature = makeWorkMoveFeature({ state, document, sendJog: (message) => { sent.push(message); return sent.length; } });
+  feature.sendWorkCoordinateMove();
+  assert.deepEqual(sent[0], {
+    type: "target",
+    target: { x: 12, z: 28.5 },
+    feed_mm_min: 600,
+    safe_z_enabled: true,
+    safe_z_mm: 5,
+  });
+  assert.equal(state.jog.workMovePending, 1);
+  assert.equal(state.jog.targetLabel, "W X 2 Z -1.5");
+
+  state.jog.targetPending = 0;
+  state.jog.targetMotionPending = 0;
+  state.jog.workMovePending = 0;
+  feature.stepZ(1);
+  assert.deepEqual(sent[1], { type: "step", axis: "z", distance: 0.1 });
+  assert.equal(state.jog.zStepPending, 2);
+  assert.equal(state.jog.zStepLabel, "Z+ 0.1 mm");
 });
 
 test("jog motion keeps observed machine position distinct from its prediction", () => {

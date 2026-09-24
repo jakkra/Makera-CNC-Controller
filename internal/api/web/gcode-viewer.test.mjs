@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mountGcodeViewer } from "./modules/gcode-viewer.js";
+import { clearThreeGroup, disposeObject, mountGcodeViewer } from "./modules/gcode-viewer.js";
 
 const appSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "app.js"), "utf8");
 const moduleSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "modules/gcode-viewer.js"), "utf8");
@@ -49,6 +49,61 @@ function viewer({ deps = {}, documentRef, getActiveGcode = () => null, getMachin
     deps,
   });
 }
+
+function disposableNode({ geometry = null, material = null, children = [] } = {}) {
+  const node = { geometry, material, children, parent: null };
+  node.traverse = (visit) => {
+    visit(node);
+    for (const child of node.children) child.traverse(visit);
+  };
+  for (const child of children) child.parent = node;
+  return node;
+}
+
+test("disposeObject recursively disposes geometry, material arrays, and textures", () => {
+  const disposed = [];
+  const texture = { dispose: () => disposed.push("texture") };
+  const root = disposableNode({
+    geometry: { dispose: () => disposed.push("root geometry") },
+    material: [
+      { map: texture, dispose: () => disposed.push("root material 1") },
+      { dispose: () => disposed.push("root material 2") },
+    ],
+    children: [disposableNode({
+      geometry: { dispose: () => disposed.push("child geometry") },
+      material: { map: { dispose: () => disposed.push("child texture") }, dispose: () => disposed.push("child material") },
+    })],
+  });
+
+  disposeObject(root);
+
+  assert.deepEqual(disposed, [
+    "root geometry", "texture", "root material 1", "root material 2",
+    "child geometry", "child texture", "child material",
+  ]);
+});
+
+test("clearThreeGroup removes and disposes every child", () => {
+  const disposed = [];
+  const children = [
+    disposableNode({ geometry: { dispose: () => disposed.push("first") } }),
+    disposableNode({ geometry: { dispose: () => disposed.push("second") } }),
+  ];
+  const group = {
+    children,
+    remove(child) {
+      const index = this.children.indexOf(child);
+      if (index >= 0) this.children.splice(index, 1);
+      child.parent = null;
+    },
+  };
+  for (const child of children) child.parent = group;
+
+  clearThreeGroup(group);
+
+  assert.equal(group.children.length, 0);
+  assert.deepEqual(disposed.sort(), ["first", "second"]);
+});
 
 test("production G-code viewer keeps dashboard windows bounded around the current line", () => {
   const { dashboardGcodeWindow } = viewer();

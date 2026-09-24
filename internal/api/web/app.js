@@ -6,7 +6,7 @@ import { request } from "./modules/api.js";
 import { bindActiveJobInteractions, gcodeCursorForPlayedLine, mountActiveJobControl, mountActiveJobDispatch, mountFeedOverride, mountActiveJobLoader, mountActiveJobPreview, mountActiveJobRunner, mountPausedJobCommand, mountActiveJobSelection } from "./modules/active-job.js";
 import { ACTIVE_JOB_SPLIT_MIN_LEFT_PX, ACTIVE_JOB_SPLIT_MIN_PREVIEW_PX, ACTIVE_JOB_SPLIT_STEP_PERCENT, ACTIVE_JOB_SPLITTER_PX, DEFAULT_ACTIVE_JOB_SPLIT_PERCENT, activeJobSplitBounds as calculateActiveJobSplitBounds, createActiveJobLayout } from "./modules/active-job-layout.js";
 import { createActiveJobView } from "./modules/active-job-view.js";
-import { escapeHtml, setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
+import { bindButtonAction, escapeHtml, setElementBusy, setSoftDisabled, setTextIfChanged } from "./modules/dom.js";
 import { fmtActiveFeed, fmtAge, fmtCoord, fmtDashboardFeed, fmtDashboardSpindle, fmtDuration, fmtPos, fmtSize, fmtSpindle, fmtTemperature, fmtTime } from "./modules/format.js";
 import { mountMaintenance } from "./modules/maintenance.js";
 import { mountDashboardCamera } from "./modules/camera.js";
@@ -23,14 +23,17 @@ import { createFilesFeature } from "./modules/files.js";
 import { apiFileURL, basename, cleanRelPath, dirname, joinRelPath, parentRelPath, relPath, remotePathFromRel } from "./modules/file-paths.js";
 import { fmtActiveTool, toolDisplayName, validToolID } from "./modules/tooling.js";
 import { createMachineStatusFeature } from "./modules/machine-status.js";
+import { createMachineCommands } from "./modules/machine-commands.js";
 import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive, movementArmAvailable as movementArmAvailableState, movementArmLabel as movementArmLabelState, syncJogAvailabilityFromMachine as syncJogAvailabilityState } from "./modules/jog.js";
 import { createJogView } from "./modules/jog-view.js";
 import { createGamepadControls } from "./modules/gamepad-controls.js";
 import { createSurfaceControls } from "./modules/surface-controls.js";
+import { createSurfaceActions } from "./modules/surface-actions.js";
 import { createWorkAreaInteractions } from "./modules/workarea-interactions.js";
 import { createWorkMoveInteractions } from "./modules/work-move.js";
 import { createFieldProbing } from "./modules/field-probing.js";
 import { createOutlineCaptureOperations } from "./modules/outline-capture-operations.js";
+import { createOutlineCoordination } from "./modules/outline-coordination.js";
 import { createJogEventHandler } from "./modules/jog-events.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
 import { createSurfaceJogFeature, loadSurfaceViewPreferences, saveSurfaceViewPreferences as persistSurfaceViewPreferences, isSurfaceKiosk } from "./modules/surface-jog.js";
@@ -47,6 +50,7 @@ import { createUISettingsFeature } from "./modules/ui-settings.js";
 import { createOutlineView } from "./modules/outline-view.js";
 import { createProbeConfirmation } from "./modules/probe-confirm.js";
 import { createAppState } from "./modules/state.js";
+import { createFeatureStatePorts } from "./modules/feature-state-ports.js";
 import { buildHeightOBJ as buildHeightOBJDocument, buildHeightPGM as buildHeightPGMDocument, buildInterpolatedHeightGrid as buildInterpolatedHeightGridDocument, interpolateZ as interpolateZDocument } from "./modules/height-export.js";
 import { buildHeightMeshVertices as buildHeightMeshVerticesDocument, solidifyHeightMesh as solidifyHeightMeshDocument } from "./modules/height-mesh.js";
 import { constrainedOutlineTriangles as constrainedOutlineTrianglesDocument, orderedOutlineBoundaryIndices as orderedOutlineBoundaryIndicesDocument } from "./modules/height-triangulation.js";
@@ -146,6 +150,7 @@ const state = createAppState({
   defaultWorkAreaView,
   activeJobSplitDefaultPercent: ACTIVE_JOB_SPLIT_DEFAULT_PERCENT,
 });
+const featureState = createFeatureStatePorts(state);
 const machineReconciliation = createMachineReconciliation({ getState: () => state, performanceRef: performance, axisValue });
 
 const gcodeLog = createGcodeLogFeature({
@@ -260,6 +265,29 @@ const { resetEventStream, connectControlSSE, connectFilesSSE, pollMachine } = cr
   setConnectivityIssue,
   refreshJobs,
 });
+const machineCommands = createMachineCommands({
+  documentRef: document,
+  request,
+  disarmTapMoveForCommand: (...args) => disarmTapMoveForCommand(...args),
+  appendGcodeLine: (...args) => appendGcodeLine(...args),
+  setStatusMessage,
+  setNotice,
+  renderMachine: (...args) => machineStatus.renderMachine(...args),
+  pollMachine,
+  getControlPendingAction: () => state.controlPendingAction,
+  setControlPendingAction: (value) => { state.controlPendingAction = value; },
+  getLastControlResult: () => state.lastControlResult,
+  setLastControlResult: (value) => { state.lastControlResult = value; },
+});
+const {
+  sendGcode,
+  sendControl,
+  setControlButtonsPending,
+  controlPendingText,
+  controlSuccessText,
+  controlErrorText,
+  confirmControl,
+} = machineCommands;
 const { confirmProbeAction, bindInteractions: bindProbeConfirmationInteractions } = createProbeConfirmation({ documentRef: document });
 
 // Settings owns the machine/gamepad controls while API load/save remains in
@@ -330,7 +358,7 @@ const mdiMacros = createMdiMacros({
   setSoftDisabled,
   setNotice,
   clearNotice,
-  queueSaveUISettings,
+  queueSaveUISettings: (...args) => queueSaveUISettings(...args),
   renderGamepadSettings,
   confirmRef: (message) => confirm(message),
   sendGcode,
@@ -377,7 +405,7 @@ const {
   clearToolFeedback,
 } = toolActions;
 const surfaceJogFeature = createSurfaceJogFeature({
-  stateFacade: state,
+  stateFacade: featureState.surfaceJog,
   documentRef: document,
   windowRef: window,
   getActiveTab: () => state.activeTab,
@@ -407,8 +435,45 @@ const {
   selectSurfaceMPGAxis, selectSurfaceStep, selectSurfaceMotion,
   surfaceStepDistance, surfaceStepUnit,
 } = surfaceJogFeature;
+const surfaceActions = createSurfaceActions({
+  getMachine: () => state.machine,
+  getReadOnly: () => state.readOnly,
+  getAutoVacuumPending: () => state.autoVacuumPending,
+  setAutoVacuumPending: (value) => { state.autoVacuumPending = value; },
+  setVacuumMode: (value) => {
+    if (state.machine?.spindle) state.machine.spindle.vacuum_mode = value;
+  },
+  getJog: () => state.jog,
+  request,
+  appendGcodeLine: (...args) => appendGcodeLine(...args),
+  clearNotice,
+  setNotice,
+  pollMachine,
+  renderSurfaceQuickActions,
+  dashboardOptionalNumber,
+  movementOwnedElsewhere: (...args) => movementOwnedElsewhere(...args),
+  confirmRef: (message) => confirm(message),
+  toggleTapMoveArm: (...args) => toggleTapMoveArm(...args),
+  surfaceJogBaseReady,
+  surfaceJogReady,
+  surfaceStepDistance,
+  surfaceStepUnit,
+  sendJog: (...args) => sendJog(...args),
+  connectJog: (...args) => connectJog(...args),
+  setStatusMessage,
+  renderJog: (...args) => renderJog(...args),
+  renderSurfaceMPGWheel,
+  sendJogInput: (...args) => sendJogInput(...args),
+});
+const {
+  setAutoVacuum,
+  toggleSurfaceMovementArm,
+  sendSurfaceStep,
+  beginSurfaceHoldJog,
+  stopSurfaceHoldJog,
+} = surfaceActions;
 const gamepadControls = createGamepadControls({
-  state,
+  state: featureState.gamepad,
   navigatorRef: navigator,
   documentRef: document,
   callbacks: {
@@ -427,7 +492,64 @@ const gamepadControls = createGamepadControls({
 });
 const { bindInteractions: bindGamepadInteractions, currentGamepad, buttonPressed, buttonStates, mappedAxis, captureGamepadOutlineButton, handleGamepadOutlineButton, handleGamepadMacroButtons, sameButtonStates, clampAxis } = gamepadControls;
 let workAreaInteractions = null;
-const workMoveInteractions = createWorkMoveInteractions({ documentRef: document });
+const workMoveInteractions = createWorkMoveInteractions({
+  documentRef: document,
+  getCurrentAxisValues: (...args) => currentAxisValues(...args),
+  getCurrentWorkOrigin: (...args) => currentWorkOrigin(...args),
+  getMachineSettings: () => state.ui.machine,
+  getDefaultMachineSettings: () => defaultMachineSettings(),
+  normalizeMachineSettings,
+  getJogCaps: () => state.jog.caps,
+  getJogLink: () => state.jog.link,
+  getJogArmed: () => state.jog.armed,
+  getJogTargetPending: () => state.jog.targetPending,
+  getJogTargetMotionPending: () => state.jog.targetMotionPending,
+  getJogZStepPending: () => state.jog.zStepPending,
+  getJogWorkMovePending: () => state.jog.workMovePending,
+  setJogWorkMovePending: (value) => { state.jog.workMovePending = value; },
+  getJogTarget: () => state.jog.target,
+  getJogObserved: () => state.jog.observed,
+  getJogMpos: () => state.jog.mpos,
+  getMachineMpos: () => state.machine.mpos,
+  setJogTarget: (value) => { state.jog.target = value; },
+  setJogTargetPending: (value) => { state.jog.targetPending = value; },
+  setJogTargetMotionPending: (value) => { state.jog.targetMotionPending = value; },
+  setJogTargetLabel: (value) => { state.jog.targetLabel = value; },
+  setJogZStepPending: (value) => { state.jog.zStepPending = value; },
+  setJogZStepLabel: (value) => { state.jog.zStepLabel = value; },
+  setJogFeedback: (text, kind) => { state.jog.tapFeedback = text; state.jog.tapFeedbackKind = kind; },
+  axisValue,
+  formatOriginValue: (...args) => formatOriginValue(...args),
+  finiteOr,
+  feedBoundsFor,
+  clampNumber,
+  safeZForTapMove,
+  controlLocallyOwned,
+  clearControlDrafts,
+  hasPendingOriginOperation: (...args) => originProbing?.hasPendingOriginOperation?.(...args) || false,
+  jogErrorText: (...args) => jogErrorText(...args),
+  setTapFeedback,
+  setSoftDisabled,
+  connectJog: (...args) => connectJog(...args),
+  sendJog: (...args) => sendJog(...args),
+  renderJog: (...args) => renderJog(...args),
+});
+const {
+  currentTapFeed,
+  workMoveInput,
+  workMoveInputIsLive,
+  tapMoveTargetBusy,
+  renderWorkMoveControls,
+  resetWorkMoveInput,
+  completeWorkCoordinateMove,
+  cancelWorkCoordinateMove,
+  workMoveTargetsFromInputs,
+  sendWorkCoordinateMove,
+  sendTapMove,
+  currentZStepDistance,
+  zStepLabel,
+  stepZ,
+} = workMoveInteractions;
 const jogFeature = createJogFeature({
   jogState: state.jog,
   surfaceState: state.surface,
@@ -472,7 +594,7 @@ const {
 } = jogFeature;
 
 const surfaceControls = createSurfaceControls({
-  state,
+  state: featureState.surfaceControls,
   documentRef: document,
   callbacks: {
     bindButtonAction,
@@ -501,7 +623,8 @@ const originProbing = createOriginProbing({
   getActiveTab: () => state.activeTab,
   getOutline: () => state.outline,
   request, pollMachine, sendJog, connectJog, appendGcodeLine, renderJog,
-  renderMachineSettings, refreshMachineLearnedSettings, queueSaveUISettings,
+  renderMachineSettings, refreshMachineLearnedSettings,
+  queueSaveUISettings: (...args) => queueSaveUISettings(...args),
   normalizeMachineSettings, defaultMachineSettings, normalizeMachineLearned,
   currentWorkOrigin, currentAxisValues, axisValue, fmtCoord, finiteOr, newID,
   tapMoveTargetBusy,
@@ -648,7 +771,7 @@ const maintenance = mountMaintenance({
 });
 
 const uiSettings = createUISettingsFeature({
-  stateFacade: state,
+  stateFacade: featureState.uiSettings,
   documentRef: document,
   request,
   normalizeUISettings,
@@ -725,6 +848,7 @@ const lifecycleFeature = createLifecycleFeature({
 const { reloadPage, recoverForegroundSession, installPullToRefresh, bindBrowserLifecycle } = lifecycleFeature;
 
 let outlineContextRevision = 1;
+let outlineCoordination;
 let pageHiddenAt = 0;
 const HALT_REASON = {
   1: "Halt manually",
@@ -827,8 +951,6 @@ const gcodeViewer = mountGcodeViewer({
     buildHeightMeshVertices,
     constrainedOutlineTriangles,
     interpolateZ,
-    clearThreeGroup,
-    disposeObject,
     panGcodeCamera,
     updateGcodeProgress,
     toolDisplayName,
@@ -897,7 +1019,7 @@ activeJobLayout = createActiveJobLayout({
 let workareaOutline;
 let workareaRender;
 workareaOutline = mountWorkareaOutline({
-  stateFacade: state,
+  stateFacade: featureState.workareaOutline,
   documentRef: document,
   constants: {
     WORKAREA_PAD,
@@ -964,6 +1086,27 @@ const {
   outlineEditingMarkersVisible,
 } = workareaOutline;
 
+outlineCoordination = createOutlineCoordination({
+  documentRef: document,
+  getOutline: () => state.outline,
+  getGcodeContextRevision: () => outlineContextRevision,
+  setGcodeContextRevision: (value) => { outlineContextRevision = value; },
+  workAreaMMToSVGUnits,
+  spindleDiameterMM: SPINDLE_DIAMETER_MM,
+  outlineSnapshot,
+  getCurrentAxisValues: currentAxisValues,
+  currentWorkOrigin,
+  axisValue,
+  renderOutlineCaptureView: () => outlineView?.renderOutlineCapture(),
+  clearFieldProbeData,
+  updateFieldProbePreview: (...args) => updateFieldProbePreview(...args),
+  renderWorkArea,
+  clearControlDrafts,
+  setStatusMessage,
+  setTimeoutRef: setTimeout,
+  clearTimeoutRef: clearTimeout,
+});
+
 const outlineFeature = createOutlineFeature({
   getOutline: () => state.outline,
   getMachine: () => state.machine,
@@ -993,7 +1136,7 @@ const {
   undoOutline: undoOutlineFeature, redoOutline: redoOutlineFeature,
 } = outlineFeature;
 workareaRender = createWorkareaRenderers({
-  stateFacade: state,
+  stateFacade: featureState.workareaRender,
   documentRef: document,
   constants: { OUTLINE_POINT_DIAMETER_MM, PROBE_SPOT_RADIUS_MM },
   machineToWorkAreaPoint,
@@ -1011,7 +1154,7 @@ workareaRender = createWorkareaRenderers({
 });
 const { renderWorkAreaOutline, renderWorkAreaFieldProbePreview, displayedFieldProbePoints } = workareaRender;
 outlineView = createOutlineView({
-  stateFacade: state,
+  stateFacade: featureState.outlineView,
   documentRef: document,
   outlineCaptureIntentCount,
   isProbeToolActive,
@@ -1028,7 +1171,7 @@ outlineView = createOutlineView({
   outlineSummaryText,
 });
 jogView = createJogView({
-  stateFacade: state,
+  stateFacade: featureState.jogView,
   documentRef: document,
   jogPanelMessage,
   setStatusMessage,
@@ -1107,7 +1250,7 @@ const dashboardProfiles = createDashboardProfiles({
 const { dashboardURLState, dashboardProfileByID, currentDashboardProfile, isWideSurfaceOverview, dashboardPanelVisible, resolveDashboardProfile, applyDashboardURLState, syncDashboardProfileURL, selectDashboardProfile, renderDashboardProfileControls, applyDashboardProfile, dashboardProfileSlug, renderDashboardPanelOrder, refreshDashboardPanelOrderButtons, openDashboardSettings, closeDashboardSettings, dashboardProfileFromForm, saveDashboardProfile, deleteDashboardProfile, copyDashboardURL, bindInteractions: bindDashboardInteractions } = dashboardProfiles;
 
 workAreaInteractions = createWorkAreaInteractions({
-  state,
+  state: featureState.workareaInteractions,
   documentRef: document,
   windowRef: window,
   constants: { WORKAREA_PAN_THRESHOLD_PX, WORKAREA_ZOOM_STEP, MOBILE_WORKAREA_MAX_WIDTH_PX },
@@ -1125,7 +1268,7 @@ workAreaInteractions = createWorkAreaInteractions({
 });
 
 const fieldProbing = createFieldProbing({
-  state,
+  state: featureState.fieldProbing,
   constants: { DEFAULT_PROBE_DEPTH_MM, DEFAULT_PROBE_FEED_MM },
   callbacks: {
     cloneOutlineOrigin, axisValue, currentWorkOrigin, normalizeMachineSettings, finiteOr,
@@ -1143,7 +1286,7 @@ const fieldProbing = createFieldProbing({
 });
 
 const outlineCaptureOperations = createOutlineCaptureOperations({
-  state,
+  state: featureState.outlineCapture,
   constants: { JOG_INPUT_DEADZONE, OUTLINE_CAPTURE_SETTLE_MS, OUTLINE_CAPTURE_POLL_MS, OUTLINE_CAPTURE_TIMEOUT_MS },
   performanceRef: performance,
   setTimeoutRef: setTimeout,
@@ -1208,137 +1351,6 @@ function movementArmLabel(j = state.jog) {
   return movementArmLabelState(j);
 }
 
-async function setAutoVacuum(enabled) {
-  const current = dashboardOptionalNumber(state.machine?.spindle?.vacuum_mode);
-  if (state.autoVacuumPending || current === null || state.readOnly) return;
-  state.autoVacuumPending = true;
-  renderSurfaceQuickActions();
-  try {
-    const response = await request("/api/outputs/auto-vacuum", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: !!enabled }),
-    });
-    const result = await response.json();
-    if (state.machine?.spindle) state.machine.spindle.vacuum_mode = result.enabled ? 1 : 0;
-    clearNotice("auto-vacuum");
-    setTimeout(pollMachine, 1200);
-  } catch (e) {
-    appendGcodeLine({ seq: "local-" + Date.now(), dir: "recv", source: "api", text: "error: " + e.message });
-    setNotice("Auto Vacuum could not be updated: " + e.message, "error", "auto-vacuum");
-  } finally {
-    state.autoVacuumPending = false;
-    renderSurfaceQuickActions();
-  }
-}
-
-function toggleSurfaceMovementArm() {
-  if (movementOwnedElsewhere() && !confirm("Another controller has armed movement. Disarm that session before taking control?")) return false;
-  toggleTapMoveArm();
-  return true;
-}
-
-function sendSurfaceStep(axis, sign, source = "button", explicitDistance = 0) {
-  if (state.jog.surfaceStepPending) return false;
-  if (!surfaceJogBaseReady()) {
-    setStatusMessage("surface-jog", "Arm Movement after a fresh Idle status before jogging.", "error", { force: true });
-    return false;
-  }
-  const magnitude = Number(explicitDistance) > 0 ? Number(explicitDistance) : surfaceStepDistance();
-  const distance = magnitude * (sign < 0 ? -1 : 1);
-  const seq = sendJog({ type: "step", axis, distance });
-  if (!seq) {
-    setStatusMessage("surface-jog", "Jog service is not connected.", "error", { force: true });
-    connectJog();
-    return false;
-  }
-  state.jog.surfaceStepPending = seq;
-  state.jog.surfaceStepSource = source;
-  state.jog.zStepLabel = `${axis.toUpperCase()}${distance >= 0 ? "+" : "−"} ${Math.abs(distance)}${surfaceStepUnit(axis) === "°" ? "°" : " mm"}`;
-  if (source === "mpg") {
-    if (!state.jog.surfaceWheel.gestureSteps) {
-      setStatusMessage("surface-jog", `MPG ${axis.toUpperCase()} active...`, "", { timeoutMs: 0, force: true });
-    }
-    renderSurfaceMPGWheel();
-  } else {
-    setStatusMessage("surface-jog", "Sending " + state.jog.zStepLabel + "...", "", { timeoutMs: 0, force: true });
-    renderJog();
-  }
-  return true;
-}
-
-function beginSurfaceHoldJog(axis, sign) {
-  if (!surfaceJogReady()) {
-    setStatusMessage("surface-jog", "Arm Movement after a fresh Idle status before jogging.", "error", { force: true });
-    return false;
-  }
-  state.jog.surfaceInput = { axis, sign: sign < 0 ? -1 : 1 };
-  state.jog.pad = "Surface";
-  state.jog.deadman = true;
-  state.jog.axes = { x: axis === "x" ? (sign < 0 ? -1 : 1) : 0, y: axis === "y" ? (sign < 0 ? -1 : 1) : 0, z: axis === "z" ? (sign < 0 ? -1 : 1) : 0, a: axis === "a" ? (sign < 0 ? -1 : 1) : 0 };
-  setStatusMessage("surface-jog", "Jogging " + axis.toUpperCase() + "; release to stop.", "", { timeoutMs: 0, force: true });
-  sendJogInput({ deadman: true, axes: state.jog.axes }, true);
-  renderJog();
-  return true;
-}
-
-function stopSurfaceHoldJog() {
-  if (!state.jog.surfaceInput) return false;
-  state.jog.surfaceInput = null;
-  state.jog.pad = "";
-  state.jog.deadman = false;
-  state.jog.axes = { x: 0, y: 0, z: 0, a: 0 };
-  if (state.jog.armed) sendJogInput({ deadman: false, axes: state.jog.axes }, true);
-  clearNotice("surface-jog");
-  renderJog();
-  return true;
-}
-
-const actionPresses = new WeakMap();
-const actionSuppressClicks = new WeakMap();
-
-function bindButtonAction(el, handler) {
-  if (!el || el.dataset.actionBound === "true") return;
-  el.dataset.actionBound = "true";
-  el.addEventListener("pointerdown", (e) => {
-    if (typeof e.button === "number" && e.button !== 0) return;
-    if (el.disabled) return;
-    actionPresses.set(el, { pointerId: e.pointerId, x: e.clientX, y: e.clientY });
-    try {
-      el.setPointerCapture(e.pointerId);
-    } catch {
-      // Pointer capture is best-effort; the click fallback remains in place.
-    }
-  });
-  el.addEventListener("pointerup", (e) => {
-    const press = actionPresses.get(el);
-    if (!press || press.pointerId !== e.pointerId) return;
-    actionPresses.delete(el);
-    if (el.disabled) return;
-    const dx = Math.abs(e.clientX - press.x);
-    const dy = Math.abs(e.clientY - press.y);
-    const releaseTarget = document.elementFromPoint(e.clientX, e.clientY);
-    if (dx > 12 || dy > 12 || (releaseTarget && !el.contains(releaseTarget))) return;
-    actionSuppressClicks.set(el, performance.now());
-    e.preventDefault();
-    handler(e);
-  });
-  el.addEventListener("pointercancel", (e) => {
-    const press = actionPresses.get(el);
-    if (press && press.pointerId === e.pointerId) actionPresses.delete(el);
-  });
-  el.addEventListener("click", (e) => {
-    const last = actionSuppressClicks.get(el) || 0;
-    if (performance.now() - last < 700) {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-    if (el.disabled) return;
-    handler(e);
-  });
-}
-
 function jogPanelMessage() {
   const j = state.jog;
   if (j.error) return { text: jogErrorText(j.error), kind: "error" };
@@ -1375,19 +1387,12 @@ function jogErrorText(err) {
   }
 }
 
-const OUTLINE_FIELD_SPACING_DEBOUNCE_MS = 450;
-let outlineFieldSpacingTimer = null;
-
 function currentAxisValues() {
   const preferJog = state.jog.armed || state.jog.originPendingMode === "jog" || !!state.jog.targetPending || !!state.jog.targetMotionPending || !!state.jog.zStepPending;
   return {
     mpos: preferJog ? (state.jog.mpos || state.machine.mpos) : (state.machine.mpos || state.jog.mpos),
     wpos: preferJog ? (state.jog.wpos || state.machine.wpos) : (state.machine.wpos || state.jog.wpos),
   };
-}
-
-function tapMoveTargetBusy() {
-  return !!state.jog.targetPending || !!state.jog.targetMotionPending;
 }
 
 function currentWorkOrigin() {
@@ -1411,53 +1416,19 @@ function visualWorkOrigin() {
 }
 
 function setWorkAreaToolRadius() {
-  const radius = (SPINDLE_DIAMETER_MM / 2) * workAreaMMToSVGUnits();
-  for (const id of ["workarea-spindle-marker", "workarea-target-marker"]) {
-    const el = document.getElementById(id);
-    if (el) el.setAttribute("r", radius.toFixed(3));
-  }
+  return outlineCoordination.setWorkAreaToolRadius();
 }
 
 function markGcodeContextOverlayDirty() {
-  outlineContextRevision++;
+  return outlineCoordination.markGcodeContextOverlayDirty();
 }
 
 function pushOutlineUndo() {
-  const o = state.outline;
-  o.undo.push(outlineSnapshot());
-  if (o.undo.length > 100) o.undo.shift();
-  o.redo = [];
+  return outlineCoordination.pushOutlineUndo();
 }
 
 function currentOutlineCapturePosition() {
-  const { mpos, wpos } = currentAxisValues();
-  const mx = axisValue(mpos, "x");
-  const my = axisValue(mpos, "y");
-  const mz = axisValue(mpos, "z");
-  const wx = axisValue(wpos, "x");
-  const wy = axisValue(wpos, "y");
-  const wz = axisValue(wpos, "z");
-  if (mx !== null && my !== null && wx !== null && wy !== null && wz !== null) {
-    const origin = { x: mx - wx, y: my - wy };
-    if (mz !== null) origin.z = mz - wz;
-    return {
-      machine: { x: mx, y: my, z: mz },
-      work: { x: wx, y: wy, z: wz },
-      origin,
-    };
-  }
-  const origin = state.outline.origin || currentWorkOrigin();
-  const ox = axisValue(origin, "x");
-  const oy = axisValue(origin, "y");
-  const oz = axisValue(origin, "z");
-  if (mx !== null && my !== null && mz !== null && ox !== null && oy !== null && oz !== null) {
-    return {
-      machine: { x: mx, y: my, z: mz },
-      work: { x: mx - ox, y: my - oy, z: mz - oz },
-      origin,
-    };
-  }
-  return null;
+  return outlineCoordination.currentOutlineCapturePosition();
 }
 
 function startOutlineCapture() { return outlineCaptureOperations.startOutlineCapture(); }
@@ -1480,67 +1451,27 @@ function undoOutline() { return undoOutlineFeature(); }
 function redoOutline() { return redoOutlineFeature(); }
 
 function renderOutlineCapture() {
-  return outlineView?.renderOutlineCapture();
+  return outlineCoordination.renderOutlineCapture();
 }
 
 function toggleOutlineCurveFit() {
-  state.outline.curveFit = !!document.getElementById("outline-curve-fit")?.checked;
-  clearFieldProbeData();
-  updateFieldProbePreview();
-  renderOutlineCapture();
-  renderWorkArea();
+  return outlineCoordination.toggleOutlineCurveFit();
 }
 
 function commitOutlineFieldSpacingDraft() {
-  const input = document.getElementById("outline-field-spacing");
-  const raw = String(input?.value ?? "").trim();
-  const value = Number(raw);
-  if (!input || raw === "" || !Number.isFinite(value)) {
-    if (input) {
-      input.setCustomValidity("Enter a number.");
-      input.reportValidity?.();
-    }
-    return false;
-  }
-  input.setCustomValidity("");
-  state.outline.fieldSpotGapMM = Math.max(0, Math.min(250, value));
-  return true;
+  return outlineCoordination.commitOutlineFieldSpacingDraft();
 }
 
 function cancelOutlineFieldSpacingUpdate() {
-  if (outlineFieldSpacingTimer === null) return;
-  clearTimeout(outlineFieldSpacingTimer);
-  outlineFieldSpacingTimer = null;
+  return outlineCoordination.cancelOutlineFieldSpacingUpdate();
 }
 
 function flushOutlineFieldSpacingUpdate(render = true) {
-  cancelOutlineFieldSpacingUpdate();
-  if (!commitOutlineFieldSpacingDraft()) return false;
-  const input = document.getElementById("outline-field-spacing");
-  clearControlDrafts(input);
-  clearFieldProbeData(true);
-  updateFieldProbePreview();
-  if (state.outline.fieldProbeIssue) {
-    setStatusMessage("outline-plan", state.outline.fieldProbeIssue + ".", "error", { force: true });
-  }
-  if (render) {
-    renderOutlineCapture();
-    renderWorkArea();
-  }
-  return true;
+  return outlineCoordination.flushOutlineFieldSpacingUpdate(render);
 }
 
 function scheduleOutlineFieldSpacingUpdate() {
-  if (!commitOutlineFieldSpacingDraft()) {
-    cancelOutlineFieldSpacingUpdate();
-    return false;
-  }
-  cancelOutlineFieldSpacingUpdate();
-  outlineFieldSpacingTimer = setTimeout(() => {
-    outlineFieldSpacingTimer = null;
-    flushOutlineFieldSpacingUpdate();
-  }, OUTLINE_FIELD_SPACING_DEBOUNCE_MS);
-  return true;
+  return outlineCoordination.scheduleOutlineFieldSpacingUpdate();
 }
 
 async function resetSelectedFieldProbeValue() { return fieldProbing.resetSelectedFieldProbeValue(); }
@@ -1903,27 +1834,6 @@ function makeGcodeAxisLabel(...args) { return gcodeViewer.makeGcodeAxisLabel(...
 
 function clearGcodeScene(...args) { return gcodeViewer.clearGcodeScene(...args); }
 
-function clearThreeGroup(group) {
-  if (!group) return;
-  while (group.children.length) {
-    const child = group.children.pop();
-    disposeObject(child);
-  }
-}
-
-function disposeObject(obj) {
-  if (!obj) return;
-  if (obj.parent) obj.parent.remove(obj);
-  obj.traverse((node) => {
-    if (node.geometry) node.geometry.dispose();
-    const materials = Array.isArray(node.material) ? node.material : node.material ? [node.material] : [];
-    for (const material of materials) {
-      if (material.map) material.map.dispose();
-      material.dispose();
-    }
-  });
-}
-
 function fitGcodeCamera(...args) { return gcodeViewer.fitGcodeCamera(...args); }
 
 function panGcodeCamera(dx, dy) {
@@ -2148,141 +2058,6 @@ function disarmTapMoveForCommand() {
   return promise;
 }
 
-async function sendGcode(line, opts = {}) {
-  try {
-    await disarmTapMoveForCommand();
-    await request("/api/gcode", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ line }),
-    });
-    return true;
-  } catch (e) {
-    appendGcodeLine({ seq: "local-" + Date.now(), dir: "recv", source: "api", text: "error: " + e.message });
-    if (opts.feedback) {
-      setStatusMessage("gcode-command", `Manual command failed: ${e.message}`, "error", { force: true });
-    }
-    return false;
-  }
-}
-
-// sendControl injects a realtime control action or explicit recovery action.
-// Show immediate feedback because recovery commands may be sent while the log is
-// filtered or the machine remains in Alarm until the next status poll.
-async function sendControl(action) {
-  const noticeKey = "control-" + action;
-  state.controlPendingAction = action;
-  if (action === "recover") state.lastControlResult = null;
-  setControlButtonsPending(action, true);
-  renderMachine();
-  setNotice(controlPendingText(action), "info", noticeKey);
-  try {
-    const resp = await request("/api/control", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
-    });
-    let result = null;
-    if ((resp.headers.get("Content-Type") || "").includes("application/json")) {
-      result = await resp.json();
-    }
-    if (result) state.lastControlResult = result;
-    setNotice(controlSuccessText(action, result), "ok", noticeKey);
-    pollMachine();
-    setTimeout(pollMachine, 1200);
-  } catch (e) {
-    if (action === "recover") {
-      state.lastControlResult = { action, recovered: false, failed: true, message: e.message };
-    }
-    appendGcodeLine({ seq: "local-" + Date.now(), dir: "recv", source: "api", text: "error: " + e.message });
-    setNotice(controlErrorText(action, e.message), "error", noticeKey);
-  } finally {
-    state.controlPendingAction = "";
-    setControlButtonsPending(action, false);
-    renderMachine();
-  }
-}
-
-function setControlButtonsPending(action, pending) {
-  const ids = {
-    hold: "ctl-hold",
-    resume: "ctl-resume",
-    halt: "ctl-halt",
-  };
-  const buttons = Array.from(document.querySelectorAll("[data-control-action]"))
-    .filter((btn) => btn.dataset.controlAction === action);
-  const id = ids[action];
-  if (id) {
-    const btn = document.getElementById(id);
-    if (btn) buttons.push(btn);
-  }
-  for (const btn of buttons) {
-    btn.disabled = pending;
-  }
-}
-
-function controlPendingText(action) {
-  switch (action) {
-  case "unlock":
-    return "Sending unlock...";
-  case "home":
-    return "Sending home...";
-  case "reset":
-    return "Sending reset...";
-  case "recover":
-    return "Recovering alarm...";
-  case "hold":
-    return "Sending hold...";
-  case "resume":
-    return "Sending resume...";
-  case "halt":
-    return "Sending halt...";
-  default:
-    return "Sending control: " + action;
-  }
-}
-
-function controlSuccessText(action, result = null) {
-  if (result?.message) return result.message;
-  switch (action) {
-  case "recover":
-    return "Recovery command sent.";
-  case "unlock":
-    return "Unlock sent. If the alarm clears, home before moving.";
-  case "home":
-    return "Home sent.";
-  case "reset":
-    return "Reset sent. Wait for reconnect, then home.";
-  case "hold":
-    return "Hold sent.";
-  case "resume":
-    return "Resume sent.";
-  case "halt":
-    return "Halt sent.";
-  default:
-    return "Control sent: " + action;
-  }
-}
-
-function controlErrorText(action, message) {
-  return action + " failed: " + message;
-}
-
-function confirmControl(action) {
-  switch (action) {
-  case "recover":
-    return confirm("Recover this alarm? Clear the physical cause first. For soft limits, the proxy will unlock and verify status; home before moving afterward.");
-  case "unlock":
-    return confirm("Unlock the alarm? Clear the physical cause first. Home the machine before moving afterward.");
-  case "home":
-    return confirm("Home the machine now? Make sure the work area is clear.");
-  case "reset":
-    return confirm("Reset the machine controller? Reconnect and home the machine afterward.");
-  default:
-    return true;
-  }
-}
-
 async function loadJogCapabilities() {
   try {
     const r = await request("/api/jog/capabilities");
@@ -2451,255 +2226,9 @@ function toggleTapMoveArm() {
   }
 }
 
-function currentTapFeed() {
-  const input = document.getElementById("tap-feed-mm-min");
-  const fallback = state.ui.machine?.tap_feed_mm_min || defaultMachineSettings().tap_feed_mm_min;
-  const bounds = feedBoundsFor(state.ui.machine);
-  const raw = String(input?.value ?? "").trim();
-  const value = raw === "" ? NaN : Number(raw);
-  if (!Number.isFinite(value)) {
-    input?.setCustomValidity("Enter a feed rate.");
-    input?.reportValidity?.();
-    throw new Error("Feed must be a number.");
-  }
-  input?.setCustomValidity("");
-  return clampNumber(finiteOr(value, fallback), bounds.min, bounds.max);
-}
-
-function workMoveInput(axis) {
-  return document.getElementById("work-move-" + axis);
-}
-
-function workMoveField(axis) {
-  return document.querySelector('[data-work-move-axis="' + axis + '"]');
-}
-
-function workMoveInputIsLive(input) {
-  return input?.dataset.dirty !== "1";
-}
-
-function renderWorkMoveFieldState(axis, input) {
-  const field = workMoveField(axis);
-  const reset = document.querySelector('[data-work-move-reset="' + axis + '"]');
-  const live = workMoveInputIsLive(input);
-  if (field) {
-    field.classList.toggle("is-live", live);
-    field.classList.toggle("is-stale", !live);
-    field.dataset.workMoveState = live ? "live" : "stale";
-    field.title = live
-      ? "Work " + axis.toUpperCase() + " follows the current coordinate."
-      : "Work " + axis.toUpperCase() + " is edited; reset to follow the current coordinate.";
-  }
-  if (reset) {
-    reset.disabled = live;
-    reset.title = "Reset Work " + axis.toUpperCase() + " to current coordinate";
-    reset.setAttribute("aria-label", reset.title);
-  }
-}
-
-function renderWorkMoveControls(originBusy = hasPendingOriginOperation()) {
-  const { wpos } = currentAxisValues();
-  const busy = tapMoveTargetBusy() || !!state.jog.zStepPending || originBusy;
-  for (const axis of ["x", "y", "z"]) {
-    const input = workMoveInput(axis);
-    if (!input) continue;
-    const value = axisValue(wpos, axis);
-    if (workMoveInputIsLive(input) && !controlLocallyOwned(input)) {
-      input.value = value === null ? "" : formatOriginValue(value);
-    }
-    input.disabled = busy;
-    renderWorkMoveFieldState(axis, input);
-  }
-  const btn = document.getElementById("work-move-send");
-  if (!btn) return;
-  const ready = !!state.jog.caps?.enabled && state.jog.link === "online" && state.jog.armed && !busy;
-  btn.disabled = busy;
-  setSoftDisabled(btn, !busy && !ready);
-}
-
-function workMoveTargetLabel(workTargets) {
-  const parts = ["x", "y", "z"]
-    .filter((axis) => Number.isFinite(Number(workTargets?.[axis])))
-    .map((axis) => axis.toUpperCase() + " " + formatOriginValue(workTargets[axis]));
-  return "W " + parts.join(" ");
-}
-
-function resetWorkMoveInput(axis) {
-  const input = workMoveInput(axis);
-  if (!input) return;
-  input.dataset.dirty = "0";
-  renderWorkMoveControls();
-}
-
-function completeWorkCoordinateMove(seq) {
-  if (!seq || seq !== state.jog.workMovePending) return false;
-  state.jog.workMovePending = 0;
-  clearControlDrafts("work-move-x", "work-move-y", "work-move-z");
-  const { wpos } = currentAxisValues();
-  for (const axis of ["x", "y", "z"]) {
-    const value = axisValue(wpos, axis);
-    const input = workMoveInput(axis);
-    if (input && value !== null) input.value = formatOriginValue(value);
-  }
-  return true;
-}
-
-function cancelWorkCoordinateMove(seq) {
-  if (!state.jog.workMovePending || (seq && seq !== state.jog.workMovePending)) return;
-  state.jog.workMovePending = 0;
-}
-
 function clearFieldProbeMove(seq) {
   if (!state.jog.fieldProbeMovePending || (seq && seq !== state.jog.fieldProbeMovePending)) return;
   state.jog.fieldProbeMovePending = 0;
-}
-
-function workMoveTargetsFromInputs() {
-  const origin = currentWorkOrigin();
-  if (!origin) throw new Error("Current work origin is unavailable.");
-  const machineTargets = {};
-  const workTargets = {};
-  for (const axis of ["x", "y", "z"]) {
-    const input = workMoveInput(axis);
-    const raw = String(input?.value || "").trim();
-    if (raw === "") continue;
-    const workValue = finiteOr(raw, NaN);
-    if (!Number.isFinite(workValue)) throw new Error("Work " + axis.toUpperCase() + " must be a number.");
-    const offset = axisValue(origin, axis);
-    if (offset === null) throw new Error("Current " + axis.toUpperCase() + " work origin is unavailable.");
-    machineTargets[axis] = workValue + offset;
-    workTargets[axis] = workValue;
-  }
-  if (!Object.keys(machineTargets).length) throw new Error("Enter at least one work coordinate.");
-  return { machineTargets, label: workMoveTargetLabel(workTargets) };
-}
-
-function sendWorkCoordinateMove() {
-  if (state.jog.caps && !state.jog.caps.enabled) {
-    setTapFeedback(jogErrorText("disabled"), "error");
-    return;
-  }
-  if (state.jog.link !== "online") {
-    setTapFeedback("Jog service is not connected.", "error");
-    connectJog();
-    return;
-  }
-  if (!state.jog.armed) {
-    setTapFeedback("Arm Movement before moving to work coordinates.", "error");
-    return;
-  }
-  if (tapMoveTargetBusy() || state.jog.zStepPending || hasPendingOriginOperation()) return;
-  let move;
-  try {
-    move = workMoveTargetsFromInputs();
-  } catch (e) {
-    setTapFeedback(e.message, "error");
-    return;
-  }
-  let feed;
-  try {
-    feed = currentTapFeed();
-  } catch (e) {
-    setTapFeedback(e.message, "error");
-    return;
-  }
-  const machine = normalizeMachineSettings(state.ui.machine);
-  const safeZEnabled = !machine.safe_z_disabled;
-  const seq = sendJog({ type: "target", target: move.machineTargets, feed_mm_min: feed, safe_z_enabled: safeZEnabled, safe_z_mm: safeZForTapMove(machine) });
-  if (!seq) {
-    setTapFeedback("Jog service is not connected.", "error");
-    return;
-  }
-  const base = state.jog.target || state.jog.observed || state.jog.mpos || state.machine.mpos || {};
-  state.jog.target = { ...base, ...move.machineTargets };
-  state.jog.targetPending = seq;
-  state.jog.targetMotionPending = seq;
-  state.jog.workMovePending = seq;
-  state.jog.targetLabel = move.label;
-  state.jog.tapFeedback = "Sending move to " + move.label + "...";
-  state.jog.tapFeedbackKind = "";
-  renderJog();
-}
-
-function tapTargetLabel(target) {
-  return `X ${target.x.toFixed(1)} Y ${target.y.toFixed(1)}`;
-}
-
-function sendTapMove(target) {
-  if (state.jog.link !== "online") {
-    setTapFeedback("Jog service is not connected.", "error");
-    connectJog();
-    return;
-  }
-  if (!state.jog.armed) {
-    setTapFeedback("Arm Movement before selecting a target.", "error");
-    return;
-  }
-  if (tapMoveTargetBusy() || state.jog.zStepPending || hasPendingOriginOperation()) return;
-  let feed;
-  try {
-    feed = currentTapFeed();
-  } catch (e) {
-    setTapFeedback(e.message, "error");
-    return;
-  }
-  const machine = normalizeMachineSettings(state.ui.machine);
-  const safeZEnabled = !machine.safe_z_disabled;
-  const label = tapTargetLabel(target);
-  const seq = sendJog({ type: "target", target: { x: target.x, y: target.y }, feed_mm_min: feed, safe_z_enabled: safeZEnabled, safe_z_mm: safeZForTapMove(machine) });
-  if (!seq) {
-    setTapFeedback("Jog service is not connected.", "error");
-    return;
-  }
-  const base = state.jog.target || state.jog.observed || state.jog.mpos || state.machine.mpos || {};
-  state.jog.target = { ...base, x: target.x, y: target.y };
-  state.jog.targetPending = seq;
-  state.jog.targetMotionPending = seq;
-  state.jog.targetLabel = label;
-  state.jog.tapFeedback = "Sending target " + label + "...";
-  state.jog.tapFeedbackKind = "";
-  renderJog();
-}
-
-function currentZStepDistance() {
-  const value = Number(document.getElementById("z-step-distance")?.value);
-  return [10, 1, 0.1, 0.01].includes(value) ? value : 1;
-}
-
-function zStepLabel(distance) {
-  const sign = distance > 0 ? "+" : "-";
-  const abs = Math.abs(distance);
-  const text = abs >= 1 ? abs.toFixed(0) : (abs >= 0.1 ? abs.toFixed(1) : abs.toFixed(2));
-  return "Z" + sign + " " + text + " mm";
-}
-
-function stepZ(dir) {
-  if (state.jog.caps && !state.jog.caps.enabled) {
-    setTapFeedback(jogErrorText("disabled"), "error");
-    return;
-  }
-  if (state.jog.link !== "online") {
-    setTapFeedback("Jog service is not connected.", "error");
-    connectJog();
-    return;
-  }
-  if (!state.jog.armed) {
-    setTapFeedback("Arm Movement before moving Z.", "error");
-    return;
-  }
-  if (tapMoveTargetBusy() || state.jog.zStepPending || hasPendingOriginOperation()) return;
-  const distance = currentZStepDistance() * dir;
-  const label = zStepLabel(distance);
-  const seq = sendJog({ type: "step", axis: "z", distance });
-  if (!seq) {
-    setTapFeedback("Jog service is not connected.", "error");
-    return;
-  }
-  state.jog.zStepPending = seq;
-  state.jog.zStepLabel = label;
-  state.jog.tapFeedback = "Sending " + label + "...";
-  state.jog.tapFeedbackKind = "";
-  renderJog();
 }
 
 function handleWorkAreaTap(local) { return workAreaInteractions.handleWorkAreaTap(local); }
@@ -2740,7 +2269,7 @@ function clearDisarmedMovementState() {
 }
 
 const applyJogEventFromModule = createJogEventHandler({
-  state,
+  state: featureState.jogEvents,
   documentRef: document,
   performanceRef: performance,
   callbacks: {
@@ -2869,7 +2398,7 @@ function init() {
   bindGamepadInteractions();
   bindMachineSettingsInteractions();
   bindFeedStepInteractions();
-  workMoveInteractions.bindInteractions({ workMoveInput, renderWorkMoveControls, sendWorkCoordinateMove, resetWorkMoveInput, bindButtonAction });
+  workMoveInteractions.bindInteractions({ bindButtonAction });
   bindSettingsInteractions({ bindButtonAction });
   bindZStepInteractions({ bindButtonAction, stepZ });
   originProbing.bindInteractions({ bindButtonAction, setOriginAxis });

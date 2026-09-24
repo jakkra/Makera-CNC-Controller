@@ -21,7 +21,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     v.panY = cy - WORKAREA_VIEW_SIZE / 2;
     return v;
   }
-  
+
   function workAreaViewCenter() {
     const v = normalizeWorkAreaView();
     return {
@@ -29,7 +29,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
       y: WORKAREA_VIEW_SIZE / 2 + v.panY,
     };
   }
-  
+
   function applyWorkAreaViewport() {
     const group = document.getElementById("workarea-viewport");
     const v = normalizeWorkAreaView();
@@ -44,12 +44,12 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     if (zoomIn) zoomIn.disabled = v.zoom >= WORKAREA_MAX_ZOOM - 1e-6;
     if (reset) reset.disabled = v.zoom <= WORKAREA_MIN_ZOOM + 1e-6 && Math.abs(v.panX) < 1e-6 && Math.abs(v.panY) < 1e-6;
   }
-  
+
   function resetWorkAreaView() {
     state.workarea = { ...defaultWorkAreaView() };
     applyWorkAreaViewport();
   }
-  
+
   function setWorkAreaZoom(nextZoom, anchorLocal = null) {
     const v = normalizeWorkAreaView();
     const anchor = anchorLocal || { x: WORKAREA_VIEW_SIZE / 2, y: WORKAREA_VIEW_SIZE / 2 };
@@ -59,19 +59,19 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     v.panY = anchorContent.y - ((anchor.y - WORKAREA_VIEW_SIZE / 2) / v.zoom) - WORKAREA_VIEW_SIZE / 2;
     applyWorkAreaViewport();
   }
-  
+
   function zoomWorkArea(multiplier, anchorLocal = null) {
     const v = normalizeWorkAreaView();
     setWorkAreaZoom(v.zoom * multiplier, anchorLocal);
   }
-  
+
   function panWorkArea(deltaX, deltaY) {
     const v = normalizeWorkAreaView();
     v.panX -= deltaX / v.zoom;
     v.panY -= deltaY / v.zoom;
     applyWorkAreaViewport();
   }
-  
+
   function workAreaSVGPointFromClient(e) {
     const svg = document.getElementById("workarea-plot");
     if (!svg) return null;
@@ -82,7 +82,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     pt.y = e.clientY;
     return pt.matrixTransform(ctm.inverse());
   }
-  
+
   function workAreaLocalToContentPoint(local) {
     const v = normalizeWorkAreaView();
     const c = workAreaViewCenter();
@@ -91,13 +91,13 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
       y: ((local.y - WORKAREA_VIEW_SIZE / 2) / v.zoom) + c.y,
     };
   }
-  
+
   function hideWorkAreaHoverPosition() {
     const el = document.getElementById("workarea-hover-position");
     if (!el) return;
     el.hidden = true;
   }
-  
+
   function updateWorkAreaHoverPosition(local) {
     const el = document.getElementById("workarea-hover-position");
     if (!el) return;
@@ -120,12 +120,12 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     el.textContent = `M ${fmtCoord(machine.x)}, ${fmtCoord(machine.y)}  W ${fmtCoord(work.x)}, ${fmtCoord(work.y)}`;
     el.hidden = false;
   }
-  
+
   function workAreaBounds() {
     const m = normalizeMachineSettings(state.ui.machine);
     return m.work_area;
   }
-  
+
   function workAreaRect() {
     const b = workAreaBounds();
     const spanX = Math.max(1, b.x_max - b.x_min);
@@ -138,7 +138,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     const width = usable * (spanX / spanY);
     return { x: WORKAREA_PAD + (usable - width) / 2, y: WORKAREA_PAD, width, height: usable };
   }
-  
+
   function workAreaMMToSVGUnits() {
     const b = workAreaBounds();
     const r = workAreaRect();
@@ -154,7 +154,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     const sy = r.height / Math.max(1e-9, b.y_max - b.y_min);
     return Math.max(0.45, Number(mm) * Math.min(sx, sy));
   }
-  
+
   function machineToWorkAreaPoint(p) {
     if (!p || !Number.isFinite(Number(p.x)) || !Number.isFinite(Number(p.y))) return null;
     const b = workAreaBounds();
@@ -163,7 +163,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     const y = r.y + ((b.y_max - Number(p.y)) / (b.y_max - b.y_min)) * r.height;
     return { x, y };
   }
-  
+
   function workAreaToMachinePoint(p) {
     const b = workAreaBounds();
     const r = workAreaRect();
@@ -175,7 +175,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
       y: b.y_max - ((p.y - r.y) / r.height) * (b.y_max - b.y_min),
     };
   }
-  
+
   function renderWorkArea() {
     applyWorkAreaViewport();
     renderWorkAreaBoundary();
@@ -195,7 +195,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
       renderActiveGcode();
     }
   }
-  
+
   function renderWorkAreaBoundary() {
     const boundary = document.getElementById("workarea-boundary");
     if (!boundary) return;
@@ -205,7 +205,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     boundary.setAttribute("width", r.width.toFixed(2));
     boundary.setAttribute("height", r.height.toFixed(2));
   }
-  
+
   function renderWorkAreaGrid() {
     const grid = document.getElementById("workarea-grid");
     if (!grid) return;
@@ -219,7 +219,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     }
     grid.innerHTML = lines.join("");
   }
-  
+
   function renderWorkAreaOrigin() {
     const origin = visualWorkOrigin();
     const ox = axisValue(origin, "x");
@@ -228,7 +228,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     document.getElementById("workarea-origin-y")?.setAttribute("display", "none");
     setWorkAreaMarker("workarea-origin", ox !== null && oy !== null ? { x: ox, y: oy } : null);
   }
-  
+
   function setWorkAreaMarker(id, machinePoint) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -240,7 +240,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     el.setAttribute("transform", `translate(${p.x.toFixed(2)} ${p.y.toFixed(2)})`);
     el.removeAttribute("display");
   }
-  
+
   function outlineSnapshot() {
     const o = state.outline;
     return {
@@ -250,7 +250,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
       origin: cloneOutlineOrigin(o.origin),
     };
   }
-  
+
   function restoreOutlineSnapshot(snap) {
     const o = state.outline;
     const floorZ = finiteOr(o.floorMachineZ, NaN);
@@ -269,14 +269,14 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     clearFieldProbeData();
     if (o.closed) updateFieldProbePreview();
   }
-  
+
   function pushOutlineUndo() {
     const o = state.outline;
     o.undo.push(outlineSnapshot());
     if (o.undo.length > 100) o.undo.shift();
     o.redo = [];
   }
-  
+
   function currentOutlineCapturePosition() {
     const { mpos, wpos } = currentAxisValues();
     const mx = axisValue(mpos, "x");
@@ -307,7 +307,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     }
     return null;
   }
-  
+
   function outlineCaptureMotionPending() {
     const j = state.jog;
     const liveInput = jogInputActive(j.lastInput) || (!!j.deadman && ["x", "y", "z"].some((axis) => Math.abs(Number(j.axes?.[axis] || 0)) > JOG_INPUT_DEADZONE));
@@ -321,7 +321,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
       !!state.machine.motion_estimated ||
       jogEstimateActive();
   }
-  
+
   function outlineCapturePositionsClose(a, b, tolerance = OUTLINE_CAPTURE_POSITION_TOLERANCE_MM) {
     if (!a?.machine || !b?.machine) return false;
     return ["x", "y", "z"].every((axis) => {
@@ -330,16 +330,16 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
       return av !== null && bv !== null && Math.abs(av - bv) <= tolerance;
     });
   }
-  
+
   function outlineCaptureIntentCount(o = state.outline) {
     return (state.jog?.outlineCaptureIntents || []).filter((intent) => intent.outline === o).length;
   }
-  
+
   function cancelOutlineCaptureIntents(o = state.outline) {
     if (!state.jog) return;
     state.jog.outlineCaptureIntents = (state.jog.outlineCaptureIntents || []).filter((intent) => intent.outline !== o);
   }
-  
+
   function capturedOutlinePosition(position) {
     const machine = {};
     const work = {};
@@ -356,7 +356,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     }
     return { machine, work, origin };
   }
-  
+
   function appendOutlineCapturedPosition(o, pos, capturedAt = new Date().toISOString()) {
     if (state.outline !== o || !o.active || o.closed) return false;
     pushOutlineUndo();
@@ -376,7 +376,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     clearNotice("outline-point");
     return true;
   }
-  
+
   function resolveOutlineCaptureIntent(seq, position = null, error = "") {
     const intents = state.jog.outlineCaptureIntents || [];
     const intent = intents.find((candidate) => candidate.seq === seq);
@@ -384,7 +384,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     intent.position = position;
     intent.error = error;
     intent.resolved = true;
-  
+
     while (intents.length && intents[0].resolved) {
       const next = intents.shift();
       if (state.outline !== next.outline || !next.outline.active || next.outline.closed) continue;
@@ -402,12 +402,12 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     renderWorkArea();
     return true;
   }
-  
+
   function failOutlineCaptureIntents(message) {
     const pending = [...(state.jog.outlineCaptureIntents || [])];
     for (const intent of pending) resolveOutlineCaptureIntent(intent.seq, null, message);
   }
-  
+
   function clearFieldProbeData(keepPreview = false) {
     const o = state.outline;
     markGcodeContextOverlayDirty();
@@ -423,7 +423,7 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
       o.fieldProbeSelectedID = "";
     }
   }
-  
+
   function outlineEditingMarkersVisible(outline, probes) {
     return !outline?.closed || !(probes || []).length;
   }
