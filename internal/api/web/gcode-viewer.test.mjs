@@ -113,6 +113,12 @@ test("context overlay keys use the injected outline revision", () => {
   assert.equal(feature.activeJobContextOverlayKey({ x: 1, y: 2, z: 3 }), "4:1.0000:2.0000:3.0000");
 });
 
+test("viewer owns the rendering constants used by its extracted scene builders", () => {
+  assert.match(moduleSource, /const GCODE_AXIS_COLORS\s*=/);
+  assert.match(moduleSource, /const VIEWCUBE_FACES\s*=/);
+  assert.doesNotMatch(appSource, /const VIEWCUBE_FACES\s*=/);
+});
+
 test("production G-code viewer keeps dashboard windows bounded around the current line", () => {
   const { dashboardGcodeWindow } = viewer();
   assert.deepEqual(dashboardGcodeWindow(100, 0, 9), { start: 0, end: 9, current: 0 });

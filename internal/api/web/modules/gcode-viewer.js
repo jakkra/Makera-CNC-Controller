@@ -217,6 +217,18 @@ const GCODE_ORBIT_DRAG_RAD_PER_PX = 0.008;
 const GCODE_ORBIT_MIN_RADIUS = 1;
 const GCODE_ORBIT_MAX_RADIUS = 100000;
 const GCODE_CUBE_DRAG_THRESHOLD_PX = 4;
+// Same axis palette as the Control tab work-area origin marker.
+const GCODE_AXIS_COLORS = { x: "#f05b5b", y: "#6fa3ff", z: "#44c27b" };
+// View cube axes are main-scene world axes: +x right, +y top, +z front
+// (machine X+ right, Z+ up, Y+ toward the back).
+const VIEWCUBE_FACES = [
+  { label: "RIGHT", rotation: 0 },
+  { label: "LEFT", rotation: 0 },
+  { label: "TOP", rotation: 0 },
+  { label: "BOTTOM", rotation: 0 },
+  { label: "FRONT", rotation: 0 },
+  { label: "BACK", rotation: 0 },
+];
 
   function dashboardGcodeWindow(totalLines, currentLine, visibleLines) {
   const total = Math.max(0, Math.trunc(Number(totalLines) || 0));

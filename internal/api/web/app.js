@@ -1866,17 +1866,6 @@ function setGcodeProjection(...args) { return gcodeViewer.setGcodeProjection(...
 
 function bindGcodeProjectionToggle(...args) { return gcodeViewer.bindGcodeProjectionToggle(...args); }
 
-// View cube axes are main-scene world axes: +x right, +y top, +z front
-// (machine X+ right, Z+ up, Y+ toward the back).
-const VIEWCUBE_FACES = [
-  { label: "RIGHT", rotation: 0 },
-  { label: "LEFT", rotation: 0 },
-  { label: "TOP", rotation: 0 },
-  { label: "BOTTOM", rotation: 0 },
-  { label: "FRONT", rotation: 0 },
-  { label: "BACK", rotation: 0 },
-];
-
 function initGcodeViewCube(...args) { return gcodeViewer.initGcodeViewCube(...args); }
 
 function makeViewCubeFaceTexture(...args) { return gcodeViewer.makeViewCubeFaceTexture(...args); }
