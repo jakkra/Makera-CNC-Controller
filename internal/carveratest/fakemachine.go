@@ -25,6 +25,7 @@ type FakeMachine struct {
 	files               map[string][]byte // remote path -> contents (from uploads)
 	dirs                map[string]bool   // created directories
 	status              string            // payload for "?" (e.g. "<Idle|...>")
+	statusReplies       []string          // optional test hook: queued stale status replies
 	statusReplyDelay    time.Duration     // optional test hook: delay "?" replies
 	statusQueries       int               // number of "?" polls received (test observation)
 	probeReplyDelay     time.Duration     // optional test hook: delay G30/G38 replies
@@ -415,6 +416,10 @@ func (m *FakeMachine) handle(c net.Conn) {
 							s := ""
 							if !drop && delay <= 0 {
 								s = m.statusAtLocked(time.Now())
+								if len(m.statusReplies) > 0 {
+									s = m.statusReplies[0]
+									m.statusReplies = m.statusReplies[1:]
+								}
 							}
 							m.mu.Unlock()
 							if drop {
@@ -3051,4 +3056,12 @@ func twoDigits(n int) string {
 		return "0" + itoa(n)
 	}
 	return itoa(n)
+}
+
+// SetStatusReplies queues explicit status replies before normal live state.
+// It models status frames that lag behind an already accepted command.
+func (m *FakeMachine) SetStatusReplies(replies ...string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statusReplies = append([]string(nil), replies...)
 }

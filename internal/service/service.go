@@ -1504,7 +1504,7 @@ func (s *Service) sendLearnLine(c *client.Conn, line string) (string, error) {
 	// Controller.queryModel/queryVersion/queryFtype use executeCommand, which
 	// sends these CTRL_MULTI payloads without a newline. Preserve that framing
 	// exactly; this is distinct from ordinary G-code lines.
-	out, err := c.SendConsoleCommand(line, client.GcodeOpts{ExpectReply: true, Cap: gcodeReplyCap})
+	out, err := s.sendOperatorConsole(c, line, client.GcodeOpts{ExpectReply: true, Cap: gcodeReplyCap})
 	if out != "" {
 		s.gcodeLog.Append(gcodelog.DirRecv, gcodelog.SourceAPI, out)
 	}
@@ -2429,7 +2429,7 @@ func (s *Service) SetAutoVacuum(enabled bool) (AutoVacuumResult, error) {
 	res := AutoVacuumResult{Enabled: enabled, Command: command}
 	err := s.arb.WithMachine(false, func(c *client.Conn) error {
 		s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, command)
-		if _, err := c.SendGcodeLine(command, client.GcodeOpts{ExpectReply: false, Cap: gcodeReplyCap}); err != nil {
+		if _, err := s.sendOperatorGcode(c, command, client.GcodeOpts{ExpectReply: false, Cap: gcodeReplyCap}); err != nil {
 			return err
 		}
 		deadline := time.Now().Add(autoVacuumVerifyTimeout)
@@ -2471,7 +2471,7 @@ func (s *Service) SetAutoVacuum(enabled bool) (AutoVacuumResult, error) {
 }
 
 // SetFeedOverride applies the same 50-200 percent feed scale exposed by the
-// vendor controller and verifies it through the next status response. This is
+// vendor controller and verifies it through fresh status responses. This is
 // intentionally not implemented through SendGcode: generic M220 SET commands
 // remain idle-gated along with every other state-changing MDI command.
 func (s *Service) SetFeedOverride(percent int) (FeedOverrideResult, error) {
@@ -2483,26 +2483,37 @@ func (s *Service) SetFeedOverride(percent int) (FeedOverrideResult, error) {
 	command := fmt.Sprintf("M220 S%d", percent)
 	err := s.arb.WithMachine(false, func(c *client.Conn) error {
 		s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, command)
-		if _, err := c.SendGcodeLine(command, client.GcodeOpts{ExpectReply: false, Cap: gcodeReplyCap}); err != nil {
+		if _, err := s.sendOperatorGcode(c, command, client.GcodeOpts{ExpectReply: false, Cap: gcodeReplyCap}); err != nil {
 			return err
 		}
-		st, err := s.queryRecoveryStatus(c)
-		if err != nil {
-			return fmt.Errorf("%w: could not verify feed override: %v", ErrMachineStatusStale, err)
+		deadline := time.Now().Add(4 * time.Second)
+		for {
+			st, err := s.queryRecoveryStatus(c)
+			if err == nil {
+				res.State = st.State
+				if st.Feed != nil && math.Abs(st.Feed.Override-float64(percent)) <= 0.5 {
+					res.Verified = true
+					return nil
+				}
+			}
+			if !time.Now().Before(deadline) {
+				// Delivery succeeded, but a delayed/lost status reply is not
+				// evidence that the firmware rejected the command.
+				return nil
+			}
+			time.Sleep(jobControlPollInterval)
 		}
-		res.State = st.State
-		if st.Feed == nil || math.Abs(st.Feed.Override-float64(percent)) > 0.5 {
-			return fmt.Errorf("%w: machine did not report the requested %d%% feed override", ErrJobControlUnavailable, percent)
-		}
-		return nil
 	})
 	if err != nil {
 		s.gcodeLog.Append(gcodelog.DirRecv, gcodelog.SourceAPI, "error: "+err.Error())
 		return res, err
 	}
 
-	res.Verified = true
-	res.Message = fmt.Sprintf("Feed override set to %d%%.", percent)
+	if res.Verified {
+		res.Message = fmt.Sprintf("Feed override set to %d%%.", percent)
+	} else {
+		res.Message = fmt.Sprintf("Feed override command sent for %d%%; status confirmation is pending.", percent)
+	}
 	s.gcodeLog.Append(gcodelog.DirRecv, gcodelog.SourceAPI, res.Message)
 	return res, nil
 }
@@ -2548,7 +2559,7 @@ func (s *Service) SendGcode(line string) (string, error) {
 				return session.ErrNotIdle
 			}
 		}
-		o, e := c.SendGcodeLine(line, client.GcodeOpts{
+		o, e := s.sendOperatorGcode(c, line, client.GcodeOpts{
 			ExpectReply: resp == protocol.ReplyExpected,
 			Cap:         gcodeReplyCap,
 		})
@@ -2614,7 +2625,7 @@ func (s *Service) PauseJob() (JobControlResult, error) {
 			return fmt.Errorf("%w: machine state is %s, want Run", ErrJobControlUnavailable, st.State)
 		}
 		s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, "job pause (suspend)")
-		out, err := c.SendConsoleCommand("suspend", client.GcodeOpts{ExpectReply: true, Cap: gcodeReplyCap})
+		out, err := s.sendOperatorConsole(c, "suspend", client.GcodeOpts{ExpectReply: true, Cap: gcodeReplyCap})
 		if out != "" {
 			s.gcodeLog.Append(gcodelog.DirRecv, gcodelog.SourceAPI, out)
 		}
@@ -2647,7 +2658,7 @@ func (s *Service) ResumeJob() (JobControlResult, error) {
 			return fmt.Errorf("%w: machine state is %s, want Pause", ErrJobControlUnavailable, st.State)
 		}
 		s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, "job resume (resume)")
-		out, err := c.SendConsoleCommand("resume", client.GcodeOpts{ExpectReply: true, Cap: gcodeReplyCap})
+		out, err := s.sendOperatorConsole(c, "resume", client.GcodeOpts{ExpectReply: true, Cap: gcodeReplyCap})
 		if out != "" {
 			s.gcodeLog.Append(gcodelog.DirRecv, gcodelog.SourceAPI, out)
 		}
@@ -2735,7 +2746,7 @@ func (s *Service) RunPausedJobCommand(req PausedJobCommandRequest) (PausedJobCom
 		}
 
 		s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, res.Command)
-		if _, err := c.SendGcodeLine(res.Command, client.GcodeOpts{ExpectReply: false, Cap: gcodeReplyCap}); err != nil {
+		if _, err := s.sendOperatorGcode(c, res.Command, client.GcodeOpts{ExpectReply: false, Cap: gcodeReplyCap}); err != nil {
 			return err
 		}
 		s.recordExecutionCommand(res.Command, gcodelog.SourceAPI, time.Now())
@@ -2848,7 +2859,7 @@ func (s *Service) SetMachineOrigin(req MachineOriginRequest) (MachineOriginResul
 		if !xOK || !yOK || !finite(mx) || !finite(my) {
 			return fmt.Errorf("%w: current machine XY position is unavailable", ErrMachineStatusStale)
 		}
-		if _, err := c.SendGcodeLine(command, client.GcodeOpts{ExpectReply: false, Cap: gcodeReplyCap}); err != nil {
+		if _, err := s.sendOperatorGcode(c, command, client.GcodeOpts{ExpectReply: false, Cap: gcodeReplyCap}); err != nil {
 			return err
 		}
 		result.Target = machine.AxisValues{"x": mx - origin.X, "y": my - origin.Y}
@@ -3270,7 +3281,7 @@ func (s *Service) sendProbeLine(c *client.Conn, line string, expectReply bool) (
 		cap = 2 * time.Minute
 		firstReplyTimeout = cap
 	}
-	out, err := c.SendGcodeLine(line, client.GcodeOpts{
+	out, err := s.sendOperatorGcode(c, line, client.GcodeOpts{
 		ExpectReply:       expectReply,
 		Cap:               cap,
 		FirstReplyTimeout: firstReplyTimeout,
@@ -3290,7 +3301,7 @@ func (s *Service) sendProbeLine(c *client.Conn, line string, expectReply bool) (
 
 func (s *Service) sendTraceLine(c *client.Conn, line string) (string, error) {
 	s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, "trace "+line)
-	out, err := c.SendGcodeLine(line, client.GcodeOpts{ExpectReply: false, Cap: gcodeReplyCap})
+	out, err := s.sendOperatorGcode(c, line, client.GcodeOpts{ExpectReply: false, Cap: gcodeReplyCap})
 	if out != "" {
 		s.gcodeLog.Append(gcodelog.DirRecv, gcodelog.SourceAPI, out)
 	}
@@ -3381,7 +3392,15 @@ func (s *Service) SendControl(c byte) error {
 		return fmt.Errorf("%w: unsupported control character %#x", ErrInvalidArgument, c)
 	}
 	s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, label)
+	cancel := s.attention.BeginOperatorAction(nil, c == '~' || c == 0x18)
+	if c == '!' {
+		cancel()
+		cancel = s.attention.BeginOperatorAction([]machine.State{machine.Hold}, false)
+	}
 	err := s.arb.SendControl(c)
+	if err != nil {
+		cancel()
+	}
 	if err != nil {
 		s.gcodeLog.Append(gcodelog.DirRecv, gcodelog.SourceAPI, "error: "+err.Error())
 	}
@@ -3539,7 +3558,7 @@ func (s *Service) recoverAlarmReset(res RecoveryResult) (RecoveryResult, error) 
 
 func (s *Service) runRecoveryCommand(c *client.Conn, res *RecoveryResult, line string) (machine.Status, error) {
 	s.recordRecoverySend(res, line)
-	out, err := c.SendConsoleCommand(line, client.GcodeOpts{Cap: recoveryStatusTimeout})
+	out, err := s.sendOperatorConsole(c, line, client.GcodeOpts{Cap: recoveryStatusTimeout})
 	if out != "" {
 		res.Output = append(res.Output, out)
 		s.gcodeLog.Append(gcodelog.DirRecv, gcodelog.SourceAPI, out)

@@ -465,7 +465,7 @@ func (s *Service) queryMachineActiveGcode(playStatus bool) (string, string, bool
 
 	var out string
 	err := s.arb.WithMachine(false, func(c *client.Conn) error {
-		o, e := c.SendConsoleCommand("progress\n", client.GcodeOpts{
+		o, e := s.sendOperatorConsole(c, "progress\n", client.GcodeOpts{
 			ExpectReply: true,
 			Cap:         gcodeReplyCap,
 		})
@@ -985,7 +985,7 @@ func (s *Service) Probe3D(req Probe3DRequest) (MachineActionResult, error) {
 			return fmt.Errorf("%w: %v", ErrInvalidArgument, limitErr)
 		}
 		s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, "3d probe "+display)
-		out, sendErr := c.SendConsoleCommand(ensureWireLine(line), client.GcodeOpts{Cap: gcodeReplyCap})
+		out, sendErr := s.sendOperatorConsole(c, ensureWireLine(line), client.GcodeOpts{Cap: gcodeReplyCap})
 		res.Output = out
 		if sendErr != nil {
 			return sendErr
@@ -1152,7 +1152,7 @@ func (s *Service) sendConsoleMachineAction(displayLine, wireLine string) (string
 	s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, displayLine)
 	var out string
 	err := s.arb.WithMachine(true, func(c *client.Conn) error {
-		o, e := c.SendConsoleCommand(ensureWireLine(wireLine), client.GcodeOpts{Cap: gcodeReplyCap})
+		o, e := s.sendOperatorConsole(c, ensureWireLine(wireLine), client.GcodeOpts{Cap: gcodeReplyCap})
 		out = o
 		return e
 	})
@@ -1171,7 +1171,7 @@ func (s *Service) sendToolMachineAction(displayLine, wireLine string) (string, e
 	s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, displayLine)
 	var out string
 	err := s.arb.WithMachine(true, func(c *client.Conn) error {
-		o, e := c.SendConsoleCommand(ensureWireLine(wireLine), client.GcodeOpts{Cap: gcodeReplyCap})
+		o, e := s.sendOperatorConsole(c, ensureWireLine(wireLine), client.GcodeOpts{Cap: gcodeReplyCap})
 		out = o
 		if e != nil {
 			return e
@@ -1204,7 +1204,7 @@ func (s *Service) sendToolContinueAction(displayLine, wireLine string) (string, 
 		if st.State != machine.Tool {
 			return fmt.Errorf("%w: machine reports %s", ErrToolChangeUnavailable, statusSummary(st))
 		}
-		o, e := c.SendConsoleCommand(ensureWireLine(wireLine), client.GcodeOpts{Cap: gcodeReplyCap})
+		o, e := s.sendOperatorConsole(c, ensureWireLine(wireLine), client.GcodeOpts{Cap: gcodeReplyCap})
 		out = o
 		if e != nil {
 			return e

@@ -129,7 +129,7 @@ func (d *Dispatcher) Run(ctx context.Context, changes <-chan attention.Change) {
 // are deliberately ignored so richer status detail cannot create a duplicate
 // phone notification for the same waiting period.
 func (d *Dispatcher) Handle(ctx context.Context, change attention.Change) error {
-	if change.Kind == attention.ChangeUpdated {
+	if change.SuppressNotification || change.Event.OperatorInitiated || operatorHalt(change.Event) || change.Kind == attention.ChangeUpdated {
 		return nil
 	}
 	if suppressInitialToolChange(change.Event) {
@@ -340,4 +340,10 @@ func copyDelivery(in Delivery) Delivery {
 		out.CompletedAt = &v
 	}
 	return out
+}
+
+// H:1 and H:13 are the firmware's manual halt and physical emergency button.
+// Real faults (limits, overheating, probe failures, etc.) still notify.
+func operatorHalt(event attention.Event) bool {
+	return event.Kind == attention.KindAlarm && event.HaltReason != nil && (event.HaltReason.Code == 1 || event.HaltReason.Code == 13)
 }

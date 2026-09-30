@@ -293,7 +293,7 @@ export function mountFeedOverride({
         body: JSON.stringify({ percent }),
       });
       const result = await response.json();
-      setActiveFeedback(result.message, result.verified ? "ok" : "error");
+      setActiveFeedback(result.message, result.verified ? "ok" : "");
       await pollMachine();
     } catch (error) {
       setActiveFeedback("Feed override failed: " + error.message, "error");

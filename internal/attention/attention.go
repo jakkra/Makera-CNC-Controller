@@ -51,26 +51,28 @@ type Marker struct {
 
 // Event is one period in which the machine needs human attention.
 type Event struct {
-	ID         int64               `json:"id"`
-	Kind       Kind                `json:"kind"`
-	State      machine.State       `json:"state"`
-	JobPath    string              `json:"job_path,omitempty"`
-	JobName    string              `json:"job_name,omitempty"`
-	StartedAt  time.Time           `json:"started_at"`
-	ResolvedAt *time.Time          `json:"resolved_at,omitempty"`
-	Active     bool                `json:"active"`
-	Tool       *machine.ToolStatus `json:"tool,omitempty"`
-	HaltReason *machine.HaltReason `json:"halt_reason,omitempty"`
-	Marker     *Marker             `json:"marker,omitempty"`
-	Progress   []float64           `json:"progress,omitempty"`
-	Raw        string              `json:"raw,omitempty"`
+	ID                int64               `json:"id"`
+	Kind              Kind                `json:"kind"`
+	State             machine.State       `json:"state"`
+	JobPath           string              `json:"job_path,omitempty"`
+	JobName           string              `json:"job_name,omitempty"`
+	StartedAt         time.Time           `json:"started_at"`
+	ResolvedAt        *time.Time          `json:"resolved_at,omitempty"`
+	Active            bool                `json:"active"`
+	Tool              *machine.ToolStatus `json:"tool,omitempty"`
+	HaltReason        *machine.HaltReason `json:"halt_reason,omitempty"`
+	Marker            *Marker             `json:"marker,omitempty"`
+	Progress          []float64           `json:"progress,omitempty"`
+	OperatorInitiated bool                `json:"operator_initiated,omitempty"`
+	Raw               string              `json:"raw,omitempty"`
 }
 
 // Change is published to live subscribers whenever an event opens, gains
 // material detail, or resolves.
 type Change struct {
-	Kind  ChangeKind `json:"change"`
-	Event Event      `json:"event"`
+	Kind                 ChangeKind `json:"change"`
+	Event                Event      `json:"event"`
+	SuppressNotification bool       `json:"suppress_notification,omitempty"`
 }
 
 // Snapshot is the read model returned by the API.
@@ -83,15 +85,17 @@ type Snapshot struct {
 // status polls. Durable restoration can be added later without changing the
 // public event shape.
 type Monitor struct {
-	mu        sync.Mutex
-	cap       int
-	now       func() time.Time
-	events    []Event
-	nextID    int64
-	active    int // index in events, -1 when none
-	lastState machine.State
-	subs      map[int]chan Change
-	nextSub   int
+	mu         sync.Mutex
+	cap        int
+	now        func() time.Time
+	events     []Event
+	nextID     int64
+	active     int // index in events, -1 when none
+	lastState  machine.State
+	subs       map[int]chan Change
+	nextSub    int
+	nextIntent int
+	intents    map[int]operatorIntent
 }
 
 // New creates a monitor retaining at most capacity events.
@@ -100,11 +104,12 @@ func New(capacity int) *Monitor {
 		capacity = 100
 	}
 	return &Monitor{
-		cap:    capacity,
-		now:    time.Now,
-		nextID: 1,
-		active: -1,
-		subs:   map[int]chan Change{},
+		cap:     capacity,
+		now:     time.Now,
+		nextID:  1,
+		active:  -1,
+		subs:    map[int]chan Change{},
+		intents: map[int]operatorIntent{},
 	}
 }
 
@@ -118,6 +123,19 @@ func (m *Monitor) ObserveStatus(st machine.Status, ctx Context) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// An idle-only manual tool action cannot cause a prompt in a later job.
+	// Retire unmatched tool intent when execution starts, even if its short
+	// timeout has not elapsed yet.
+	if st.State == machine.Run {
+		for id, intent := range m.intents {
+			for _, expected := range intent.states {
+				if expected == machine.Tool && !when.Before(intent.started) {
+					delete(m.intents, id)
+				}
+			}
+		}
+	}
 
 	if st.State == m.lastState {
 		if m.updateActiveLocked(st, ctx) {
@@ -162,6 +180,7 @@ func (m *Monitor) ObserveStatus(st machine.Status, ctx Context) {
 		Progress:   append([]float64(nil), st.Progress...),
 		Raw:        st.Raw,
 	}
+	event.OperatorInitiated = m.operatorInitiatedLocked(st, when)
 	m.nextID++
 	m.events = append(m.events, event)
 	if len(m.events) > m.cap {
@@ -243,7 +262,18 @@ func (m *Monitor) resolveActiveLocked(when time.Time) {
 	event.Active = false
 	resolved := when
 	event.ResolvedAt = &resolved
-	m.publishLocked(Change{Kind: ChangeResolved, Event: copyEvent(*event)})
+	suppress := event.OperatorInitiated
+	for id, intent := range m.intents {
+		if !when.Before(intent.expires) {
+			delete(m.intents, id)
+			continue
+		}
+		if intent.resolveID == event.ID {
+			suppress = true
+			delete(m.intents, id)
+		}
+	}
+	m.publishLocked(Change{Kind: ChangeResolved, Event: copyEvent(*event), SuppressNotification: suppress})
 	m.active = -1
 }
 
@@ -360,4 +390,57 @@ func sameHaltReason(a, b *machine.HaltReason) bool {
 		return a == b
 	}
 	return a.Code == b.Code && a.Message == b.Message && a.Recovery == b.Recovery && a.Severity == b.Severity
+}
+
+// operatorIntent matches only the immediate expected result of an explicit
+// operator command. Unrelated alarms and subsequent program stops stay visible.
+type operatorIntent struct {
+	states    []machine.State
+	resolveID int64
+	started   time.Time
+	expires   time.Time
+}
+
+// BeginOperatorAction registers intent BEFORE writing to the machine, so a fast
+// status observer cannot notify before the action has been attributed. Cancel
+// it if command delivery fails. Successful intent expires or is consumed once.
+func (m *Monitor) BeginOperatorAction(states []machine.State, resolves bool) func() {
+	m.mu.Lock()
+	id := m.nextIntent
+	m.nextIntent++
+	now := m.now()
+	for oldID, old := range m.intents {
+		if !now.Before(old.expires) {
+			delete(m.intents, oldID)
+		}
+	}
+	intent := operatorIntent{states: append([]machine.State(nil), states...), started: now, expires: now.Add(30 * time.Second)}
+	if resolves && m.active >= 0 {
+		intent.resolveID = m.events[m.active].ID
+	}
+	m.intents[id] = intent
+	m.mu.Unlock()
+	return func() { m.mu.Lock(); delete(m.intents, id); m.mu.Unlock() }
+}
+
+func (m *Monitor) operatorInitiatedLocked(st machine.Status, when time.Time) bool {
+	if st.State == machine.Alarm && st.HaltReason != nil && (st.HaltReason.Code == 1 || st.HaltReason.Code == 13) {
+		return true
+	}
+	for id, intent := range m.intents {
+		if !when.Before(intent.expires) {
+			delete(m.intents, id)
+			continue
+		}
+		if when.Before(intent.started) {
+			continue
+		}
+		for _, state := range intent.states {
+			if state == st.State {
+				delete(m.intents, id)
+				return true
+			}
+		}
+	}
+	return false
 }

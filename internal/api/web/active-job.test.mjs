@@ -60,7 +60,7 @@ test("feed override clamps endpoints and rounds to the nearest ten", async () =>
 test("feed override pending guard avoids duplicate work and request errors reset pending state", async () => {
   const unverified = makeFeedOverride({ request: async () => ({ json: async () => ({ message: "Feed override was not verified.", verified: false }) }) });
   await unverified.feature.setFeedOverride(130);
-  assert.deepEqual(unverified.events.find(([kind, message]) => kind === "feedback" && message === "Feed override was not verified."), ["feedback", "Feed override was not verified.", "error"]);
+  assert.deepEqual(unverified.events.find(([kind, message]) => kind === "feedback" && message === "Feed override was not verified."), ["feedback", "Feed override was not verified.", ""]);
   assert.ok(unverified.events.some(([kind]) => kind === "poll"), "an unverified response still triggers the existing machine poll");
 
   const guarded = makeFeedOverride();
