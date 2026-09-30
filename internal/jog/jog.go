@@ -1257,7 +1257,9 @@ func (s *Session) handleArm(seq int64) {
 		}
 	}()
 	s.mgr.broadcastState(s, 0)
-	ctx, cancel := context.WithTimeout(s.ctx, 2*time.Second)
+	// Arming can wait for an existing file transaction without moving.
+	// Keep this separate from active jogging and its deadman deadlines.
+	ctx, cancel := context.WithTimeout(s.ctx, 15*time.Second)
 	defer cancel()
 	lease, err := s.mgr.arb.AcquireJog(ctx)
 	if err != nil {
@@ -1269,7 +1271,8 @@ func (s *Session) handleArm(seq int64) {
 	// or relay path, but that cached Idle report may be several seconds old.
 	// Once the exclusive path is ours, verify state and position through that
 	// exact connection before claiming that movement is armed.
-	payload, err := lease.Conn.QueryState(statusQueryTimeout(s.mgr.cfg))
+	// Wi-Fi can legitimately take longer than the 200ms active poll.
+	payload, err := lease.Conn.QueryState(time.Second)
 	if err != nil {
 		code := CodeMachineError
 		message := err.Error()
