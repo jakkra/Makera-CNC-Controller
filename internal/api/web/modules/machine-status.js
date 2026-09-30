@@ -388,8 +388,28 @@ function renderAttention(m) {
     Alarm: "The machine reported an alarm. Clear the physical cause before attempting recovery.",
   };
   setTextIfChanged(document.getElementById("attention-state"), "Machine state: " + machineState);
+  const requestedTool = document.getElementById("attention-tool");
+  const rawTarget = m?.tool?.target;
+  const target = rawTarget == null ? NaN : Number(rawTarget);
+  const showRequestedTool = machineState === "Tool" && Number.isInteger(target);
+  if (requestedTool) {
+    requestedTool.hidden = !showRequestedTool;
+    const metadata = showRequestedTool ? gcodeToolMetadata(state.activeGcode?.preview?.tool_metadata, target) : null;
+    const number = document.getElementById("attention-tool-number");
+    const name = document.getElementById("attention-tool-name");
+    const spec = document.getElementById("attention-tool-spec");
+    const specialTool = [-1, 0, 8888, 9999].includes(target);
+    setTextIfChanged(number, showRequestedTool ? (specialTool ? toolDisplayName(target) : `T${target}`) : "");
+    const nameText = String(metadata?.name || "").trim();
+    setTextIfChanged(name, nameText);
+    if (name) name.hidden = !showRequestedTool || !nameText;
+    const diameter = Number(metadata?.diameter_mm);
+    const specText = [Number.isFinite(diameter) && diameter > 0 ? `${diameter} mm` : "", String(metadata?.kind || "").trim()].filter(Boolean).join(" · ");
+    setTextIfChanged(spec, specText);
+    if (spec) spec.hidden = !showRequestedTool || !specText;
+  }
   const detail = machineState === "Tool"
-    ? toolChangeAttentionDetail(m, state.activeGcode?.preview)
+    ? (requestedTool && showRequestedTool ? "Confirm the physical change, then continue." : toolChangeAttentionDetail(m, state.activeGcode?.preview))
     : (details[machineState] || "No operator action is currently requested.");
   setTextIfChanged(document.getElementById("attention-detail"), detail);
   const resume = document.getElementById("attention-resume");

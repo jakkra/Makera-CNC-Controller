@@ -494,6 +494,12 @@
     <section class="surface-jog-panel attention-surface" aria-label="Machine attention">
       <h2>Machine needs attention</h2>
       <strong id="attention-state">Waiting for machine state</strong>
+      <div id="attention-tool" class="attention-tool" aria-label="Requested tool" hidden>
+        <span class="attention-tool-label">Requested tool</span>
+        <strong id="attention-tool-number" class="attention-tool-number"></strong>
+        <span id="attention-tool-name" class="attention-tool-name" hidden></span>
+        <span id="attention-tool-spec" class="attention-tool-spec" hidden></span>
+      </div>
       <p id="attention-detail">Open the active job for details and operator actions.</p>
       <div class="attention-actions">
         <button type="button" id="attention-resume" class="primary" hidden>Resume job</button>

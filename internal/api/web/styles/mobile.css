@@ -99,6 +99,11 @@
   .attention-surface { width: min(680px, 100%); display: grid; gap: 16px; padding: clamp(20px, 4vw, 42px); }
   .attention-surface h2 { margin: 0; font-size: clamp(24px, 4vw, 38px); }
   .attention-surface p { margin: 0; color: var(--muted); font-size: 16px; }
+  .attention-tool { min-width: 0; display: grid; gap: 12px; padding: clamp(20px, 3vw, 32px); border: 2px solid var(--warn); border-radius: 10px; background: #241e14; }
+  .attention-tool-label { color: #e8c78f; font-size: 16px; font-weight: 650; }
+  .attention-tool-number { color: #ffd48a; font-size: clamp(48px, 8vw, 88px); font-weight: 800; line-height: 1.05; letter-spacing: -.03em; overflow-wrap: anywhere; }
+  .attention-tool-name { color: var(--text); font-size: clamp(24px, 3vw, 32px); font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; }
+  .attention-tool-spec { color: #e8c78f; font-size: clamp(20px, 2.5vw, 24px); line-height: 1.35; overflow-wrap: anywhere; }
   .attention-actions { display: flex; flex-wrap: wrap; gap: 10px; }
   .attention-actions button { min-height: 46px; padding-inline: 18px; }
   @media (max-width: 760px), (pointer: coarse) and (max-width: 1179px) {
