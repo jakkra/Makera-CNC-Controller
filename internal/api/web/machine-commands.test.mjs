@@ -36,9 +36,11 @@ test("machine command text and confirmation helpers preserve operator copy", () 
 
   const prompts = [];
   const confirmRef = (message) => { prompts.push(message); return false; };
-  assert.equal(confirmControl("home", confirmRef), false);
-  assert.match(prompts[0], /^Home the machine now\?/);
+  assert.equal(confirmControl("home", confirmRef), true);
+  assert.deepEqual(prompts, []);
   assert.equal(confirmControl("hold", confirmRef), true);
+  assert.equal(confirmControl("reset", confirmRef), false);
+  assert.match(prompts[0], /^Reset the machine controller\?/);
 });
 
 test("sendGcode preserves disarm, endpoint, payload, and failure feedback", async () => {
@@ -136,4 +138,33 @@ test("sendControl keeps recovery failure state and logs the concrete error", asy
     ["notice", "recover failed: alarm remains", "error", "control-recover"],
     ["pending", ""],
   ]);
+});
+
+test("Home releases its pending state after failure and a repeated click sends a new request", async () => {
+  const home = { dataset: { controlAction: "home" }, disabled: false };
+  let pending = "";
+  let attempts = 0;
+  const notices = [];
+  const commands = createMachineCommands({
+    documentRef: fakeDocument([home]),
+    setControlPendingAction: (value) => { pending = value; },
+    setNotice: (...args) => notices.push(args),
+    request: async (url, opts) => {
+      assert.equal(home.disabled, true);
+      assert.equal(pending, "home");
+      assert.equal(url, "/api/control");
+      assert.deepEqual(JSON.parse(opts.body), { action: "home" });
+      if (++attempts === 1) throw new Error("home could not disarm movement: context deadline exceeded");
+      return response({ message: "Home command sent." }, "application/json");
+    },
+    setTimeoutRef: () => {},
+  });
+  await commands.sendControl("home");
+  assert.equal(home.disabled, false);
+  assert.equal(pending, "");
+  assert.match(notices.at(-1)[0], /home failed: home could not disarm movement/);
+  await commands.sendControl("home");
+  assert.equal(attempts, 2);
+  assert.equal(home.disabled, false);
+  assert.equal(pending, "");
 });

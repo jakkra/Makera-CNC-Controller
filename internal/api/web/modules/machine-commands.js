@@ -72,8 +72,6 @@ export function confirmControl(action, confirmRef = globalThis.confirm) {
     return confirmRef("Recover this alarm? Clear the physical cause first. For soft limits, the proxy will unlock and verify status; home before moving afterward.");
   case "unlock":
     return confirmRef("Unlock the alarm? Clear the physical cause first. Home the machine before moving afterward.");
-  case "home":
-    return confirmRef("Home the machine now? Make sure the work area is clear.");
   case "reset":
     return confirmRef("Reset the machine controller? Reconnect and home the machine afterward.");
   default:

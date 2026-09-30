@@ -748,6 +748,18 @@ func (s *Server) postControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if action == "recover" || action == "unlock" || action == "home" || action == "reset" {
+		// Home needs the same transaction lock held by an armed jog session.
+		// Release that session first, including when another UI owns it, so
+		// the request cannot wait indefinitely behind Movement's lease.
+		if action == "home" && s.jog != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			err := s.jog.DisarmActive(ctx)
+			cancel()
+			if err != nil {
+				writeErr(w, http.StatusConflict, "home could not disarm movement: "+err.Error())
+				return
+			}
+		}
 		result, err := s.svc.RecoverAlarm(action)
 		if err != nil {
 			s.mapError(w, err)
