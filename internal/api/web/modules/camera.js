@@ -55,6 +55,7 @@ export function mountDashboardCamera({
       builtinObjectURLs: new Set(),
       externalURL: "",
       externalRetryTimer: null,
+      healthTimer: null,
     },
   };
   const document = documentRef;
@@ -490,6 +491,8 @@ export function mountDashboardCamera({
   }
 
   function stopDashboardExternalCamera() {
+    clearTimeout(state.cameras.healthTimer);
+    state.cameras.healthTimer = null;
     clearTimeout(state.cameras.externalRetryTimer);
     state.cameras.externalRetryTimer = null;
     const image = document.getElementById("dashboard-external-camera-image");
@@ -503,7 +506,13 @@ export function mountDashboardCamera({
 
   function startDashboardExternalCamera() {
     const source = dashboardCameraSource("external");
-    if (!dashboardCameraShouldRun() || !source.configured || !source.stream_url || state.cameras.externalURL) return;
+    if (!dashboardCameraShouldRun() || !source.configured || !source.stream_url) return;
+    if (source.online === false) {
+      stopDashboardExternalCamera();
+      setDashboardCameraState("external", "error", "External camera has no video", "The camera source reports no video. Check the camera's USB connection.");
+      return;
+    }
+    if (state.cameras.externalURL) return;
     const image = document.getElementById("dashboard-external-camera-image");
     if (!image) return;
     clearTimeout(state.cameras.externalRetryTimer);
@@ -540,6 +549,12 @@ export function mountDashboardCamera({
     }
     startDashboardBuiltinCamera();
     startDashboardExternalCamera();
+    if ((!state.cameras.loaded || dashboardCameraSource("external").health_configured) && !state.cameras.healthTimer) {
+      state.cameras.healthTimer = setTimeout(() => {
+        state.cameras.healthTimer = null;
+        if (dashboardCameraShouldRun()) loadDashboardCameras();
+      }, 5000);
+    }
   }
 
   async function loadDashboardCameras() {
@@ -550,10 +565,13 @@ export function mountDashboardCamera({
         builtin: sources?.builtin || { configured: false },
         external: sources?.external || { configured: false },
       };
-    } catch {
-      state.cameras.sources = { builtin: { configured: false }, external: { configured: false } };
-    } finally {
       state.cameras.loaded = true;
+      setStatusMessage("camera-status", "");
+    } catch (error) {
+      // A failed health refresh does not remove configured sources or prove
+      // that an already-decoded camera stream has stopped producing video.
+      setStatusMessage("camera-status", `Camera status unavailable: ${error?.message || "the status could not be read"}.`, "error");
+    } finally {
       syncDashboardCameras();
     }
   }

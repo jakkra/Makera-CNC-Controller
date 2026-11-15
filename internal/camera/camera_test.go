@@ -108,3 +108,19 @@ func TestBuiltinCameraFollowsMachineAddress(t *testing.T) {
 		t.Fatal("expired machine still has camera URL", got)
 	}
 }
+
+func TestMalformedOrFailedHealthDoesNotInventOffline(t *testing.T) {
+	for _, payload := range []string{`{"ok":true,"result":{}}`, `{"ok":false}`, `invalid`, `{"ok":true,"result":{"source":{"online":"false"}}}`} {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(payload)) }))
+		m, err := New(Config{ExternalURL: upstream.URL + "/stream", ExternalStatusURL: upstream.URL + "/state"})
+		if err != nil {
+			upstream.Close()
+			t.Fatal(err)
+		}
+		st := m.StatusWithHealth(context.Background())
+		upstream.Close()
+		if st.External.Online != nil || st.External.State != "health_unavailable" {
+			t.Fatalf("invented health from %q: %+v", payload, st.External)
+		}
+	}
+}

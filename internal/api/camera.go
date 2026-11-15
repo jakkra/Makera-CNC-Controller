@@ -15,15 +15,15 @@ import (
 
 const cameraFrameLimit = 8 << 20
 
-// getCameras reports configuration only. It does not probe a camera, because
-// an idle configured source must not be presented to the operator as live.
+// getCameras reports configuration and optional explicit streamer health.
+// A configured source is never assumed to be live.
 func (s *Server) getCameras(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if s.camera == nil {
 		writeJSON(w, http.StatusOK, camera.DisabledStatus())
 		return
 	}
-	writeJSON(w, http.StatusOK, s.camera.Status())
+	writeJSON(w, http.StatusOK, s.camera.StatusWithHealth(r.Context()))
 }
 
 // builtinCameraWS bridges the one fixed Z1 WebSocket JPEG source to a

@@ -64,6 +64,17 @@ export function dashboardAlarmText(reason) {
   return recovery ? `${message} · ${recovery}` : message;
 }
 
+export function dashboardWiFiText(wifi) {
+  if (!wifi) return null;
+  if (wifi.state === "connected" && typeof wifi.ssid === "string" && wifi.ssid) {
+    const signal = dashboardOptionalNumber(wifi.signal_percent);
+    return signal === null ? wifi.ssid : `${wifi.ssid} · ${signal}%`;
+  }
+  if (wifi.state === "not_connected") return "Not connected";
+  if (wifi.state === "not_reported") return "Not reported";
+  return "Unavailable";
+}
+
 export function createDashboardTelemetry({
   documentRef = globalThis.document,
   getMachine = () => ({}),
@@ -79,6 +90,8 @@ export function createDashboardTelemetry({
     const levelDelta = dashboardOptionalNumber(machine?.leveling_max_delta);
     const values = {
       rotary: dashboardRotaryText(machine),
+      "controller-wifi": dashboardWiFiText(machine?.network?.controller),
+      "machine-wifi": dashboardWiFiText(machine?.network?.machine),
       probe: probeV === null ? null : `${probeV.toFixed(2)} V`,
       vacuum: dashboardOnOff(spindle.vacuum_mode),
       air: dashboardOnOff(spindle.blowing_mode),

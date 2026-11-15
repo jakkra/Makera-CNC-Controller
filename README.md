@@ -234,6 +234,7 @@ password; default user `cnc`) or explicitly pass `-allow-insecure-http`.
 | `-machine` | (discover) | fixed machine TCP `host:port`; empty = learn via UDP in TCP mode |
 | `-camera-builtin-ws-url` | auto from fixed `-machine` | Z1 camera WebSocket; normally `ws://<z1>:82/ws_video` |
 | `-camera-external-url` | (empty) | fixed HTTP(S) MJPEG or snapshot URL for an external camera service |
+| `-camera-external-status-url` | (empty) | optional ustreamer `/state` URL; reports missing video even when the stream serves a fallback JPEG |
 | `-camera-external-mode` | `mjpeg` | `mjpeg` keeps one continuous stream; `snapshot` reloads a still image periodically |
 | `-usb-device` | (empty) | USB/serial device for `-machine-transport=usb` |
 | `-usb-baud` | 115200 | USB serial baud rate |
@@ -557,3 +558,9 @@ CGO_ENABLED=1 go test -mod=mod -tags cgo_compat ./internal/quicklz/
 
 - Run `docs/hardware-validation.md` against a real Carvera + the official
   controller before tagging production releases.
+
+The dashboard diagnostics show the Sensei host's current Wi-Fi SSID and signal
+percentage when NetworkManager (`nmcli`) reports them. This reads cached access
+point information without scanning or changing a connection. Makera's SSID is
+shown as not reported when it is absent from the available machine telemetry;
+the host's SSID is never assumed to describe the CNC.

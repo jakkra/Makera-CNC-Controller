@@ -9,6 +9,7 @@ import {
   dashboardOnOff,
   dashboardOptionalNumber,
   dashboardRotaryText,
+  dashboardWiFiText,
 } from "./modules/dashboard-telemetry.js";
 
 test("dashboard telemetry formatters preserve machine values and unknown states", () => {
@@ -80,4 +81,14 @@ test("dashboard telemetry renderer hides empty rows and shows the empty state", 
   telemetry.renderDashboardTelemetry({});
   for (const row of dom.rows.values()) assert.equal(row.hidden, true);
   assert.equal(dom.empty.hidden, false);
+});
+
+
+test("Wi-Fi labels distinguish reported host SSID from absent machine telemetry", () => {
+ assert.equal(dashboardWiFiText({state:"connected",ssid:"Workshop <CNC>",signal_percent:58}),"Workshop <CNC> · 58%");
+ assert.equal(dashboardWiFiText({state:"connected",ssid:"Workshop"}),"Workshop");
+ assert.equal(dashboardWiFiText({state:"not_reported"}),"Not reported");
+ assert.equal(dashboardWiFiText({state:"not_connected",ssid:"previous"}),"Not connected");
+ assert.equal(dashboardWiFiText({state:"unavailable"}),"Unavailable");
+ assert.equal(dashboardWiFiText(undefined),null);
 });

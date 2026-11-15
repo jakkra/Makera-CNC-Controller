@@ -20,6 +20,7 @@ import (
 	"github.com/uwin/cnc-proxy/internal/gcodelog"
 	"github.com/uwin/cnc-proxy/internal/jog"
 	"github.com/uwin/cnc-proxy/internal/machine"
+	"github.com/uwin/cnc-proxy/internal/networkinfo"
 	"github.com/uwin/cnc-proxy/internal/notifications"
 	"github.com/uwin/cnc-proxy/internal/service"
 	"github.com/uwin/cnc-proxy/internal/session"
@@ -38,6 +39,7 @@ type Server struct {
 	readOnly       bool
 	allowedHosts   []string
 	camera         *camera.Manager
+	networkStatus  func() networkinfo.Status
 }
 
 // Options configures optional API surfaces.
@@ -50,6 +52,8 @@ type Options struct {
 	// Camera contains fixed process-start upstreams. Browser requests cannot
 	// select their own camera URL.
 	Camera *camera.Manager
+	// NetworkStatus reads cached host metadata; it must never perform machine I/O.
+	NetworkStatus func() networkinfo.Status
 	// AllowedHosts admits exact reverse-proxy Host values in addition to IP
 	// literals and localhost. It never enables wildcard or suffix matching.
 	AllowedHosts []string
@@ -81,6 +85,7 @@ func NewWithOptions(svc *service.Service, opts Options) *Server {
 		readOnly:       opts.ReadOnly,
 		allowedHosts:   append([]string(nil), opts.AllowedHosts...),
 		camera:         opts.Camera,
+		networkStatus:  opts.NetworkStatus,
 	}
 }
 
@@ -184,7 +189,7 @@ func requestBodyTooLarge(err error) bool {
 
 func (s *Server) getMachine(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, s.svc.Status())
+	writeJSON(w, http.StatusOK, s.machineStatus())
 }
 
 func (s *Server) getCapabilities(w http.ResponseWriter, r *http.Request) {
@@ -932,7 +937,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	// Subscriptions are already active, so lines logged from here on arrive as
 	// gcode events; duplicates against the snapshot are detectable by seq.
 	snap := map[string]any{
-		"machine": s.svc.Status(),
+		"machine": s.machineStatus(),
 	}
 	if includeFiles {
 		snap["files"] = s.svc.Files()
@@ -968,7 +973,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			sendEvent(w, "machine", s.svc.Status())
+			sendEvent(w, "machine", s.machineStatus())
 			flusher.Flush()
 		case change, ok := <-ach:
 			if !ok {
@@ -1026,4 +1031,16 @@ func (s *Server) prepareJobAction(w http.ResponseWriter, r *http.Request) (func(
 		return nil, false
 	}
 	return finish, true
+}
+
+// Keep the same machine contract on REST, initial snapshots and live SSE.
+func (s *Server) machineStatus() any {
+	st := s.svc.Status()
+	if s.networkStatus == nil {
+		return st
+	}
+	return struct {
+		service.MachineStatus
+		Network networkinfo.Status `json:"network"`
+	}{st, s.networkStatus()}
 }

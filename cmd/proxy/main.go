@@ -46,6 +46,7 @@ import (
 	"github.com/uwin/cnc-proxy/internal/httpauth"
 	"github.com/uwin/cnc-proxy/internal/jog"
 	"github.com/uwin/cnc-proxy/internal/machinetransport"
+	"github.com/uwin/cnc-proxy/internal/networkinfo"
 	"github.com/uwin/cnc-proxy/internal/notifications"
 	"github.com/uwin/cnc-proxy/internal/proxyconfig"
 	"github.com/uwin/cnc-proxy/internal/relay"
@@ -58,48 +59,49 @@ import (
 func main() {
 	jogDefaults := jog.DefaultConfig()
 	var (
-		printConfigSchema    = flag.Bool("print-config-schema", false, "print proxy flag schema as JSON and exit")
-		tcpPort              = flag.Int("tcp-port", 2222, "TCP port to listen on for the controller")
-		machineTransport     = flag.String("machine-transport", machinetransport.KindTCP, "machine-side transport: tcp or usb")
-		machineName          = flag.String("machine-name", "", "exact discovery identity to follow across TCP IP changes; requires empty -machine")
-		machineAddr          = flag.String("machine", "", "machine TCP host or host:port (default port 2222); if empty in TCP mode, learned via UDP discovery")
-		cameraBuiltinURL     = flag.String("camera-builtin-ws-url", "", "Z1 built-in camera WebSocket URL; defaults to ws://<fixed -machine host>:82/ws_video")
-		cameraExternalURL    = flag.String("camera-external-url", "", "fixed external camera HTTP(S) MJPEG or snapshot URL")
-		cameraExternalMode   = flag.String("camera-external-mode", camera.ExternalModeMJPEG, "external camera mode: mjpeg (continuous stream) or snapshot (periodically refreshed image)")
-		cameraExternalDevice = flag.String("camera-external-device", "/dev/v4l/by-id/usb-046d_HD_Pro_Webcam_C920_46EAAC8F-video-index0", "V4L2 device path for external camera focus controls")
-		usbDevice            = flag.String("usb-device", "", "USB/serial device for -machine-transport=usb (for example /dev/cu.usbserial-...)")
-		usbBaud              = flag.Int("usb-baud", 115200, "USB serial baud rate")
-		usbResetOnOpen       = flag.Bool("usb-reset-on-open", false, "toggle DTR when opening the USB serial device")
-		advertise            = flag.Bool("advertise", false, "re-advertise the proxy over UDP so the official controller connects through it (transparent mode)")
-		proxyIP              = flag.String("proxy-ip", "", "IP the controller should connect to (this host); auto-derived if empty")
-		broadcast            = flag.String("broadcast", "", "broadcast address to advertise on; auto-derived if empty")
-		name                 = flag.String("name", "", "advertised machine name; replaces the real name entirely (default: real name + -name-suffix)")
-		nameSuffix           = flag.String("name-suffix", " (proxy)", "suffix appended to the advertised machine name when -name is not set")
-		noAdvertise          = flag.Bool("no-advertise", false, "deprecated no-op; advertising is now opt-in via -advertise")
-		apiAddr              = flag.String("api-addr", "127.0.0.1:8420", "address for the HTTP API + web UI")
-		apiAllowedHosts      = flag.String("api-allowed-hosts", "", "comma-separated exact reverse-proxy Host values allowed by the API")
-		davAddr              = flag.String("dav-addr", "127.0.0.1:8421", "address for the WebDAV filesystem server")
-		authUser             = flag.String("auth-user", "cnc", "HTTP Basic Auth username for API/WebDAV when -auth-token is set")
-		authToken            = flag.String("auth-token", "", "HTTP Basic Auth token/password for API/WebDAV")
-		insecureHTTP         = flag.Bool("allow-insecure-http", false, "allow API/WebDAV to bind beyond loopback without -auth-token")
-		dataDir              = flag.String("data-dir", defaultDataDir(), "directory for the catalog, job queue, and file cache")
-		apiUploadMB          = flag.Int64("api-max-upload-mb", 512, "maximum API/WebDAV upload body size in MiB")
-		apiJSONKB            = flag.Int64("api-max-json-kb", 1024, "maximum API JSON request body size in KiB")
-		apiBackupMB          = flag.Int64("api-max-backup-mb", 64, "maximum API backup import body size in MiB")
-		apiReadOnly          = flag.Bool("api-read-only", false, "disable all mutating API/UI actions; keep observer views available")
-		jogEnabled           = flag.Bool("jog-enabled", jogDefaults.Enabled, "enable low-latency gamepad jogging API/UI")
-		jogMaxXY             = flag.Float64("jog-max-xy-mm-min", jogDefaults.MaxXYMMMin, "maximum XY jog speed in mm/min")
-		jogMaxZ              = flag.Float64("jog-max-z-mm-min", jogDefaults.MaxZMMMin, "maximum Z jog speed in mm/min")
-		jogMaxA              = flag.Float64("jog-max-a-deg-min", jogDefaults.MaxADegMin, "maximum A-axis jog speed in degrees/min")
-		jogTick              = flag.Duration("jog-tick", jogDefaults.Tick, "gamepad jog motion tick interval")
-		jogStatus            = flag.Duration("jog-status-interval", jogDefaults.StatusInterval, "status polling interval while a jog lease is armed")
-		jogDeadman           = flag.Duration("jog-deadman-timeout", jogDefaults.DeadmanTimeout, "maximum age of held-deadman gamepad input before motion stops")
-		jogMotion            = flag.String("jog-motion", string(jogDefaults.MotionPrimitive), "gamepad jog motion primitive: instant or g53")
-		notifyNtfyURL        = flag.String("notify-ntfy-url", "", "complete ntfy topic URL; empty disables mobile notifications")
-		notifyNtfyToken      = flag.String("notify-ntfy-token", "", "optional bearer token for the ntfy topic")
-		notifyMachineName    = flag.String("notify-machine-name", "Makera Z1", "machine name used in mobile notifications")
-		notifyDashboard      = flag.String("notify-dashboard-url", "", "authenticated controller URL opened when a notification is tapped")
-		notifyResolved       = flag.Bool("notify-resolved", false, "send a follow-up when an attention state clears")
+		printConfigSchema       = flag.Bool("print-config-schema", false, "print proxy flag schema as JSON and exit")
+		tcpPort                 = flag.Int("tcp-port", 2222, "TCP port to listen on for the controller")
+		machineTransport        = flag.String("machine-transport", machinetransport.KindTCP, "machine-side transport: tcp or usb")
+		machineName             = flag.String("machine-name", "", "exact discovery identity to follow across TCP IP changes; requires empty -machine")
+		machineAddr             = flag.String("machine", "", "machine TCP host or host:port (default port 2222); if empty in TCP mode, learned via UDP discovery")
+		cameraBuiltinURL        = flag.String("camera-builtin-ws-url", "", "Z1 built-in camera WebSocket URL; defaults to ws://<fixed -machine host>:82/ws_video")
+		cameraExternalURL       = flag.String("camera-external-url", "", "fixed external camera HTTP(S) MJPEG or snapshot URL")
+		cameraExternalStatusURL = flag.String("camera-external-status-url", "", "optional fixed ustreamer /state URL to distinguish missing video from a fallback image")
+		cameraExternalMode      = flag.String("camera-external-mode", camera.ExternalModeMJPEG, "external camera mode: mjpeg (continuous stream) or snapshot (periodically refreshed image)")
+		cameraExternalDevice    = flag.String("camera-external-device", "/dev/v4l/by-id/usb-046d_HD_Pro_Webcam_C920_46EAAC8F-video-index0", "V4L2 device path for external camera focus controls")
+		usbDevice               = flag.String("usb-device", "", "USB/serial device for -machine-transport=usb (for example /dev/cu.usbserial-...)")
+		usbBaud                 = flag.Int("usb-baud", 115200, "USB serial baud rate")
+		usbResetOnOpen          = flag.Bool("usb-reset-on-open", false, "toggle DTR when opening the USB serial device")
+		advertise               = flag.Bool("advertise", false, "re-advertise the proxy over UDP so the official controller connects through it (transparent mode)")
+		proxyIP                 = flag.String("proxy-ip", "", "IP the controller should connect to (this host); auto-derived if empty")
+		broadcast               = flag.String("broadcast", "", "broadcast address to advertise on; auto-derived if empty")
+		name                    = flag.String("name", "", "advertised machine name; replaces the real name entirely (default: real name + -name-suffix)")
+		nameSuffix              = flag.String("name-suffix", " (proxy)", "suffix appended to the advertised machine name when -name is not set")
+		noAdvertise             = flag.Bool("no-advertise", false, "deprecated no-op; advertising is now opt-in via -advertise")
+		apiAddr                 = flag.String("api-addr", "127.0.0.1:8420", "address for the HTTP API + web UI")
+		apiAllowedHosts         = flag.String("api-allowed-hosts", "", "comma-separated exact reverse-proxy Host values allowed by the API")
+		davAddr                 = flag.String("dav-addr", "127.0.0.1:8421", "address for the WebDAV filesystem server")
+		authUser                = flag.String("auth-user", "cnc", "HTTP Basic Auth username for API/WebDAV when -auth-token is set")
+		authToken               = flag.String("auth-token", "", "HTTP Basic Auth token/password for API/WebDAV")
+		insecureHTTP            = flag.Bool("allow-insecure-http", false, "allow API/WebDAV to bind beyond loopback without -auth-token")
+		dataDir                 = flag.String("data-dir", defaultDataDir(), "directory for the catalog, job queue, and file cache")
+		apiUploadMB             = flag.Int64("api-max-upload-mb", 512, "maximum API/WebDAV upload body size in MiB")
+		apiJSONKB               = flag.Int64("api-max-json-kb", 1024, "maximum API JSON request body size in KiB")
+		apiBackupMB             = flag.Int64("api-max-backup-mb", 64, "maximum API backup import body size in MiB")
+		apiReadOnly             = flag.Bool("api-read-only", false, "disable all mutating API/UI actions; keep observer views available")
+		jogEnabled              = flag.Bool("jog-enabled", jogDefaults.Enabled, "enable low-latency gamepad jogging API/UI")
+		jogMaxXY                = flag.Float64("jog-max-xy-mm-min", jogDefaults.MaxXYMMMin, "maximum XY jog speed in mm/min")
+		jogMaxZ                 = flag.Float64("jog-max-z-mm-min", jogDefaults.MaxZMMMin, "maximum Z jog speed in mm/min")
+		jogMaxA                 = flag.Float64("jog-max-a-deg-min", jogDefaults.MaxADegMin, "maximum A-axis jog speed in degrees/min")
+		jogTick                 = flag.Duration("jog-tick", jogDefaults.Tick, "gamepad jog motion tick interval")
+		jogStatus               = flag.Duration("jog-status-interval", jogDefaults.StatusInterval, "status polling interval while a jog lease is armed")
+		jogDeadman              = flag.Duration("jog-deadman-timeout", jogDefaults.DeadmanTimeout, "maximum age of held-deadman gamepad input before motion stops")
+		jogMotion               = flag.String("jog-motion", string(jogDefaults.MotionPrimitive), "gamepad jog motion primitive: instant or g53")
+		notifyNtfyURL           = flag.String("notify-ntfy-url", "", "complete ntfy topic URL; empty disables mobile notifications")
+		notifyNtfyToken         = flag.String("notify-ntfy-token", "", "optional bearer token for the ntfy topic")
+		notifyMachineName       = flag.String("notify-machine-name", "Makera Z1", "machine name used in mobile notifications")
+		notifyDashboard         = flag.String("notify-dashboard-url", "", "authenticated controller URL opened when a notification is tapped")
+		notifyResolved          = flag.Bool("notify-resolved", false, "send a follow-up when an attention state clears")
 	)
 	applyEnvDefaults()
 	flag.Parse()
@@ -148,6 +150,7 @@ func main() {
 		BuiltinWSURL:       builtinCameraURL,
 		BuiltinDerived:     builtinCameraDerived,
 		ExternalURL:        *cameraExternalURL,
+		ExternalStatusURL:  *cameraExternalStatusURL,
 		ExternalMode:       *cameraExternalMode,
 		ExternalDevice:     *cameraExternalDevice,
 	})
@@ -334,6 +337,8 @@ func main() {
 	authCfg := httpauth.Config{User: *authUser, Token: *authToken}
 	apiAuthCfg := authCfg
 	apiAuthCfg.SuppressAPIChallenge = true
+	networkInfo := networkinfo.New()
+	go networkInfo.Run(ctx)
 	apiSrv := hardenedAPIServer(*apiAddr, httpauth.Middleware(apiAuthCfg, api.NewWithOptions(svc, api.Options{
 		Jog:            jogMgr,
 		MaxUploadBytes: mib(*apiUploadMB),
@@ -341,6 +346,7 @@ func main() {
 		MaxBackupBytes: mib(*apiBackupMB),
 		Notifications:  notificationDispatcher,
 		Camera:         cameraMgr,
+		NetworkStatus:  networkInfo.Status,
 		AllowedHosts:   splitCommaList(*apiAllowedHosts),
 		ReadOnly:       *apiReadOnly,
 	}).Handler()))

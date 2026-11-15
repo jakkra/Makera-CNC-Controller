@@ -1,14 +1,17 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/uwin/cnc-proxy/internal/networkinfo"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -190,4 +193,91 @@ func waitCameraCommand(t *testing.T, commands <-chan string) string {
 		t.Fatal("timed out waiting for camera command")
 		return ""
 	}
+}
+
+func TestExternalCameraHealthDistinguishesFallbackAndRecovers(t *testing.T) {
+	var online atomic.Bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/state" {
+			http.Error(w, "unexpected stream open", 500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"source": map[string]any{"online": online.Load()}}})
+	}))
+	defer upstream.Close()
+	manager, err := camera.New(camera.Config{ExternalURL: upstream.URL + "/stream", ExternalStatusURL: upstream.URL + "/state"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := newCameraTestServer(t, manager)
+	check := func(want bool) {
+		t.Helper()
+		resp := get(t, srv.URL+"/api/cameras?url=http://unexpected.example/")
+		defer resp.Body.Close()
+		var st camera.Status
+		if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
+			t.Fatal(err)
+		}
+		if !st.External.Configured || !st.External.HealthConfigured || st.External.Online == nil || *st.External.Online != want {
+			t.Fatalf("camera health %+v", st.External)
+		}
+	}
+	check(false)
+	online.Store(true)
+	check(true)
+}
+
+func TestNetworkDiagnosticsReachRESTAndSSEWithoutMachineIO(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	arb := session.New(session.Config{Dial: func() (*client.Conn, error) { t.Error("network diagnostics attempted machine I/O"); return nil, io.EOF }})
+	svc, err := service.New(st, arb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Close()
+	network := networkinfo.Status{Controller: networkinfo.WiFi{State: "connected", SSID: "Workshop", ObservedAt: time.Now()}, Machine: networkinfo.WiFi{State: "not_reported"}}
+	srv := httptest.NewServer(NewWithOptions(svc, Options{NetworkStatus: func() networkinfo.Status { return network }}).Handler())
+	defer srv.Close()
+	assertNetwork := func(raw json.RawMessage) {
+		t.Helper()
+		var data struct {
+			Network networkinfo.Status `json:"network"`
+		}
+		if err := json.Unmarshal(raw, &data); err != nil {
+			t.Fatal(err)
+		}
+		if data.Network.Controller.SSID != "Workshop" || data.Network.Machine.SSID != "" || data.Network.Machine.State != "not_reported" {
+			t.Fatalf("network %+v", data.Network)
+		}
+	}
+	resp := get(t, srv.URL+"/api/machine")
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	assertNetwork(raw)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/api/events?scope=control", nil)
+	events, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer events.Body.Close()
+	scan := bufio.NewScanner(events.Body)
+	for scan.Scan() {
+		if strings.HasPrefix(scan.Text(), "data: ") {
+			var snapshot struct {
+				Machine json.RawMessage `json:"machine"`
+			}
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(scan.Text(), "data: ")), &snapshot); err != nil {
+				t.Fatal(err)
+			}
+			assertNetwork(snapshot.Machine)
+			return
+		}
+	}
+	t.Fatal("no SSE snapshot", scan.Err())
 }

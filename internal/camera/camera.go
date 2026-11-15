@@ -5,8 +5,10 @@ package camera
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -33,6 +35,8 @@ type Config struct {
 	BuiltinWSURL       string
 	BuiltinDerived     bool
 	ExternalURL        string
+	// ExternalStatusURL optionally points at a ustreamer /state endpoint.
+	ExternalStatusURL string
 	// ExternalMode is intentionally explicit because a snapshot needs periodic
 	// browser reloads while an MJPEG response must stay open. Empty defaults to
 	// MJPEG for backwards-compatible streaming behavior.
@@ -47,12 +51,14 @@ type Config struct {
 // connection is made only when its same-origin stream endpoint is opened, so
 // calling a configured source "connected" here would be misleading.
 type SourceStatus struct {
-	Configured bool   `json:"configured"`
-	State      string `json:"state"`
-	Transport  string `json:"transport,omitempty"`
-	Mode       string `json:"mode,omitempty"`
-	Derived    bool   `json:"derived,omitempty"`
-	StreamURL  string `json:"stream_url,omitempty"`
+	Configured       bool   `json:"configured"`
+	State            string `json:"state"`
+	Transport        string `json:"transport,omitempty"`
+	Mode             string `json:"mode,omitempty"`
+	Derived          bool   `json:"derived,omitempty"`
+	StreamURL        string `json:"stream_url,omitempty"`
+	HealthConfigured bool   `json:"health_configured,omitempty"`
+	Online           *bool  `json:"online,omitempty"`
 }
 
 type Status struct {
@@ -75,6 +81,7 @@ type Manager struct {
 	builtin            *url.URL
 	builtinDerived     bool
 	external           *url.URL
+	externalStatus     *url.URL
 	externalMode       string
 	externalDevice     string
 	httpClient         *http.Client
@@ -87,6 +94,10 @@ func New(cfg Config) (*Manager, error) {
 		return nil, err
 	}
 	external, err := parseSourceURL(cfg.ExternalURL, "external HTTP", map[string]bool{"http": true, "https": true})
+	if err != nil {
+		return nil, err
+	}
+	externalStatus, err := parseSourceURL(cfg.ExternalStatusURL, "external camera status HTTP", map[string]bool{"http": true, "https": true})
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +124,7 @@ func New(cfg Config) (*Manager, error) {
 	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
-	return &Manager{builtinMachineAddr: cfg.BuiltinMachineAddr, builtin: builtin, builtinDerived: builtin != nil && cfg.BuiltinDerived, external: external, externalMode: externalMode, externalDevice: strings.TrimSpace(cfg.ExternalDevice), httpClient: client}, nil
+	return &Manager{builtinMachineAddr: cfg.BuiltinMachineAddr, builtin: builtin, builtinDerived: builtin != nil && cfg.BuiltinDerived, external: external, externalStatus: externalStatus, externalMode: externalMode, externalDevice: strings.TrimSpace(cfg.ExternalDevice), httpClient: client}, nil
 }
 
 func normalizeExternalMode(raw string) (string, error) {
@@ -182,7 +193,7 @@ func (m *Manager) Status() Status {
 		status.Builtin = SourceStatus{Configured: true, State: "configured", Transport: "websocket-jpeg", Derived: m.builtinDerived || m.builtinMachineAddr != nil, StreamURL: "/api/camera/builtin/ws"}
 	}
 	if m.external != nil {
-		status.External = SourceStatus{Configured: true, State: "configured", Transport: "http-" + m.externalMode, Mode: m.externalMode, StreamURL: "/api/camera/external"}
+		status.External = SourceStatus{Configured: true, State: "configured", Transport: "http-" + m.externalMode, Mode: m.externalMode, HealthConfigured: m.externalStatus != nil, StreamURL: "/api/camera/external"}
 	}
 	return status
 }
@@ -300,4 +311,45 @@ func parseFocusControlOutput(output []byte) map[string]int {
 		}
 	}
 	return values
+}
+
+// StatusWithHealth distinguishes a streamer's fallback JPEG from actual video.
+// A failed status lookup is unknown, never proof that a USB camera is absent.
+func (m *Manager) StatusWithHealth(ctx context.Context) Status {
+	status := m.Status()
+	if m == nil || m.externalStatus == nil || !status.External.Configured {
+		return status
+	}
+	status.External.State = "health_unavailable"
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.externalStatus.String(), nil)
+	if err != nil {
+		return status
+	}
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return status
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return status
+	}
+	var health struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			Source struct {
+				Online *bool `json:"online"`
+			} `json:"source"`
+		} `json:"result"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&health) != nil || !health.OK || health.Result.Source.Online == nil {
+		return status
+	}
+	status.External.Online = health.Result.Source.Online
+	status.External.State = "online"
+	if !*status.External.Online {
+		status.External.State = "no_video"
+	}
+	return status
 }
