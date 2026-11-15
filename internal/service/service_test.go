@@ -2567,16 +2567,9 @@ func TestPausedJobAllowsVerifiedManualCommandsBeforeResume(t *testing.T) {
 	m.SetStatus("<Run|MPos:0,0,-10|WPos:0,0,-10|S:12000,12000,100|P:10,25,5>")
 	tr.Observe(machine.Run)
 
-	err := svc.arb.WithMachine(false, func(c *client.Conn) error {
-		_, err := svc.sendOperatorConsole(c, "suspend", client.GcodeOpts{ExpectReply: true, Cap: gcodeReplyCap})
-		if err != nil {
-			return err
-		}
-		_, err = svc.waitForMachineState(c, jobControlVerifyTimeout, machine.Pause)
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
+	paused, err := svc.PauseJob()
+	if err != nil || !paused.Verified || paused.State != machine.Pause {
+		t.Fatalf("pause: %+v %v", paused, err)
 	}
 
 	if _, err := svc.SendGcode("G53 G0 X1"); err != nil {
@@ -2602,6 +2595,13 @@ func TestPausedJobAllowsVerifiedManualCommandsBeforeResume(t *testing.T) {
 		t.Fatalf("stop result = %+v", stopped)
 	}
 
+	if _, err := svc.ResumeJob(); !errors.Is(err, ErrJobControlUnavailable) {
+		t.Fatalf("resumed with spindle stopped: %v", err)
+	}
+	rpm := 12000.0
+	if _, err := svc.RunPausedJobCommand(PausedJobCommandRequest{Action: "start_spindle", Direction: "M3", SpeedRPM: &rpm}); err != nil {
+		t.Fatal(err)
+	}
 	resumed, err := svc.ResumeJob()
 	if err != nil {
 		t.Fatalf("ResumeJob: %v", err)
@@ -2619,7 +2619,7 @@ func TestPausedJobAllowsVerifiedManualCommandsBeforeResume(t *testing.T) {
 			got = append(got, command)
 		}
 	}
-	want := []string{"suspend", "G53 G0 X1", "G53 G0 Z-5.0000", "M5", "resume"}
+	want := []string{"suspend", "G53 G0 X1", "G53 G0 Z-5.0000", "M5", "M3 S12000", "resume"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("machine commands = %v, want %v", got, want)
 	}
@@ -3359,50 +3359,97 @@ func TestStaleStatusIsDisconnected(t *testing.T) {
 	}
 }
 
-func TestPauseJobPreemptsBackgroundIOAndPreservesSpindle(t *testing.T) {
-	svc, m, tr := serviceWithMachine(t)
-	m.SetStatus("<Run|MPos:1,2,3|S:12000,12000,100>")
-	tr.ObserveStatusPayload("<Run|MPos:1,2,3|S:12000,12000,100>")
-	entered, release, ownerDone, pauseDone := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
-	go func() {
-		defer close(ownerDone)
-		_ = svc.arb.WithMachine(false, func(c *client.Conn) error { close(entered); <-release; return nil })
-	}()
-	<-entered
-	var result JobControlResult
-	var pauseErr error
-	go func() { defer close(pauseDone); result, pauseErr = svc.PauseJob() }()
-	defer func() {
-		select {
-		case <-release:
-		default:
-			close(release)
-		}
-		<-ownerDone
-		<-pauseDone
-	}()
-	deadline := time.Now().Add(time.Second)
-	for !bytes.Contains(m.Controls(), []byte("!")) {
-		if time.Now().After(deadline) {
-			t.Fatal("pause did not reach machine while background IO held the transaction lock")
-		}
-		time.Sleep(time.Millisecond)
-	}
-	close(release)
-	<-pauseDone
-	if pauseErr != nil || !result.Verified || result.State != machine.Hold {
-		t.Fatalf("pause result: %+v %v", result, pauseErr)
+func TestOvernightPauseRestoresPositionAfterProxyRestart(t *testing.T) {
+	svc, m, _ := serviceWithMachine(t)
+	m.SetStatus("<Run|MPos:10,20,-10|WPos:1,2,-3|S:12000,12000,100>")
+	svc.recordExecutionCommand("M3 S12000", gcodelog.SourceController, time.Now())
+	paused, err := svc.PauseJob()
+	if err != nil || !paused.Verified || paused.State != machine.Pause {
+		t.Fatalf("pause: %+v %v", paused, err)
 	}
 	st := svc.Status()
-	if st.Spindle == nil || st.Spindle.CurrentRPM != 12000 || st.Spindle.TargetRPM != 12000 {
-		t.Fatalf("spindle changed: %+v", st.Spindle)
+	if st.Spindle.CurrentRPM != 12000 || st.Spindle.TargetRPM != 12000 {
+		t.Fatalf("pause stopped spindle: %+v", st.Spindle)
 	}
-	if _, err := svc.SendGcode("G53 G0 Z5"); !errors.Is(err, session.ErrNotIdle) {
-		t.Fatalf("manual move during Hold: %v", err)
+	for _, distance := range []float64{5, 3} {
+		if _, err := svc.RunPausedJobCommand(PausedJobCommandRequest{Action: "raise_z", DistanceMM: distance}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	for _, command := range m.Gcodes() {
-		if command == "suspend" || command == "M5" {
-			t.Fatalf("unexpected spindle-affecting command: %q", command)
+	if _, err := svc.RunPausedJobCommand(PausedJobCommandRequest{Action: "stop_spindle"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ResumeJob(); !errors.Is(err, ErrJobControlUnavailable) {
+		t.Fatalf("stopped resume: %v", err)
+	}
+	if slices.Contains(m.Gcodes(), "resume") {
+		t.Fatal("resume reached firmware with spindle stopped")
+	}
+	// Browser reload/Sensei restart must not replace the CNC-owned return point.
+	statePath := filepath.Join(filepath.Dir(svc.store.CacheDir()), "state.json")
+	svc.Close()
+	svc.arb.EnterRelay()
+	reopened, err := store.Open(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	arb := session.New(session.Config{Dial: func() (*client.Conn, error) { return client.Dial(m.Addr(), time.Second) }})
+	defer arb.EnterRelay()
+	next, err := New(reopened, arb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer next.Close()
+	if _, err := next.ResumeJob(); !errors.Is(err, ErrJobControlUnavailable) {
+		t.Fatalf("stopped resume after restart: %v", err)
+	}
+	started, err := next.RunPausedJobCommand(PausedJobCommandRequest{Action: "start_spindle"})
+	if err != nil || started.Command != "M3 S12000" || !started.Verified {
+		t.Fatalf("restored spindle context: %+v %v", started, err)
+	}
+	resumed, err := next.ResumeJob()
+	if err != nil || !resumed.Verified {
+		t.Fatalf("resume: %+v %v", resumed, err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		err := arb.WithMachine(false, func(c *client.Conn) error { _, err := next.queryRecoveryStatus(c); return err })
+		if err != nil {
+			t.Fatal(err)
+		}
+		st := next.Status()
+		if math.Abs(st.MPos["z"]+10) < 0.001 && math.Abs(st.WPos["z"]+3) < 0.001 {
+			if st.MPos["x"] != 10 || st.MPos["y"] != 20 || st.Spindle.CurrentRPM != 12000 {
+				t.Fatalf("return point/spindle changed: %+v", st)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("did not return to original position: %+v", st.MPos)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestPausedSpindleReadyRequiresMeasuredRPM(t *testing.T) {
+	for _, tc := range []struct {
+		raw   string
+		ready bool
+	}{
+		{"<Pause|S:0,12000,100>", false}, {"<Pause|S:1000,12000,100>", false},
+		{"<Pause|S:12000,12000,100>", true}, {"<Pause|S:6000,12000,50>", true},
+		{"<Pause|S:0,0,100>", false},
+		{"<Pause|MPos:0,0,0>", false},
+	} {
+		st, ok := machine.ParseStatusPayload(tc.raw)
+		if !ok {
+			t.Fatal(tc.raw)
+		}
+		if got := pausedSpindleReady(st, store.ExecutionSpindleContext{}); got != tc.ready {
+			t.Fatalf("%s ready=%v", tc.raw, got)
+		}
+		if got := jobControlState(st, store.ExecutionContext{}).CanResume; got != tc.ready {
+			t.Fatalf("%s CanResume=%v", tc.raw, got)
 		}
 	}
 }

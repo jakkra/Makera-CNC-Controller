@@ -418,7 +418,8 @@ function renderAttention(m) {
   const resumeAction = attentionResumeAction(machineState);
   if (resume) {
     resume.hidden = state.readOnly || !resumeAction;
-    resume.disabled = !!state.activeGcodePending || !!state.controlPendingAction;
+    resume.disabled = !!state.activeGcodePending || !!state.controlPendingAction ||
+      (machineState === "Pause" && m.job_control?.can_resume === false);
     resume.setAttribute("aria-busy", String(
       state.activeGcodePending === "resume_job" || state.controlPendingAction === "resume",
     ));

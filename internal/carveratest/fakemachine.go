@@ -61,6 +61,7 @@ type FakeMachine struct {
 	holdResumeState     string
 	suspendActive       bool // player suspend freezes program time but permits manual motion
 	suspendStarted      time.Time
+	suspendedState      *fakeSuspendedState
 	absolute            bool    // simulated modal distance mode for ordinary G0/G1 moves
 	arcAbsolute         bool    // simulated modal arc-center mode, G90.1/G91.1
 	plane               int     // simulated modal arc plane, G17/G18/G19
@@ -84,6 +85,47 @@ type FakeMachine struct {
 	simToolAngleDeg     float64
 	stock               *fakeStock
 	stockSegments       []fakeStockSegment
+}
+
+// fakeSuspendedState mirrors Player::saved_position and Robot::push_state in
+// MakeraZ1Firmware v1.1.2. Spindle state is deliberately outside this snapshot.
+type fakeSuspendedState struct {
+	xyz                           map[byte]float64
+	absolute, arcAbsolute         bool
+	plane, motionMode, motionCode int
+	unit, feed                    float64
+}
+
+func (m *FakeMachine) saveSuspendedStateLocked() {
+	_, _, fields, _ := parseFakeStatus(m.status)
+	i := findFakeStatusField(fields, "WPos")
+	if i < 0 {
+		i = findFakeStatusField(fields, "MPos")
+	}
+	xyz := map[byte]float64{}
+	if i >= 0 {
+		vals, _ := parseFakeAxisList(fields[i].value)
+		for j, axis := range []byte{'X', 'Y', 'Z'} {
+			if j < len(vals) {
+				xyz[axis] = vals[j]
+			}
+		}
+	}
+	m.suspendedState = &fakeSuspendedState{xyz: xyz, absolute: m.absolute, arcAbsolute: m.arcAbsolute,
+		plane: m.plane, motionMode: m.motionMode, motionCode: m.motionCode, unit: m.unit, feed: m.feedMMMin}
+}
+
+func (m *FakeMachine) restoreSuspendedStateLocked() {
+	saved := m.suspendedState
+	if saved == nil {
+		return
+	}
+	m.applyAbsoluteMoveLocked(saved.xyz, 1000, false)
+	// Complete the ordered return move before resuming simulated playback.
+	m.finishMotionLocked()
+	m.absolute, m.arcAbsolute, m.plane = saved.absolute, saved.arcAbsolute, saved.plane
+	m.motionMode, m.motionCode, m.unit, m.feedMMMin = saved.motionMode, saved.motionCode, saved.unit, saved.feed
+	m.suspendedState = nil
 }
 
 // New starts a FakeMachine listening on a random loopback port. Call Close when
@@ -152,6 +194,7 @@ func (m *FakeMachine) SetStatus(s string) {
 	m.holdStarted = time.Time{}
 	m.holdResumeState = ""
 	m.suspendActive = false
+	m.suspendedState = nil
 	m.suspendStarted = time.Time{}
 }
 
@@ -750,6 +793,7 @@ func (m *FakeMachine) applyControlLocked(ctrl byte, now time.Time) string {
 		m.holdStarted = time.Time{}
 		m.holdResumeState = ""
 		m.suspendActive = false
+		m.suspendedState = nil
 		m.suspendStarted = time.Time{}
 		m.setStatusStateLocked("Alarm")
 		m.upsertStatusFieldLocked("H", "1")
@@ -770,6 +814,7 @@ func (m *FakeMachine) clearAlarmLocked() {
 	m.holdStarted = time.Time{}
 	m.holdResumeState = ""
 	m.suspendActive = false
+	m.suspendedState = nil
 	m.suspendStarted = time.Time{}
 	m.setStatusStateLocked("Idle")
 	m.removeStatusFieldLocked("H")
@@ -785,6 +830,7 @@ func (m *FakeMachine) homeLocked(now time.Time) {
 	m.motionMode = fakeMotionRapid
 	m.motionCode = 0
 	m.suspendActive = false
+	m.suspendedState = nil
 	m.suspendStarted = time.Time{}
 	bracketed, _, fields, ok := parseFakeStatus(m.status)
 	if !ok {
@@ -799,6 +845,7 @@ func (m *FakeMachine) homeLocked(now time.Time) {
 func (m *FakeMachine) startProgramLocked(path string, content []byte, now time.Time) {
 	m.advanceMotionLocked(now)
 	m.suspendActive = false
+	m.suspendedState = nil
 	m.suspendStarted = time.Time{}
 	m.program = nil
 	startMotionCount := len(m.motion)
@@ -1096,6 +1143,11 @@ func (m *FakeMachine) handleManaged(c net.Conn, line string) {
 			m.send(c, protocol.CmdNormalInfo, "error: There is no running file to suspend.\r\n")
 			return
 		}
+		// Firmware drains queued moves before saving the pause position.
+		if last := m.lastMotionSegmentLocked(); last != nil {
+			m.advanceMotionLocked(last.end)
+		}
+		m.saveSuspendedStateLocked()
 		m.suspendActive = true
 		m.suspendStarted = now
 		m.setStatusStateLocked("Pause")
@@ -1111,11 +1163,17 @@ func (m *FakeMachine) handleManaged(c net.Conn, line string) {
 		}
 		now := time.Now()
 		pausedFor := now.Sub(m.suspendStarted)
+		m.restoreSuspendedStateLocked()
+		// Returning to the saved position is queued ahead of file playback.
+		if last := m.lastMotionSegmentLocked(); last != nil && last.end.After(now) {
+			pausedFor += last.end.Sub(now)
+		}
 		if m.program != nil {
 			m.program.start = m.program.start.Add(pausedFor)
 			m.program.end = m.program.end.Add(pausedFor)
 		}
 		m.suspendActive = false
+		m.suspendedState = nil
 		m.suspendStarted = time.Time{}
 		m.setStatusStateLocked("Run")
 		m.mu.Unlock()
@@ -1746,11 +1804,15 @@ func (m *FakeMachine) applyToolGcodeLocked(line string) bool {
 	}
 	mcode, subcode, hasM := 0, 0, false
 	toolID, hasTool := 0, false
+	var rpm float64
+	hasRPM := false
 	for _, w := range words {
 		switch w.letter {
 		case 'M':
 			mcode, subcode = splitFakeGCode(w.value)
 			hasM = true
+		case 'S':
+			rpm, hasRPM = w.value, true
 		case 'T':
 			toolID = int(math.Round(w.value))
 			hasTool = true
@@ -1760,6 +1822,28 @@ func (m *FakeMachine) applyToolGcodeLocked(line string) bool {
 		return false
 	}
 	switch {
+	case mcode == 3 || mcode == 4:
+		if hasRPM && rpm > 0 {
+			_, _, fields, ok := parseFakeStatus(m.status)
+			if ok {
+				i := findFakeStatusField(fields, "S")
+				parts := []string{"0", "0", "100"}
+				if i >= 0 {
+					parts = strings.Split(fields[i].value, ",")
+				}
+				for len(parts) < 3 {
+					parts = append(parts, "100")
+				}
+				override, err := strconv.ParseFloat(strings.TrimSpace(parts[2]), 64)
+				if err != nil {
+					override = 100
+				}
+				parts[0], parts[1] = strconv.FormatFloat(rpm*override/100, 'f', -1, 64), strconv.FormatFloat(rpm, 'f', -1, 64)
+				m.upsertStatusFieldLocked("S", strings.Join(parts, ","))
+			}
+		}
+		// A spindle command may share a block with motion words.
+		return false
 	case mcode == 5:
 		m.stopSpindleLocked()
 		return true

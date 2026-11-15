@@ -21,14 +21,16 @@ Sensei håller reda på senaste giltiga S-värde, riktning (M3/M4), M5-status, t
 
 Under körning: Pause job. Under Pause: Start spindle (med explicit RPM), Stop spindle och Resume job.
 
-- Pause skickar realtime feed hold `!` och verifierar `Hold`; den kör inte `suspend` eller paushookar. Spindeln lämnas oförändrad.
-- Resume från `Hold` skickar `~` och verifierar `Run`. Manuella pauskommandon kräver fortfarande firmwareläget `Pause`, exempelvis från en extern `suspend`.
+- Pause skickar `suspend` och verifierar `Pause`. Firmware tömmer rörelsekön och sparar XYZ och maskinläge innan manuella ingrepp tillåts; Sensei skickar inget spindelstopp.
+- Under Pause: höj Z, stoppa spindeln explicit, lämna CNC:n påslagen. Nästa dag: Start spindle, därefter Resume. Firmware behåller återgångspunkten även när webbsidan eller Sensei startas om; CNC-omstart raderar den.
+- Resume från Pause kräver uppmätt varvtal på minst 90 % av målet inklusive override innan firmware får återställa positionen. Start spindle verifierar samma varvtalsvillkor.
+- Realtime Hold (`!`) är separat och tillåter inte manuella rörelser; Resume från Hold använder `~`.
 - Stop spindle skickar `M5`.
 - Start spindle skickar exempelvis `M3 S10000`, aldrig bara `M3`.
 - Okänt varvtal kräver explicit inmatning.
 - Start verifierar target/actual RPM.
 - Resume startar aldrig spindeln automatiskt och ska tydligt visa avvikande/stillastående spindle.
-- Den generella Hold-kontrollen och jobbets Pause använder samma realtime feed hold.
+- Den generella Hold-kontrollen är kvar för omedelbart matningsstopp.
 - Resultat visas endast i bottom status bar.
 
 Tester ska täcka M3/S-varianter, falska kommentarer, fil-/MD5-byte, omstart, okänt varvtal, Pause med spindel igång, Pause → M5 → cached M3 → Resume och förlorad anslutning.
@@ -73,3 +75,20 @@ Separat insats utan samtidig redesign eller ramverksbyte: lås beteende med test
 6. Job history och Notifications.
 7. Uppdatera kravdokumentet.
 8. Frontend-refaktor senare.
+
+### Firmwaregrund för manuell jobbpaus
+
+Z1:s publicerade v1.1.2-källa sparar XYZ efter `wait_for_idle()` och anropar
+`Robot::push_state()` i `suspend_command`. `resume_command` köar återgången till
+sparade XYZ före fortsatt filkörning och återställer maskinläget med
+`Robot::pop_state()`. Återgångspunkten ägs av den påslagna CNC:n; att ladda om
+Sensei eller starta om proxyn ersätter den inte. Sensei skickar `M5` bara efter
+operatörens separata Stop spindle, som kräver verifierat `Pause`.
+
+Källa: https://github.com/MakeraInc/MakeraZ1Firmware/blob/v1.1.2/src/modules/utils/player/Player.cpp
+
+Regressionen `TestOvernightPauseRestoresPositionAfterProxyRestart` täcker två
+Z-höjningar, explicit M5, avvisad Resume med stoppad spindel, omstart med
+återöppnad state.json, återstart med sparad riktning/RPM och återgång till
+ursprunglig maskin- och arbetsposition. Simulatorn modellerar även firmwareägda
+XYZ/modal-snapshoten; det ersätter inte verifiering på en verklig CNC.

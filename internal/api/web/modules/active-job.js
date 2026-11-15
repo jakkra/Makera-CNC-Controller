@@ -142,7 +142,7 @@ export function mountActiveJobControl({
         : `Pause is unavailable while the machine is ${machineState}.`, "error");
       return false;
     }
-    if (action === "pause_job" && !confirmRef("Pause feed without changing the spindle?")) return;
+    if (action === "pause_job" && !confirmRef("Pause the job and save its position for manual controls?")) return;
     setActiveGcodePending(action);
     setActiveFeedback(action === "pause_job" ? "Pausing job..." : "Resuming job...", "");
     renderMachine();

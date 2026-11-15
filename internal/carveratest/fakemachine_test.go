@@ -1745,3 +1745,55 @@ func assertAxis(t *testing.T, vals machine.AxisValues, axis string, want float64
 		t.Fatalf("axis %s = %v, want %v (all axes %+v)", axis, got, want, vals)
 	}
 }
+
+func TestFakeSuspendResumeRestoresPositionAndDistanceMode(t *testing.T) {
+	m, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	m.SetStatus("<Run|MPos:0,0,-10|WPos:0,0,-10|S:12000,12000,100>")
+	c, err := client.Dial(m.Addr(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	console := func(line string) {
+		t.Helper()
+		if _, err := c.SendConsoleCommand(line, client.GcodeOpts{ExpectReply: true, Cap: time.Second}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gcode := func(line string) {
+		t.Helper()
+		if _, err := c.SendGcodeLine(line, client.GcodeOpts{ExpectReply: false, Cap: time.Second}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitZ := func(z float64) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			raw, err := c.QueryState(time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			st, ok := machine.ParseStatusPayload(raw)
+			if ok && math.Abs(st.MPos["z"]-z) < 0.001 {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("never reached Z=%v", z)
+	}
+	console("suspend")
+	gcode("G91 G0 Z5")
+	waitZ(-5)
+	gcode("M5")
+	gcode("M3 S12000")
+	console("resume")
+	waitZ(-10)
+	// The manually-selected relative mode must not leak back into the job.
+	gcode("G0 Z-8")
+	waitZ(-8)
+}

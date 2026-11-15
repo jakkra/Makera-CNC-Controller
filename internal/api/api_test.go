@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -3093,11 +3094,11 @@ func TestPostControlJobPauseAndResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if !paused.Verified || paused.State != machine.Hold {
+	if !paused.Verified || paused.State != machine.Pause {
 		t.Fatalf("pause result = %+v", paused)
 	}
 
-	if paused.Command != "!" {
+	if paused.Command != "suspend" {
 		t.Fatalf("pause command: %q", paused.Command)
 	}
 	statusResp := get(t, srv.URL+"/api/machine")
@@ -3109,14 +3110,34 @@ func TestPostControlJobPauseAndResume(t *testing.T) {
 	if status.Spindle == nil || status.Spindle.TargetRPM != 12000 || status.Spindle.CurrentRPM != 12000 {
 		t.Fatalf("spindle changed during pause: %+v", status.Spindle)
 	}
-	if !status.JobControl.CanResume || status.JobControl.CanStopSpindle || status.JobControl.CanStartSpindle {
-		t.Fatalf("Hold controls: %+v", status.JobControl)
+	if !status.JobControl.CanResume || !status.JobControl.CanStopSpindle {
+		t.Fatalf("Pause controls: %+v", status.JobControl)
 	}
-	resp = postJSON(t, srv.URL+"/api/gcode/active/paused-command", service.PausedJobCommandRequest{Action: "stop_spindle"})
+	resp = postJSON(t, srv.URL+"/api/gcode/active/paused-command", service.PausedJobCommandRequest{Action: "raise_z", DistanceMM: 5})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("raise status=%d", resp.StatusCode)
+	}
 	resp.Body.Close()
-	if resp.StatusCode < 400 {
-		t.Fatal("manual spindle command accepted during Hold")
+	resp = postJSON(t, srv.URL+"/api/gcode/active/paused-command", service.PausedJobCommandRequest{Action: "stop_spindle"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("stop status=%d", resp.StatusCode)
 	}
+	resp.Body.Close()
+	resp = postJSON(t, srv.URL+"/api/control", map[string]string{"action": "resume_job"})
+	if resp.StatusCode < 400 {
+		t.Fatal("resume accepted while spindle stopped")
+	}
+	resp.Body.Close()
+	if slices.Contains(m.Gcodes(), "resume") {
+		t.Fatal("resume was sent while spindle stopped")
+	}
+	rpm := 12000.0
+	resp = postJSON(t, srv.URL+"/api/gcode/active/paused-command", service.PausedJobCommandRequest{Action: "start_spindle", Direction: "M3", SpeedRPM: &rpm})
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("start status=%d: %s", resp.StatusCode, body)
+	}
+	resp.Body.Close()
 
 	resp = postJSON(t, srv.URL+"/api/control", map[string]string{"action": "resume_job"})
 	if resp.StatusCode != http.StatusAccepted {
@@ -3132,13 +3153,11 @@ func TestPostControlJobPauseAndResume(t *testing.T) {
 	if !resumed.Verified || resumed.State != machine.Run {
 		t.Fatalf("resume result = %+v", resumed)
 	}
-	if resumed.Command != "~" {
+	if resumed.Command != "resume" {
 		t.Fatalf("resume command: %q", resumed.Command)
 	}
-	for _, command := range m.Gcodes() {
-		if command == "suspend" || command == "resume" || command == "M5" {
-			t.Fatalf("unsafe job-control command: %q", command)
-		}
+	if got := m.Gcodes(); !slices.Contains(got, "suspend") || !slices.Contains(got, "resume") || !slices.Contains(got, "M5") {
+		t.Fatalf("manual pause workflow: %v", got)
 	}
 }
 

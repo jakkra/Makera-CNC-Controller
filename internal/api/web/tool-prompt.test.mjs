@@ -28,3 +28,16 @@ test('tool-change prompt highlights the requested tool and clears stale metadata
   status.renderAttention({ connected: true, state: 'Idle' });
   assert.equal(nodes.get('attention-tool').hidden, true);
 });
+
+// Live machine snapshots own availability while the same button node remains wired.
+test('paused-job attention Resume waits for the server spindle-ready contract', () => {
+ const resume={hidden:false,disabled:false,dataset:{},textContent:'',setAttribute(){}};
+ const feature=createMachineStatusFeature({documentRef:{getElementById:id=>id==='attention-resume'?resume:null}});
+ const show=ready=>feature.renderAttention({state:'Pause',connected:true,stale:false,age_ms:0,job_control:{can_resume:ready}});
+ show(false);
+ assert.equal(resume.disabled,true);
+ assert.equal(resume.dataset.resumeAction,'resume_job');
+ show(true);
+ assert.equal(resume.disabled,false);
+ assert.equal(resume.textContent,'Resume paused job');
+});
