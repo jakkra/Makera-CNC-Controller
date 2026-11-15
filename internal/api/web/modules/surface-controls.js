@@ -104,7 +104,7 @@ export function createSurfaceControls({ state, documentRef = document, callbacks
       selectSurfaceStep(e.target.value);
     };
     for (const button of documentRef.querySelectorAll("[data-surface-step]")) {
-      button.onclick = () => selectSurfaceStep(button.dataset.surfaceStep);
+      bindButtonAction(button, () => selectSurfaceStep(button.dataset.surfaceStep));
     }
     for (const button of documentRef.querySelectorAll("[data-surface-motion]")) {
       button.onclick = () => selectSurfaceMotion(button.dataset.surfaceMotion);

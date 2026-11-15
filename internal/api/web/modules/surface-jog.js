@@ -105,6 +105,7 @@ export function createSurfaceJogFeature({
 } = {}) {
   if (!stateFacade) throw new TypeError("stateFacade is required");
   const state = stateFacade;
+  const surfaceControlValues = new WeakMap();
   const document = documentRef;
   const window = windowRef;
   const machineActionState = getMachineActionState;
@@ -203,11 +204,17 @@ export function createSurfaceJogFeature({
     for (const id of ["surface-jog-motion", "surface-jog-step", "surface-auto-switch", "surface-start-view", "surface-mpg-feedback"]) {
       const el = document?.getElementById(id);
       if (!el || el === document?.activeElement) continue;
-      if (id === "surface-jog-motion") el.value = surface.motion;
-      else if (id === "surface-jog-step") el.value = String(surface.step_mm);
-      else if (id === "surface-auto-switch") el.checked = surface.auto_switch;
-      else if (id === "surface-mpg-feedback") el.value = surface.mpg_feedback;
-      else el.value = surface.start_view;
+      const value = id === "surface-jog-motion" ? surface.motion
+        : id === "surface-jog-step" ? String(surface.step_mm)
+        : id === "surface-auto-switch" ? surface.auto_switch
+        : id === "surface-mpg-feedback" ? surface.mpg_feedback : surface.start_view;
+      // Native touch pickers may not retain DOM focus. Re-project only when
+      // the backing preference changes, so a live snapshot cannot reset a
+      // selection before its change event commits the new jog increment.
+      if (surfaceControlValues.has(el) && surfaceControlValues.get(el) === value) continue;
+      const property = id === "surface-auto-switch" ? "checked" : "value";
+      if (el[property] !== value) el[property] = value;
+      surfaceControlValues.set(el, value);
     }
     document?.getElementById("surface-directional-panel")?.toggleAttribute("hidden", surface.method !== "directional");
     document?.getElementById("surface-mpg-panel")?.toggleAttribute("hidden", surface.method !== "mpg");
@@ -261,7 +268,7 @@ export function createSurfaceJogFeature({
     const value = Number(step);
     state.surface.step_mm = [10, 1, 0.1, 0.01].includes(value) ? value : 1;
     const select = document?.getElementById("surface-jog-step");
-    if (select) select.value = String(state.surface.step_mm);
+    if (select && select.value !== String(state.surface.step_mm)) select.value = String(state.surface.step_mm);
     saveSurfaceViewPreferences();
     renderSurfaceJog();
   }

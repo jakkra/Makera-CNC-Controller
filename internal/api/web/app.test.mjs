@@ -1116,6 +1116,7 @@ const jogEventCallbacks = [
 
 function buildContext(functionNames, constNames = [], globals = {}) {
   const context = vm.createContext({
+    surfaceControlValues: new WeakMap(),
     documentRef: globals.document,
     computeMobileJogAxisForResponse,
     computeMobileWorkAreaJogAxes,
