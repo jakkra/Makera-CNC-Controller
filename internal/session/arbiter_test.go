@@ -474,3 +474,28 @@ func TestSendControlRelayUsesControlWriter(t *testing.T) {
 type fakeControlWriter struct{ got []byte }
 
 func (f *fakeControlWriter) SendControl(c byte) error { f.got = append(f.got, c); return nil }
+
+func TestPollRejectsMalformedStatusAndReconnects(t *testing.T) {
+	m, err := carveratest.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	var dials atomic.Int32
+	a := New(Config{Dial: func() (*client.Conn, error) { dials.Add(1); return client.Dial(m.Addr(), time.Second) }})
+	defer a.EnterRelay()
+	m.SetStatus("not a machine status")
+	a.pollOnce(time.Second)
+	if a.Tracker().Fresh(time.Second) {
+		t.Fatal("malformed status became fresh")
+	}
+	m.SetStatus("<Run|MPos:1,2,3>")
+	a.pollOnce(time.Second)
+	st, _ := a.Tracker().Current()
+	if st.State != machine.Run || !a.Tracker().Fresh(time.Second) {
+		t.Fatalf("did not recover: %+v", st)
+	}
+	if dials.Load() != 2 {
+		t.Fatalf("dials = %d, want reconnect", dials.Load())
+	}
+}

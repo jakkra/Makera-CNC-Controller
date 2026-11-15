@@ -86,3 +86,25 @@ func TestExternalResponseUsesOnlyConfiguredURL(t *testing.T) {
 		t.Fatalf("content type = %q", resp.Header.Get("Content-Type"))
 	}
 }
+
+func TestBuiltinCameraFollowsMachineAddress(t *testing.T) {
+	addr := "192.168.1.39:2222"
+	mgr, err := New(Config{BuiltinMachineAddr: func() (string, error) { return addr, nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mgr.Status().Builtin.Configured || !mgr.Status().Builtin.Derived {
+		t.Fatal("derived camera not configured")
+	}
+	if got := mgr.BuiltinWSURL(); got != "ws://192.168.1.39:82/ws_video" {
+		t.Fatal(got)
+	}
+	addr = "192.168.1.40:2222"
+	if got := mgr.BuiltinWSURL(); got != "ws://192.168.1.40:82/ws_video" {
+		t.Fatal(got)
+	}
+	addr = ""
+	if got := mgr.BuiltinWSURL(); got != "" {
+		t.Fatal("expired machine still has camera URL", got)
+	}
+}

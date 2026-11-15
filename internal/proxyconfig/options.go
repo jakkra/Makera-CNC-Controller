@@ -40,6 +40,7 @@ func Options() []Option {
 	return []Option{
 		{Name: "tcp-port", Label: "Controller TCP Port", Type: OptionInt, Default: "2222"},
 		{Name: "machine-transport", Label: "Machine Transport", Type: OptionString, Default: machinetransport.KindTCP, Choices: []string{machinetransport.KindTCP, machinetransport.KindUSB}},
+		{Name: "machine-name", Label: "Machine Discovery Identity", Type: OptionString, Default: "", Placeholder: "Makera_Z1_011855"},
 		{Name: "machine", Label: "TCP Machine Address", Type: OptionString, Default: "", Placeholder: "192.168.1.42 or 192.168.1.42:2222"},
 		{Name: "camera-builtin-ws-url", Label: "Built-in Camera WebSocket URL", Type: OptionString, Default: "", Placeholder: "ws://192.168.1.42:82/ws_video"},
 		{Name: "camera-external-url", Label: "External Camera URL", Type: OptionString, Default: "", Placeholder: "http://camera.local/mjpeg or https://camera.example/snapshot.jpg"},

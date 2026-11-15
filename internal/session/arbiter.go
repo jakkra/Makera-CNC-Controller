@@ -15,6 +15,8 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log"
 	"net"
 	"sync"
 	"time"
@@ -128,6 +130,7 @@ type Arbiter struct {
 	mu                   sync.Mutex
 	mode                 Mode
 	ownerConn            *client.Conn
+	pollFailed           bool
 	connectionGeneration uint64
 
 	// opMu serializes actual machine I/O for the full duration of a WithMachine
@@ -597,17 +600,47 @@ func (a *Arbiter) pollOnce(queryTimeout time.Duration) {
 	if a.Mode() != ModeOwner {
 		return
 	}
-	_ = a.WithMachine(false, func(c *client.Conn) error {
+	observed := false
+	var statusErr error
+	err := a.WithMachine(false, func(c *client.Conn) error {
 		payload, err := c.QueryState(queryTimeout)
+		if err == nil && !a.tracker.ObserveStatusPayload(payload) {
+			err = fmt.Errorf("invalid machine status payload %q", payload)
+		}
 		if err != nil {
+			// A failed TCP status transaction must not retain an unusable stream
+			// merely because the error is not a net.Error (e.g. invalid status).
+			// Serial timeouts intentionally preserve the port to avoid reset loops.
 			if a.preserveConnOnPollTimeout && timeoutErr(err) {
+				statusErr = err
 				return nil
 			}
+			a.dropOwnerConn(c)
 			return err
 		}
-		a.tracker.ObserveStatusPayload(payload)
+		observed = true
 		return nil
 	})
+	if err == nil {
+		err = statusErr
+	}
+	if errors.Is(err, ErrRelayActive) {
+		return
+	}
+	a.mu.Lock()
+	failedBefore := a.pollFailed
+	if err != nil {
+		a.pollFailed = true
+	} else if observed {
+		a.pollFailed = false
+	}
+	a.mu.Unlock()
+	if err != nil && !failedBefore {
+		log.Printf("session: status poll failed: %v", err)
+	}
+	if observed && failedBefore {
+		log.Printf("session: machine status reports resumed")
+	}
 }
 
 func timeoutErr(err error) bool {

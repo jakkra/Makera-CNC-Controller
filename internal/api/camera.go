@@ -31,11 +31,15 @@ func (s *Server) getCameras(w http.ResponseWriter, r *http.Request) {
 // forwarded upstream; the only upstream control strings are start_stream and
 // stop_stream owned by this server.
 func (s *Server) builtinCameraWS(w http.ResponseWriter, r *http.Request) {
-	if s.camera == nil || s.camera.BuiltinWSURL() == "" {
+	var source string
+	if s.camera != nil {
+		source = s.camera.BuiltinWSURL()
+	}
+	if source == "" {
 		writeErr(w, http.StatusServiceUnavailable, "built-in camera is not configured")
 		return
 	}
-	upstream, _, err := websocket.Dial(r.Context(), s.camera.BuiltinWSURL(), &websocket.DialOptions{
+	upstream, _, err := websocket.Dial(r.Context(), source, &websocket.DialOptions{
 		CompressionMode: websocket.CompressionDisabled,
 	})
 	if err != nil {

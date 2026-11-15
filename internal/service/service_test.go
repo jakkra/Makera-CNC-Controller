@@ -3343,3 +3343,14 @@ func TestPruneCacheRemovesOnlyUnreferencedOldFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestStaleStatusIsDisconnected(t *testing.T) {
+	svc, _ := newService(t)
+	svc.arb = session.New(session.Config{StateMaxAge: time.Nanosecond})
+	svc.arb.Tracker().ObserveStatusPayload("<Idle|MPos:0,0,0>")
+	time.Sleep(time.Microsecond)
+	st := svc.Status()
+	if st.Connected || !st.Stale || !st.Reconnecting {
+		t.Fatalf("stale connection: %+v", st)
+	}
+}

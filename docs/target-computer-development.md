@@ -122,3 +122,15 @@ Never restart the CNC merely to deploy or troubleshoot the web UI. If a
 machine-affecting behavior is under investigation, trace the full path—DOM
 event, HTTP request, handler, service policy, arbiter, machine frame,
 observable status, and UI feedback—before changing code.
+
+## Following a machine across DHCP address changes
+
+For a native TCP installation, prefer an exact discovery identity over a fixed
+DHCP address. Set `CNC_MACHINE_NAME=Makera_Z1_011855` (use the machine's actual
+broadcast name) and remove `CNC_MACHINE` from the private environment file.
+The two settings are mutually exclusive. Named discovery ignores other machines
+and the proxy's own advertisements, expires records after ten seconds without
+broadcasts, and resolves the latest address on each reconnect. The derived
+built-in camera endpoint follows the same identity. An explicit camera URL
+remains fixed. UDP/3333 must be available; fixed-address mode remains available
+for hosts where Studio owns that port.

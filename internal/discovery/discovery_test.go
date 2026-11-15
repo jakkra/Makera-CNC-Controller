@@ -1,6 +1,9 @@
 package discovery
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestParseRoundTrip(t *testing.T) {
 	in := "CARVERA,192.168.1.42,2222,1"
@@ -57,5 +60,39 @@ func TestListenerIgnoresSelf(t *testing.T) {
 	}
 	if l.isSelf(Machine{Name: "CARVERA", IP: "192.168.1.42", Port: 2222}) {
 		t.Error("real machine filtered")
+	}
+}
+
+func TestNamedDiscoveryFollowsOnlySelectedMachine(t *testing.T) {
+	l := &Listener{TargetName: "Makera_Z1_011855"}
+	l.SetSelf(Machine{IP: "192.168.1.121", Port: 2222})
+	l.observe("Makera_Z1_011855,192.168.1.39,2222,0,Idle")
+	if m, ok := l.Latest(); !ok || m.IP != "192.168.1.39" {
+		t.Fatalf("initial: %+v %v", m, ok)
+	}
+	l.observe("Makera_Z1_011855,192.168.1.40,2222,0,Run")
+	for _, record := range []string{
+		"other,192.168.1.50,2222,0", "Makera_Z1_011855,192.168.1.121,2222,0",
+		"Makera_Z1_011855,bad,2222,0", "Makera_Z1_011855,192.168.1.40,0,0",
+		"Makera_Z1_011855,192.168.1.40,65536,0",
+	} {
+		l.observe(record)
+	}
+	if m, ok := l.Latest(); !ok || m.IP != "192.168.1.40" {
+		t.Fatalf("changed: %+v %v", m, ok)
+	}
+	l.mu.Lock()
+	l.seen = time.Now().Add(-11 * time.Second)
+	l.mu.Unlock()
+	if _, ok := l.Latest(); ok {
+		t.Fatal("expired address is still usable")
+	}
+	l.observe("other,192.168.1.50,2222,0")
+	if _, ok := l.Latest(); ok {
+		t.Fatal("other machine refreshed expired record")
+	}
+	l.observe("Makera_Z1_011855,192.168.1.41,2222,0")
+	if m, ok := l.Latest(); !ok || m.IP != "192.168.1.41" {
+		t.Fatalf("return: %+v %v", m, ok)
 	}
 }

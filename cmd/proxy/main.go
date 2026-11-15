@@ -61,6 +61,7 @@ func main() {
 		printConfigSchema    = flag.Bool("print-config-schema", false, "print proxy flag schema as JSON and exit")
 		tcpPort              = flag.Int("tcp-port", 2222, "TCP port to listen on for the controller")
 		machineTransport     = flag.String("machine-transport", machinetransport.KindTCP, "machine-side transport: tcp or usb")
+		machineName          = flag.String("machine-name", "", "exact discovery identity to follow across TCP IP changes; requires empty -machine")
 		machineAddr          = flag.String("machine", "", "machine TCP host or host:port (default port 2222); if empty in TCP mode, learned via UDP discovery")
 		cameraBuiltinURL     = flag.String("camera-builtin-ws-url", "", "Z1 built-in camera WebSocket URL; defaults to ws://<fixed -machine host>:82/ws_video")
 		cameraExternalURL    = flag.String("camera-external-url", "", "fixed external camera HTTP(S) MJPEG or snapshot URL")
@@ -110,6 +111,12 @@ func main() {
 	}
 
 	transportKind := machinetransport.NormalizeKind(*machineTransport)
+	*machineName = strings.TrimSpace(*machineName)
+	if *machineName != "" && (strings.TrimSpace(*machineAddr) != "" || transportKind != machinetransport.KindTCP || strings.Contains(*machineName, ",")) {
+		log.Fatal("-machine-name requires TCP, empty -machine, and a name without commas")
+	}
+	disc := &discovery.Listener{TargetName: *machineName}
+	dialAddr := machineDialer(*machineAddr, disc)
 	if err := validateMachineTransport(transportKind, *usbDevice, *usbBaud, *advertise, *name); err != nil {
 		log.Fatal(err)
 	}
@@ -132,12 +139,17 @@ func main() {
 		}
 		builtinCameraDerived = true
 	}
+	var builtinMachineAddr func() (string, error)
+	if builtinCameraURL == "" && *machineName != "" {
+		builtinMachineAddr = dialAddr
+	}
 	cameraMgr, err := camera.New(camera.Config{
-		BuiltinWSURL:   builtinCameraURL,
-		BuiltinDerived: builtinCameraDerived,
-		ExternalURL:    *cameraExternalURL,
-		ExternalMode:   *cameraExternalMode,
-		ExternalDevice: *cameraExternalDevice,
+		BuiltinMachineAddr: builtinMachineAddr,
+		BuiltinWSURL:       builtinCameraURL,
+		BuiltinDerived:     builtinCameraDerived,
+		ExternalURL:        *cameraExternalURL,
+		ExternalMode:       *cameraExternalMode,
+		ExternalDevice:     *cameraExternalDevice,
 	})
 	if err != nil {
 		log.Fatalf("camera configuration: %v", err)
@@ -158,7 +170,6 @@ func main() {
 	// A fixed machine with advertising disabled does not need UDP at all. This
 	// also lets the proxy coexist with Studio or another listener that owns
 	// udp/3333 on platforms where the port cannot be shared.
-	disc := &discovery.Listener{}
 	if shouldListenForDiscovery(transportKind, *machineAddr, *advertise, *name) {
 		udp, err := discovery.OpenListenSocket()
 		if err != nil {
@@ -175,7 +186,6 @@ func main() {
 		log.Printf("discovery: disabled (fixed machine address and advertising off)")
 	}
 
-	dialAddr := machineDialer(*machineAddr, disc)
 	machineOpen := machineOpener(transportKind, dialAddr, *usbDevice, *usbBaud, *usbResetOnOpen)
 	filePacketSize := machinetransport.PacketSizeForKind(transportKind)
 

@@ -502,7 +502,7 @@ func (s *Service) Status() MachineStatus {
 	return MachineStatus{
 		State:        st.State,
 		Mode:         mode,
-		Connected:    observed && st.State != machine.Unknown,
+		Connected:    observed && !stale && st.State != machine.Unknown,
 		Reconnecting: mode == session.ModeOwner.String() && stale,
 		PendingJobs:  s.pendingJobCount(),
 		AgeMs:        age.Milliseconds(),

@@ -36,10 +36,14 @@ func parse(s string) (Machine, bool) {
 		return Machine{}, false
 	}
 	port, err := strconv.Atoi(strings.TrimSpace(f[2]))
-	if err != nil {
+	if err != nil || port < 1 || port > 65535 || strings.TrimSpace(f[0]) == "" {
 		return Machine{}, false
 	}
-	return Machine{Name: f[0], IP: f[1], Port: port, Busy: strings.TrimSpace(f[3]) == "1"}, true
+	ip := net.ParseIP(strings.TrimSpace(f[1]))
+	if ip == nil || ip.To4() == nil || ip.IsUnspecified() || ip.IsMulticast() {
+		return Machine{}, false
+	}
+	return Machine{Name: strings.TrimSpace(f[0]), IP: ip.String(), Port: port, Busy: strings.TrimSpace(f[3]) == "1"}, true
 }
 
 func (m Machine) format() string {
@@ -54,10 +58,13 @@ func (m Machine) format() string {
 // seen machine. It binds 3333 with SO_REUSEADDR/REUSEPORT so it can coexist with
 // the controller (which also binds 3333) on the same host during testing.
 type Listener struct {
-	mu   sync.RWMutex
-	last *Machine
-	seen time.Time
-	self *Machine
+	// TargetName pins discovery to one machine. Set before Listen starts.
+	// Named records expire after ten seconds without a broadcast.
+	TargetName string
+	mu         sync.RWMutex
+	last       *Machine
+	seen       time.Time
+	self       *Machine
 }
 
 // SetSelf records the identity this proxy currently advertises. A UDP socket
@@ -86,7 +93,7 @@ func (l *Listener) isSelf(m Machine) bool {
 func (l *Listener) Latest() (Machine, bool) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	if l.last == nil {
+	if l.last == nil || (l.TargetName != "" && time.Since(l.seen) > 10*time.Second) {
 		return Machine{}, false
 	}
 	return *l.last, true
@@ -102,18 +109,23 @@ func (l *Listener) Listen(conn *net.UDPConn) {
 		if err != nil {
 			return
 		}
-		m, ok := parse(string(buf[:n]))
-		if !ok || l.isSelf(m) {
-			continue
-		}
-		l.mu.Lock()
-		first := l.last == nil
-		l.last = &m
-		l.seen = time.Now()
-		l.mu.Unlock()
-		if first {
-			log.Printf("discovery: learned machine %q at %s:%d (busy=%v)", m.Name, m.IP, m.Port, m.Busy)
-		}
+		l.observe(string(buf[:n]))
+	}
+}
+
+// observe accepts only the configured identity and records address changes.
+func (l *Listener) observe(record string) {
+	m, ok := parse(record)
+	if !ok || l.isSelf(m) || (l.TargetName != "" && m.Name != l.TargetName) {
+		return
+	}
+	l.mu.Lock()
+	changed := l.last == nil || l.last.IP != m.IP || l.last.Port != m.Port || l.last.Name != m.Name
+	l.last = &m
+	l.seen = time.Now()
+	l.mu.Unlock()
+	if changed {
+		log.Printf("discovery: learned machine %q at %s:%d (busy=%v)", m.Name, m.IP, m.Port, m.Busy)
 	}
 }
 

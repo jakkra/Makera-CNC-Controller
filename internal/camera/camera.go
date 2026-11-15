@@ -28,9 +28,11 @@ const (
 // Config is process-start configuration. URLs are supplied by the operator,
 // never by a browser request.
 type Config struct {
-	BuiltinWSURL   string
-	BuiltinDerived bool
-	ExternalURL    string
+	// BuiltinMachineAddr resolves the pinned CNC identity for each new camera connection.
+	BuiltinMachineAddr func() (string, error)
+	BuiltinWSURL       string
+	BuiltinDerived     bool
+	ExternalURL        string
 	// ExternalMode is intentionally explicit because a snapshot needs periodic
 	// browser reloads while an MJPEG response must stay open. Empty defaults to
 	// MJPEG for backwards-compatible streaming behavior.
@@ -69,13 +71,14 @@ type FocusStatus struct {
 
 // Manager holds validated fixed upstreams.
 type Manager struct {
-	builtin        *url.URL
-	builtinDerived bool
-	external       *url.URL
-	externalMode   string
-	externalDevice string
-	httpClient     *http.Client
-	focusMu        sync.Mutex
+	builtinMachineAddr func() (string, error)
+	builtin            *url.URL
+	builtinDerived     bool
+	external           *url.URL
+	externalMode       string
+	externalDevice     string
+	httpClient         *http.Client
+	focusMu            sync.Mutex
 }
 
 func New(cfg Config) (*Manager, error) {
@@ -110,7 +113,7 @@ func New(cfg Config) (*Manager, error) {
 	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
-	return &Manager{builtin: builtin, builtinDerived: builtin != nil && cfg.BuiltinDerived, external: external, externalMode: externalMode, externalDevice: strings.TrimSpace(cfg.ExternalDevice), httpClient: client}, nil
+	return &Manager{builtinMachineAddr: cfg.BuiltinMachineAddr, builtin: builtin, builtinDerived: builtin != nil && cfg.BuiltinDerived, external: external, externalMode: externalMode, externalDevice: strings.TrimSpace(cfg.ExternalDevice), httpClient: client}, nil
 }
 
 func normalizeExternalMode(raw string) (string, error) {
@@ -175,8 +178,8 @@ func (m *Manager) Status() Status {
 		return DisabledStatus()
 	}
 	status := DisabledStatus()
-	if m.builtin != nil {
-		status.Builtin = SourceStatus{Configured: true, State: "configured", Transport: "websocket-jpeg", Derived: m.builtinDerived, StreamURL: "/api/camera/builtin/ws"}
+	if m.builtin != nil || m.builtinMachineAddr != nil {
+		status.Builtin = SourceStatus{Configured: true, State: "configured", Transport: "websocket-jpeg", Derived: m.builtinDerived || m.builtinMachineAddr != nil, StreamURL: "/api/camera/builtin/ws"}
 	}
 	if m.external != nil {
 		status.External = SourceStatus{Configured: true, State: "configured", Transport: "http-" + m.externalMode, Mode: m.externalMode, StreamURL: "/api/camera/external"}
@@ -192,7 +195,21 @@ func DisabledStatus() Status {
 }
 
 func (m *Manager) BuiltinWSURL() string {
-	if m == nil || m.builtin == nil {
+	if m == nil {
+		return ""
+	}
+	if m.builtin == nil && m.builtinMachineAddr != nil {
+		addr, err := m.builtinMachineAddr()
+		if err != nil {
+			return ""
+		}
+		u, err := DeriveBuiltinWSURL(addr)
+		if err != nil {
+			return ""
+		}
+		return u
+	}
+	if m.builtin == nil {
 		return ""
 	}
 	return m.builtin.String()
