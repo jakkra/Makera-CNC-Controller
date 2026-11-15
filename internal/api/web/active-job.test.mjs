@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mountActiveJobDispatch, mountFeedOverride } from "./modules/active-job.js";
+import { mountActiveJobDispatch, mountFeedOverride, mountActiveJobControl } from "./modules/active-job.js";
 
 function makeFeedOverride(overrides = {}) {
   const state = { pending: "", pendingPercent: null, machine: { feed: { override: 144 } } };
@@ -146,4 +146,28 @@ test("start-spindle dispatch reads current form values and preserves RPM/directi
     assert.equal(await invalid.feature.runJobControl("start-spindle"), false);
     assert.deepEqual(invalid.events, [["feedback", message, "error"]]);
   }
+});
+
+test("job Resume accepts Hold through the verified job-control endpoint", async () => {
+ let pending = "";
+ const requests = [];
+ const feedback = [];
+ const feature = mountActiveJobControl({
+  request: async (url, options) => {
+   assert.equal(pending, "resume_job");
+   requests.push([url, JSON.parse(options.body)]);
+   return {json: async () => ({verified:true, message:"Job resumed."})};
+  },
+  getActiveGcodePending: () => pending,
+  setActiveGcodePending: value => {pending = value;},
+  machineActionState: () => "Hold",
+  confirmRef: () => true,
+  setActiveFeedback: (...args) => feedback.push(args),
+  renderMachine: () => {},
+  pollMachine: async () => {},
+ });
+ assert.equal(await feature.runActiveJobControl("resume_job"), true);
+ assert.deepEqual(requests, [["/api/control", {action:"resume_job"}]]);
+ assert.deepEqual(feedback.at(-1), ["Job resumed.", "ok"]);
+ assert.equal(pending, "");
 });

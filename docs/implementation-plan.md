@@ -21,13 +21,14 @@ Sensei håller reda på senaste giltiga S-värde, riktning (M3/M4), M5-status, t
 
 Under körning: Pause job. Under Pause: Start spindle (med explicit RPM), Stop spindle och Resume job.
 
-- Pause skickar bara `suspend`.
+- Pause skickar realtime feed hold `!` och verifierar `Hold`; den kör inte `suspend` eller paushookar. Spindeln lämnas oförändrad.
+- Resume från `Hold` skickar `~` och verifierar `Run`. Manuella pauskommandon kräver fortfarande firmwareläget `Pause`, exempelvis från en extern `suspend`.
 - Stop spindle skickar `M5`.
 - Start spindle skickar exempelvis `M3 S10000`, aldrig bara `M3`.
 - Okänt varvtal kräver explicit inmatning.
 - Start verifierar target/actual RPM.
 - Resume startar aldrig spindeln automatiskt och ska tydligt visa avvikande/stillastående spindle.
-- Hold förblir separat realtime hold.
+- Den generella Hold-kontrollen och jobbets Pause använder samma realtime feed hold.
 - Resultat visas endast i bottom status bar.
 
 Tester ska täcka M3/S-varianter, falska kommentarer, fil-/MD5-byte, omstart, okänt varvtal, Pause med spindel igång, Pause → M5 → cached M3 → Resume och förlorad anslutning.

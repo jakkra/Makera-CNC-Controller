@@ -3093,23 +3093,29 @@ func TestPostControlJobPauseAndResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if !paused.Verified || paused.State != machine.Pause {
+	if !paused.Verified || paused.State != machine.Hold {
 		t.Fatalf("pause result = %+v", paused)
 	}
 
-	resp = postJSON(t, srv.URL+"/api/gcode/active/paused-command", service.PausedJobCommandRequest{Action: "stop_spindle"})
-	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		t.Fatalf("stop spindle status = %d, want 200", resp.StatusCode)
+	if paused.Command != "!" {
+		t.Fatalf("pause command: %q", paused.Command)
 	}
-	var stopped service.PausedJobCommandResult
-	if err := json.NewDecoder(resp.Body).Decode(&stopped); err != nil {
-		resp.Body.Close()
+	statusResp := get(t, srv.URL+"/api/machine")
+	var status service.MachineStatus
+	if err := json.NewDecoder(statusResp.Body).Decode(&status); err != nil {
 		t.Fatal(err)
 	}
+	statusResp.Body.Close()
+	if status.Spindle == nil || status.Spindle.TargetRPM != 12000 || status.Spindle.CurrentRPM != 12000 {
+		t.Fatalf("spindle changed during pause: %+v", status.Spindle)
+	}
+	if !status.JobControl.CanResume || status.JobControl.CanStopSpindle || status.JobControl.CanStartSpindle {
+		t.Fatalf("Hold controls: %+v", status.JobControl)
+	}
+	resp = postJSON(t, srv.URL+"/api/gcode/active/paused-command", service.PausedJobCommandRequest{Action: "stop_spindle"})
 	resp.Body.Close()
-	if !stopped.Verified {
-		t.Fatalf("stop spindle result = %+v", stopped)
+	if resp.StatusCode < 400 {
+		t.Fatal("manual spindle command accepted during Hold")
 	}
 
 	resp = postJSON(t, srv.URL+"/api/control", map[string]string{"action": "resume_job"})
@@ -3125,6 +3131,14 @@ func TestPostControlJobPauseAndResume(t *testing.T) {
 	resp.Body.Close()
 	if !resumed.Verified || resumed.State != machine.Run {
 		t.Fatalf("resume result = %+v", resumed)
+	}
+	if resumed.Command != "~" {
+		t.Fatalf("resume command: %q", resumed.Command)
+	}
+	for _, command := range m.Gcodes() {
+		if command == "suspend" || command == "resume" || command == "M5" {
+			t.Fatalf("unsafe job-control command: %q", command)
+		}
 	}
 }
 

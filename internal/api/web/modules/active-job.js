@@ -135,16 +135,16 @@ export function mountActiveJobControl({
       return false;
     }
     const machineState = machineActionState();
-    const expectedState = action === "pause_job" ? "Run" : (action === "resume_job" ? "Pause" : "");
-    if (!expectedState || machineState !== expectedState) {
+    const expectedStates = action === "pause_job" ? ["Run"] : (action === "resume_job" ? ["Hold", "Pause"] : []);
+    if (!expectedStates.includes(machineState)) {
       setActiveFeedback(action === "resume_job"
         ? `Resume is unavailable while the machine is ${machineState}.`
         : `Pause is unavailable while the machine is ${machineState}.`, "error");
       return false;
     }
-    if (action === "pause_job" && !confirmRef("Pause the running job and enable manual paused controls?")) return;
+    if (action === "pause_job" && !confirmRef("Pause feed without changing the spindle?")) return;
     setActiveGcodePending(action);
-    setActiveFeedback(action === "pause_job" ? "Pausing job..." : "Restoring the paused job...", "");
+    setActiveFeedback(action === "pause_job" ? "Pausing job..." : "Resuming job...", "");
     renderMachine();
     try {
       const response = await request("/api/control", {

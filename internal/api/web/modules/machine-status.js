@@ -276,7 +276,7 @@ function jobControlModel(machine = state.machine, pendingAction = "", readOnly =
   const usable = !readOnly && actionState !== "Unknown";
   const available = {
     pause: hasContract ? control.can_pause === true : actionState === "Run",
-    resume: hasContract ? control.can_resume === true : actionState === "Pause",
+    resume: hasContract ? control.can_resume === true : ["Hold", "Pause"].includes(actionState),
     "stop-spindle": hasContract ? control.can_stop_spindle === true : actionState === "Pause",
     // An explicitly supplied speed/direction is safe to expose only after the
     // server has confirmed a paused job. The request remains server-validated;

@@ -2567,12 +2567,16 @@ func TestPausedJobAllowsVerifiedManualCommandsBeforeResume(t *testing.T) {
 	m.SetStatus("<Run|MPos:0,0,-10|WPos:0,0,-10|S:12000,12000,100|P:10,25,5>")
 	tr.Observe(machine.Run)
 
-	paused, err := svc.PauseJob()
+	err := svc.arb.WithMachine(false, func(c *client.Conn) error {
+		_, err := svc.sendOperatorConsole(c, "suspend", client.GcodeOpts{ExpectReply: true, Cap: gcodeReplyCap})
+		if err != nil {
+			return err
+		}
+		_, err = svc.waitForMachineState(c, jobControlVerifyTimeout, machine.Pause)
+		return err
+	})
 	if err != nil {
-		t.Fatalf("PauseJob: %v", err)
-	}
-	if !paused.Verified || paused.State != machine.Pause {
-		t.Fatalf("PauseJob result = %+v", paused)
+		t.Fatal(err)
 	}
 
 	if _, err := svc.SendGcode("G53 G0 X1"); err != nil {
@@ -3352,5 +3356,53 @@ func TestStaleStatusIsDisconnected(t *testing.T) {
 	st := svc.Status()
 	if st.Connected || !st.Stale || !st.Reconnecting {
 		t.Fatalf("stale connection: %+v", st)
+	}
+}
+
+func TestPauseJobPreemptsBackgroundIOAndPreservesSpindle(t *testing.T) {
+	svc, m, tr := serviceWithMachine(t)
+	m.SetStatus("<Run|MPos:1,2,3|S:12000,12000,100>")
+	tr.ObserveStatusPayload("<Run|MPos:1,2,3|S:12000,12000,100>")
+	entered, release, ownerDone, pauseDone := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(ownerDone)
+		_ = svc.arb.WithMachine(false, func(c *client.Conn) error { close(entered); <-release; return nil })
+	}()
+	<-entered
+	var result JobControlResult
+	var pauseErr error
+	go func() { defer close(pauseDone); result, pauseErr = svc.PauseJob() }()
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+		<-ownerDone
+		<-pauseDone
+	}()
+	deadline := time.Now().Add(time.Second)
+	for !bytes.Contains(m.Controls(), []byte("!")) {
+		if time.Now().After(deadline) {
+			t.Fatal("pause did not reach machine while background IO held the transaction lock")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(release)
+	<-pauseDone
+	if pauseErr != nil || !result.Verified || result.State != machine.Hold {
+		t.Fatalf("pause result: %+v %v", result, pauseErr)
+	}
+	st := svc.Status()
+	if st.Spindle == nil || st.Spindle.CurrentRPM != 12000 || st.Spindle.TargetRPM != 12000 {
+		t.Fatalf("spindle changed: %+v", st.Spindle)
+	}
+	if _, err := svc.SendGcode("G53 G0 Z5"); !errors.Is(err, session.ErrNotIdle) {
+		t.Fatalf("manual move during Hold: %v", err)
+	}
+	for _, command := range m.Gcodes() {
+		if command == "suspend" || command == "M5" {
+			t.Fatalf("unexpected spindle-affecting command: %q", command)
+		}
 	}
 }

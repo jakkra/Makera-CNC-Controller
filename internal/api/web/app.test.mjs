@@ -1462,6 +1462,13 @@ test("Overview and Active Job share server-owned job controls", () => {
       spindle: { speed_rpm: 10000, speed_known: true, stopped: true },
     },
   });
+  const held = model({state:"Hold", connected:true, stale:false, age_ms:0,
+    job_control:{can_pause:false, can_resume:true, can_stop_spindle:false, can_start_spindle:false, spindle:{}}});
+  assert.equal(held.actions.resume.visible, true);
+  assert.equal(held.actions.pause.visible, false);
+  assert.equal(held.actions["stop-spindle"].visible, false);
+  assert.equal(held.actions["start-spindle"].visible, false);
+  assert.equal(model({state:"Hold", connected:true, stale:false, age_ms:0}).actions.resume.visible, true);
   assert.equal(paused.speed, 10000);
   assert.equal(paused.actions.pause.visible, false);
   assert.equal(paused.actions.resume.visible, true);
@@ -2404,8 +2411,9 @@ test("paused-job resume reports stale and busy clicks instead of failing silentl
 
   state.activeGcodePending = "";
   state.machine.state = "Hold";
+  state.machine.stale = true;
   assert.equal(await vm.runInContext('runActiveJobControl("resume_job")', ctx), false);
-  assert.deepEqual(feedback.at(-1), ["Resume is unavailable while the machine is Hold.", "error"]);
+  assert.deepEqual(feedback.at(-1), ["Resume is unavailable while the machine is Unknown.", "error"]);
 });
 
 test("Active Job resume selects firmware resume for Pause and realtime resume for Hold", async () => {

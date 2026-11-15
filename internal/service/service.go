@@ -550,7 +550,7 @@ func jobControlState(st machine.Status, context store.ExecutionContext) JobContr
 	return JobControlState{
 		Paused:          paused,
 		CanPause:        st.State == machine.Run,
-		CanResume:       paused,
+		CanResume:       paused || st.State == machine.Hold,
 		CanStartSpindle: canStart,
 		CanStopSpindle:  paused && spindleRunning && !context.Spindle.Stopped,
 		Spindle:         context.Spindle,
@@ -2611,28 +2611,19 @@ type PausedJobCommandResult struct {
 	Message  string                        `json:"message"`
 }
 
-// PauseJob uses the firmware player's suspend command. Unlike realtime feed
-// hold, suspend saves the running job's position and modal state and explicitly
-// permits manual MDI before resume restores that saved state.
+// PauseJob holds feed through the realtime path. It must not invoke player
+// suspend hooks or queue the hold behind a file transaction.
 func (s *Service) PauseJob() (JobControlResult, error) {
-	res := JobControlResult{Action: "pause_job", Command: "suspend"}
+	res := JobControlResult{Action: "pause_job", Command: "!"}
+	st, _ := s.arb.Tracker().Current()
+	if !s.arb.Tracker().Fresh(s.arb.StateMaxAge()) || st.State != machine.Run {
+		return res, fmt.Errorf("%w: pause requires fresh Run state", ErrJobControlUnavailable)
+	}
+	if err := s.SendControl(ControlFeedHold); err != nil {
+		return res, err
+	}
 	err := s.arb.WithMachine(false, func(c *client.Conn) error {
-		st, err := s.queryRecoveryStatus(c)
-		if err != nil {
-			return err
-		}
-		if st.State != machine.Run {
-			return fmt.Errorf("%w: machine state is %s, want Run", ErrJobControlUnavailable, st.State)
-		}
-		s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, "job pause (suspend)")
-		out, err := s.sendOperatorConsole(c, "suspend", client.GcodeOpts{ExpectReply: true, Cap: gcodeReplyCap})
-		if out != "" {
-			s.gcodeLog.Append(gcodelog.DirRecv, gcodelog.SourceAPI, out)
-		}
-		if err != nil {
-			return err
-		}
-		st, err = s.waitForMachineState(c, jobControlVerifyTimeout, machine.Pause)
+		st, err := s.waitForMachineState(c, jobControlVerifyTimeout, machine.Hold)
 		res.State = st.State
 		return err
 	})
@@ -2641,12 +2632,12 @@ func (s *Service) PauseJob() (JobControlResult, error) {
 		return res, err
 	}
 	res.Verified = true
-	res.Message = "Job paused. Manual commands are available until resume."
+	res.Message = "Job feed held."
 	return res, nil
 }
 
-// ResumeJob asks the firmware player to restore the position and modal state
-// saved by suspend, then verifies that execution has returned to Run.
+// ResumeJob releases a feed hold, or restores a legacy player suspension,
+// then verifies that execution has returned to Run.
 func (s *Service) ResumeJob() (JobControlResult, error) {
 	res := JobControlResult{Action: "resume_job", Command: "resume"}
 	err := s.arb.WithMachine(false, func(c *client.Conn) error {
@@ -2654,8 +2645,17 @@ func (s *Service) ResumeJob() (JobControlResult, error) {
 		if err != nil {
 			return err
 		}
+		if st.State == machine.Hold {
+			res.Command = "~"
+			if err := s.SendControl(ControlResume); err != nil {
+				return err
+			}
+			st, err = s.waitForMachineState(c, jobControlVerifyTimeout, machine.Run)
+			res.State = st.State
+			return err
+		}
 		if st.State != machine.Pause {
-			return fmt.Errorf("%w: machine state is %s, want Pause", ErrJobControlUnavailable, st.State)
+			return fmt.Errorf("%w: machine state is %s, want Hold or Pause", ErrJobControlUnavailable, st.State)
 		}
 		s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, "job resume (resume)")
 		out, err := s.sendOperatorConsole(c, "resume", client.GcodeOpts{ExpectReply: true, Cap: gcodeReplyCap})
