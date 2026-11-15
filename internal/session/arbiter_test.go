@@ -499,3 +499,52 @@ func TestPollRejectsMalformedStatusAndReconnects(t *testing.T) {
 		t.Fatalf("dials = %d, want reconnect", dials.Load())
 	}
 }
+
+// Emulate a half-open connection after a machine reboot: it remains open but
+// never reads another frame. No address change or proxy restart is involved.
+type stalledWriteConn struct{ net.Conn }
+
+func (c stalledWriteConn) SetWriteDeadline(deadline time.Time) error {
+	if !deadline.IsZero() {
+		deadline = time.Now().Add(20 * time.Millisecond)
+	}
+	return c.Conn.SetWriteDeadline(deadline)
+}
+func TestPollReconnectsAfterBlockedMachineWrite(t *testing.T) {
+	local, remote := net.Pipe()
+	defer local.Close()
+	defer remote.Close()
+	fm, err := carveratest.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fm.Close()
+	fm.SetStatus("<Idle|MPos:1,2,3>")
+	var dials atomic.Int32
+	a := New(Config{Dial: func() (*client.Conn, error) {
+		if dials.Add(1) == 1 {
+			return client.New(stalledWriteConn{local}), nil
+		}
+		return client.Dial(fm.Addr(), time.Second)
+	}})
+	defer a.EnterRelay()
+	done := make(chan struct{})
+	go func() { defer close(done); a.pollOnce(50 * time.Millisecond); a.pollOnce(time.Second) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		local.Close()
+		<-done
+		t.Fatal("blocked write prevented owner reconnect")
+	}
+	if dials.Load() != 2 || !a.Tracker().Fresh(time.Second) {
+		t.Fatalf("dials=%d fresh=%v", dials.Load(), a.Tracker().Fresh(time.Second))
+	}
+	st, _ := a.Tracker().Current()
+	if st.MPos["x"] != 1 {
+		t.Fatalf("fresh position not observed: %+v", st)
+	}
+	if len(fm.Gcodes()) != 0 {
+		t.Fatalf("reconnect replayed machine commands: %v", fm.Gcodes())
+	}
+}

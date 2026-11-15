@@ -29,6 +29,7 @@ const WifiPacketSize = machinetransport.TCPPacketSize
 const USBPacketSize = machinetransport.USBPacketSize
 
 const defaultUploadStartDelay = 200 * time.Millisecond
+const frameWriteTimeout = 5 * time.Second
 
 // Option tunes a protocol connection.
 type Option func(*Conn)
@@ -125,6 +126,16 @@ func IsConnectionError(err error) bool {
 func (k *Conn) writeFrame(b []byte) error {
 	k.writeMu.Lock()
 	defer k.writeMu.Unlock()
+	// A rebooted/unreachable TCP peer can stop reading without closing cleanly.
+	// Read deadlines do not bound Write; a blocked frame otherwise retains the
+	// arbiter transaction forever and prevents status polling from redialing.
+	// Serial and injection transports without write deadlines keep their policy.
+	if transport, ok := k.c.(interface{ SetWriteDeadline(time.Time) error }); ok {
+		if err := transport.SetWriteDeadline(time.Now().Add(frameWriteTimeout)); err != nil {
+			return err
+		}
+		defer transport.SetWriteDeadline(time.Time{})
+	}
 	for written := 0; written < len(b); {
 		n, err := k.c.Write(b[written:])
 		if n > 0 {

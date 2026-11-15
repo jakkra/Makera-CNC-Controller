@@ -908,3 +908,49 @@ func TestUploadEmptyFile(t *testing.T) {
 		t.Errorf("empty upload = %q ok=%v", got, ok)
 	}
 }
+
+type fastWriteDeadlineConn struct {
+	net.Conn
+	deadlines chan time.Time
+}
+
+func (c *fastWriteDeadlineConn) SetWriteDeadline(deadline time.Time) error {
+	c.deadlines <- deadline
+	if !deadline.IsZero() {
+		deadline = time.Now().Add(20 * time.Millisecond)
+	}
+	return c.Conn.SetWriteDeadline(deadline)
+}
+
+func TestBlockedMachineWriteHasDeadline(t *testing.T) {
+	local, remote := net.Pipe()
+	probe := &fastWriteDeadlineConn{Conn: local, deadlines: make(chan time.Time, 4)}
+	conn := New(probe)
+	done := make(chan error, 1)
+	go func() { done <- conn.SendControl(protocol.CtrlFeedHold) }()
+	defer func() {
+		local.Close()
+		remote.Close()
+		select {
+		case <-done:
+		default:
+		}
+	}()
+	select {
+	case err := <-done:
+		var ne net.Error
+		if !errors.As(err, &ne) || !ne.Timeout() {
+			t.Fatalf("write error=%v, want bounded timeout", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		local.Close()
+		<-done
+		t.Fatal("machine write blocked indefinitely instead of allowing reconnect")
+	}
+	if d := <-probe.deadlines; d.IsZero() || time.Until(d) > 6*time.Second {
+		t.Fatalf("invalid write deadline: %v", d)
+	}
+	if d := <-probe.deadlines; !d.IsZero() {
+		t.Fatalf("write deadline not cleared: %v", d)
+	}
+}
