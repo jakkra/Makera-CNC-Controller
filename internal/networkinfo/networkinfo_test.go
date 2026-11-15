@@ -56,3 +56,61 @@ func TestProviderDoesNotReturnStaleAssociationAsCurrent(t *testing.T) {
 		t.Fatalf("stale Wi-Fi: %+v", got)
 	}
 }
+
+func TestSignalDBMRequiresExplicitMeasuredUnits(t *testing.T) {
+	for _, tc := range []struct {
+		output string
+		known  bool
+		want   float64
+	}{
+		{"Connected to 11:22:33:44:55:66\n\tsignal: -63 dBm\n\ttx bitrate: 19.5 MBit/s", true, -63},
+		{"Tx-Power=14 dBm\nLink Quality=47/70  Signal level=-63 dBm", true, -63},
+		{"\tsignal: -61.5 dBm", true, -61.5},
+		{"Tx-Power=14 dBm\nLink Quality=55/100", false, 0},
+		{"Signal level=55/100", false, 0},
+		{"Signal level=193", false, 0},
+		{"Not connected.", false, 0},
+		{"Signal level=-256 dBm", false, 0},
+	} {
+		got := parseSignalDBM(tc.output)
+		if (got != nil) != tc.known || (got != nil && *got != tc.want) {
+			t.Fatalf("signal from %q = %v, want known=%v value=%v", tc.output, got, tc.known, tc.want)
+		}
+	}
+}
+
+func TestProviderUsesDriverRSSIWithoutConvertingPercent(t *testing.T) {
+	p := New()
+	p.read = func(context.Context) ([]byte, error) { return []byte("yes:Workshop:55:wlp1s0\n"), nil }
+	queried := make(chan string, 1)
+	p.readSignal = func(_ context.Context, iface string) ([]byte, error) {
+		queried <- iface
+		return []byte("Signal level=-63 dBm"), nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); p.Run(ctx) }()
+	defer func() { cancel(); <-done }()
+	select {
+	case iface := <-queried:
+		if iface != "wlp1s0" {
+			t.Fatal(iface)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("driver not queried")
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		st := p.Status()
+		if st.Controller.SignalDBM != nil {
+			if *st.Controller.SignalDBM != -63 || st.Controller.SSID != "Workshop" {
+				t.Fatalf("measured Wi-Fi %+v", st.Controller)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no measured dBm in snapshot")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}

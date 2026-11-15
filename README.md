@@ -560,7 +560,8 @@ CGO_ENABLED=1 go test -mod=mod -tags cgo_compat ./internal/quicklz/
   controller before tagging production releases.
 
 The persistent top toolbar shows the Sensei host's current Wi-Fi SSID and signal
-percentage when NetworkManager (`nmcli`) reports them. This reads cached access
-point information without scanning or changing a connection. Makera's SSID is
+strength in dBm when the adapter reports it through `iw` or `iwconfig`. SSID
+comes from NetworkManager (`nmcli`); no scan or connection change is performed.
+Normalized percentages are never converted to dBm. Makera's SSID is
 shown as not reported when it is absent from the available machine telemetry;
 the host's SSID is never assumed to describe the CNC.

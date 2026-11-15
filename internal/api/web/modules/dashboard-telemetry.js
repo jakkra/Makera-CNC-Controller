@@ -67,8 +67,8 @@ export function dashboardAlarmText(reason) {
 export function dashboardWiFiText(wifi) {
   if (!wifi) return null;
   if (wifi.state === "connected" && typeof wifi.ssid === "string" && wifi.ssid) {
-    const signal = dashboardOptionalNumber(wifi.signal_percent);
-    return signal === null ? wifi.ssid : `${wifi.ssid} · ${signal}%`;
+    const signal = dashboardOptionalNumber(wifi.signal_dbm);
+    return signal === null || signal > 0 || signal < -150 ? wifi.ssid : `${wifi.ssid} · ${Math.round(signal)} dBm`;
   }
   if (wifi.state === "not_connected") return "Not connected";
   if (wifi.state === "not_reported") return "Not reported";

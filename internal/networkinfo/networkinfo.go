@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ type WiFi struct {
 	SSID          string    `json:"ssid,omitempty"`
 	Interface     string    `json:"interface,omitempty"`
 	SignalPercent *int      `json:"signal_percent,omitempty"`
+	SignalDBM     *float64  `json:"signal_dbm,omitempty"`
 	ObservedAt    time.Time `json:"observed_at"`
 }
 
@@ -26,13 +28,14 @@ type Status struct {
 }
 
 type Provider struct {
-	mu      sync.RWMutex
-	current WiFi
-	read    func(context.Context) ([]byte, error)
+	mu         sync.RWMutex
+	current    WiFi
+	read       func(context.Context) ([]byte, error)
+	readSignal func(context.Context, string) ([]byte, error)
 }
 
 func New() *Provider {
-	return &Provider{current: WiFi{State: "unavailable"}, read: func(ctx context.Context) ([]byte, error) {
+	return &Provider{current: WiFi{State: "unavailable"}, readSignal: readDriverSignal, read: func(ctx context.Context) ([]byte, error) {
 		cmd := exec.CommandContext(ctx, "nmcli", "-t", "--escape", "yes", "-f", "ACTIVE,SSID,SIGNAL,DEVICE", "device", "wifi", "list", "--rescan", "no")
 		cmd.Env = append(os.Environ(), "LC_ALL=C")
 		return cmd.Output()
@@ -49,11 +52,16 @@ func (p *Provider) Run(ctx context.Context) {
 		}
 		readCtx, cancel := context.WithTimeout(ctx, time.Second)
 		output, err := p.read(readCtx)
-		cancel()
 		wifi := WiFi{State: "unavailable", ObservedAt: time.Now()}
 		if err == nil {
 			wifi = parseNMCLI(string(output), wifi.ObservedAt)
+			if wifi.State == "connected" && p.readSignal != nil {
+				if signalOutput, err := p.readSignal(readCtx, wifi.Interface); err == nil {
+					wifi.SignalDBM = parseSignalDBM(string(signalOutput))
+				}
+			}
 		}
+		cancel()
 		p.mu.Lock()
 		p.current = wifi
 		p.mu.Unlock()
@@ -122,4 +130,39 @@ func escapedFields(line string) []string {
 		field.WriteRune('\\')
 	}
 	return append(fields, field.String())
+}
+
+// Only accept a driver measurement explicitly labelled dBm. The normalized
+// NetworkManager percentage is deliberately never converted to dBm.
+var signalDBMPattern = regexp.MustCompile(`(?m)(?:^\s*signal:|Signal level[=:])\s*(-?\d+(?:\.\d+)?)\s*dBm\b`)
+
+func parseSignalDBM(output string) *float64 {
+	match := signalDBMPattern.FindStringSubmatch(output)
+	if len(match) != 2 {
+		return nil
+	}
+	value, err := strconv.ParseFloat(match[1], 64)
+	if err != nil || value > 0 || value < -150 {
+		return nil
+	}
+	return &value
+}
+
+func readDriverSignal(ctx context.Context, iface string) ([]byte, error) {
+	// iw reports nl80211 measurements. Older installations may only expose
+	// wireless-tools/iwconfig; both are read-only and require no scan.
+	var lastErr error
+	for _, args := range [][]string{{"iw", "dev", iface, "link"}, {"iwconfig", iface}} {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+		cmd.Env = append(os.Environ(), "LC_ALL=C")
+		output, err := cmd.Output()
+		if err == nil {
+			return output, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
 }

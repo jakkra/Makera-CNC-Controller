@@ -85,7 +85,7 @@ test("dashboard telemetry renderer hides empty rows and shows the empty state", 
 
 
 test("Wi-Fi labels distinguish reported host SSID from absent machine telemetry", () => {
- assert.equal(dashboardWiFiText({state:"connected",ssid:"Workshop <CNC>",signal_percent:58}),"Workshop <CNC> · 58%");
+ assert.equal(dashboardWiFiText({state:"connected",ssid:"Workshop <CNC>",signal_dbm:-63}),"Workshop <CNC> · -63 dBm");
  assert.equal(dashboardWiFiText({state:"connected",ssid:"Workshop"}),"Workshop");
  assert.equal(dashboardWiFiText({state:"not_reported"}),"Not reported");
  assert.equal(dashboardWiFiText({state:"not_connected",ssid:"previous"}),"Not connected");
