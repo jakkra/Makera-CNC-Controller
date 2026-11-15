@@ -360,6 +360,20 @@ function renderMachine() {
   document.getElementById("status-spindle").textContent = fmtSpindle(m.spindle);
   document.getElementById("status-tool").textContent = fmtActiveTool(m.tool);
   renderToolStatus(m);
+  const wifiBadge = document.getElementById("toolbar-wifi");
+  if (wifiBadge) {
+    const wifi = m.network?.controller;
+    const connected = wifi?.state === "connected" && typeof wifi.ssid === "string" && wifi.ssid.length > 0;
+    const signal = wifi?.signal_percent;
+    const knownSignal = connected && typeof signal === "number" && Number.isFinite(signal) && signal >= 0 && signal <= 100;
+    const name = connected ? wifi.ssid : (wifi?.state === "not_connected" ? "Offline" : "Unavailable");
+    const strength = knownSignal ? `${Math.round(signal)}%` : "—";
+    setTextIfChanged(document.getElementById("toolbar-wifi-signal"), `Wi-Fi ${strength}`);
+    setTextIfChanged(document.getElementById("toolbar-wifi-ssid"), name);
+    const label = connected ? `Sensei Wi-Fi: ${name}, signal ${knownSignal ? strength : "unavailable"}` : `Sensei Wi-Fi: ${name.toLowerCase()}`;
+    wifiBadge.setAttribute("aria-label", label);
+    wifiBadge.title = label;
+  }
   const connection = document.getElementById("status-connection");
   if (connection) {
     const status = m.reconnecting ? "reconnecting" : (m.connected ? "connected" : "outage");

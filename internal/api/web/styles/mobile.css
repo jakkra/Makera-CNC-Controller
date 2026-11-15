@@ -259,14 +259,19 @@
   }
   @media (max-width: 600px) {
     header { padding: 6px 10px; }
-    #command-toolbar { grid-template-columns: max-content max-content minmax(44px, 1fr) max-content; grid-template-areas: "brand machine actions halt"; gap: 6px; align-items: center; }
+    #command-toolbar { grid-template-columns: max-content minmax(0, 1fr) 44px max-content; grid-template-areas: "brand machine actions halt"; gap: 6px; align-items: center; }
     #app-brand { min-width: 0; }
     #app-brand strong { font-size: 12px; }
     #app-brand span { display: none; }
     #status-connection { width: 12px; height: 12px; display: inline-grid; border: 0; background: currentColor; }
     #status-connection::before { color: #07100b; font-size: 7px; }
-    #machine { min-width: 0; }
-    #machine .badge { min-height: 34px; padding-inline: 10px; }
+    #machine { min-width: 0; gap: 4px; }
+    #status-connection { flex: 0 0 12px; }
+    #machine-status-popout { flex: 0 1 auto; min-width: 0; }
+    #machine .badge { display: block; max-width: 100%; min-height: 34px; padding-inline: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 34px; text-align: center; }
+    .toolbar-wifi { flex-basis: 68px; width: 68px; padding-inline: 4px; }
+    .toolbar-wifi b { font-size: 10px; }
+    .toolbar-wifi small { font-size: 9px; }
     #command-actions { width: auto; justify-self: end; }
     #mobile-actions-toggle { width: 44px; min-width: 44px; padding: 0; font-size: 0; }
     #mobile-actions-toggle::before { content: "•••"; font-size: 15px; letter-spacing: 1px; }

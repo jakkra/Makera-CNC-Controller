@@ -90,7 +90,6 @@ export function createDashboardTelemetry({
     const levelDelta = dashboardOptionalNumber(machine?.leveling_max_delta);
     const values = {
       rotary: dashboardRotaryText(machine),
-      "controller-wifi": dashboardWiFiText(machine?.network?.controller),
       "machine-wifi": dashboardWiFiText(machine?.network?.machine),
       probe: probeV === null ? null : `${probeV.toFixed(2)} V`,
       vacuum: dashboardOnOff(spindle.vacuum_mode),

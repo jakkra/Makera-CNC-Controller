@@ -22,6 +22,14 @@
   body.header-collapsed #view-navigation { display: block; }
   body.header-collapsed #header-toggle { width: 44px; min-width: 44px; height: 44px; min-height: 44px; background: rgba(24,29,31,.94); box-shadow: 0 8px 22px rgba(0,0,0,.28); }
   #machine { flex: 0 0 auto; display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; }
+  .toolbar-wifi { box-sizing: border-box; flex: 0 0 124px; width: 124px; height: 36px; display: grid; align-content: center; gap: 0; padding: 2px 8px; border-left: 1px solid var(--border); line-height: 1.2; }
+  .toolbar-wifi b, .toolbar-wifi small { min-width: 0; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toolbar-wifi b { color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .toolbar-wifi small { color: var(--muted); font-size: 10px; }
+  body.header-collapsed #command-toolbar { position: fixed; top: 8px; right: 60px; display: flex; min-height: 44px; padding: 0; }
+  body.header-collapsed #command-toolbar > :not(#machine), body.header-collapsed #machine > :not(#toolbar-wifi) { display: none; }
+  body.header-collapsed #machine { display: flex; }
+  body.header-collapsed .toolbar-wifi { height: 44px; background: rgba(24,29,31,.94); border: 1px solid var(--border); border-radius: var(--radius); }
   .badge { display: inline-flex; align-items: center; justify-content: center; padding: 2px 10px; border-radius: 999px; font-weight: 650; font-size: 12px; }
   .state-Idle { background: rgba(68,194,123,.15); color: var(--ok); }
   .state-Run, .state-Hold, .state-Home, .state-Sleep { background: rgba(217,154,58,.16); color: var(--warn); }
@@ -1319,14 +1327,19 @@
   }
   @media (max-width: 600px) {
     header { padding: 6px 10px; }
-    #command-toolbar { grid-template-columns: max-content max-content minmax(44px, 1fr) max-content; grid-template-areas: "brand machine actions halt"; gap: 6px; align-items: center; }
+    #command-toolbar { grid-template-columns: max-content minmax(0, 1fr) 44px max-content; grid-template-areas: "brand machine actions halt"; gap: 6px; align-items: center; }
     #app-brand { min-width: 0; }
     #app-brand strong { font-size: 12px; }
     #app-brand span { display: none; }
     #status-connection { width: 12px; height: 12px; display: inline-grid; border: 0; background: currentColor; }
     #status-connection::before { color: #07100b; font-size: 7px; }
-    #machine { min-width: 0; }
-    #machine .badge { min-height: 34px; padding-inline: 10px; }
+    #machine { min-width: 0; gap: 4px; }
+    #status-connection { flex: 0 0 12px; }
+    #machine-status-popout { flex: 0 1 auto; min-width: 0; }
+    #machine .badge { display: block; max-width: 100%; min-height: 34px; padding-inline: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 34px; text-align: center; }
+    .toolbar-wifi { flex-basis: 68px; width: 68px; padding-inline: 4px; }
+    .toolbar-wifi b { font-size: 10px; }
+    .toolbar-wifi small { font-size: 9px; }
     #command-actions { width: auto; justify-self: end; }
     #mobile-actions-toggle { width: 44px; min-width: 44px; padding: 0; font-size: 0; }
     #mobile-actions-toggle::before { content: "•••"; font-size: 15px; letter-spacing: 1px; }

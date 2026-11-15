@@ -68,3 +68,32 @@ test("alarm panel lifecycle clears stale recovery feedback when alarm ends", () 
   assert.deepEqual(cleared, ["alarm", "control-recover"]);
   assert.equal(status.recoveryButtonText("unlock"), "Unlock Alarm");
 });
+
+test("toolbar keeps Wi-Fi SSID and signal current independently of CNC state", () => {
+  const nodes = new Map();
+  for (const id of ["alarm-panel", "mode", "age", "pending", "state", "status-mpos", "status-wpos", "status-feed", "status-spindle", "status-tool", "toolbar-wifi", "toolbar-wifi-signal", "toolbar-wifi-ssid"]) {
+    nodes.set(id, { textContent: "", setAttribute(key, value) { this[key] = value; } });
+  }
+  let machine = { connected: true, state: "Idle", network: { controller: { state: "connected", ssid: "Workshop <CNC>", signal_percent: 0 } } };
+  const status = createMachineStatusFeature({
+    documentRef: { getElementById: (id) => nodes.get(id) || null, querySelectorAll: () => [] },
+    getMachine: () => machine,
+  });
+  status.renderMachine();
+  assert.equal(nodes.get("toolbar-wifi-signal").textContent, "Wi-Fi 0%");
+  assert.equal(nodes.get("toolbar-wifi-ssid").textContent, "Workshop <CNC>");
+  assert.match(nodes.get("toolbar-wifi")["aria-label"], /Sensei Wi-Fi.*Workshop <CNC>.*0%/);
+  const originalNode = nodes.get("toolbar-wifi-ssid");
+  machine = { connected: false, state: "Unknown", network: { controller: { state: "connected", ssid: "Other network", signal_percent: 100 } } };
+  status.renderMachine();
+  assert.equal(nodes.get("toolbar-wifi-signal").textContent, "Wi-Fi 100%");
+  assert.equal(nodes.get("toolbar-wifi-ssid").textContent, "Other network");
+  assert.equal(nodes.get("toolbar-wifi-ssid"), originalNode);
+  machine.network.controller = { state: "not_connected" };
+  status.renderMachine();
+  assert.equal(nodes.get("toolbar-wifi-signal").textContent, "Wi-Fi —");
+  assert.equal(nodes.get("toolbar-wifi-ssid").textContent, "Offline");
+  machine.network = undefined;
+  status.renderMachine();
+  assert.equal(nodes.get("toolbar-wifi-ssid").textContent, "Unavailable");
+});

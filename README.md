@@ -559,7 +559,7 @@ CGO_ENABLED=1 go test -mod=mod -tags cgo_compat ./internal/quicklz/
 - Run `docs/hardware-validation.md` against a real Carvera + the official
   controller before tagging production releases.
 
-The dashboard diagnostics show the Sensei host's current Wi-Fi SSID and signal
+The persistent top toolbar shows the Sensei host's current Wi-Fi SSID and signal
 percentage when NetworkManager (`nmcli`) reports them. This reads cached access
 point information without scanning or changing a connection. Makera's SSID is
 shown as not reported when it is absent from the available machine telemetry;
