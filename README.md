@@ -184,7 +184,11 @@ Then:
     `-jog-motion=g53` keeps the older `G53 G0` machine-coordinate fallback. It
     requires the web UI to be armed and a held gamepad deadman button. In relay
     mode, jog motion is allowed only while the official controller is connected
-    but the machine is freshly Idle; controller jobs, file transfers,
+    but the machine is freshly Idle or in a suspended job (`Pause`). During
+    a suspended job, leaving Pause disarms movement. Spindle stop/start and job
+    Resume finish and disarm manual movement first. Start the spindle separately
+    and wait for measured RPM before Resume restores the saved job position.
+    Running controller jobs, file transfers,
     unknown/stale state, or controller traffic abort/reject jogging. Realtime
     `halt` remains out-of-band.
     WebSocket client messages are `arm`, `input`, `control`, and `disarm`:

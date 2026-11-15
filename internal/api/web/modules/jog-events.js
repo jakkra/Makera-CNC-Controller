@@ -92,7 +92,7 @@ export function createJogEventHandler({ state, documentRef, performanceRef, call
       };
       state.machine = ev.status.mpos ? reconcileObservedMachineStatus(nextMachine) : mergeMachineStatusForDisplay(nextMachine);
       machineChanged = true;
-      if ((ev.status.state === "Idle" || ev.status.state === "Run") && state.jog.errorCode === "status_waiting") {
+      if ((ev.status.state === "Idle" || ev.status.state === "Run" || ev.status.state === "Pause") && state.jog.errorCode === "status_waiting") {
         state.jog.error = "";
         state.jog.errorCode = "";
       } else if (ev.status.state === "Idle") {

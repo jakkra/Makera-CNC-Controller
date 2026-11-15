@@ -289,8 +289,8 @@ func TestActiveMotionRequestsBoundedStatusPolling(t *testing.T) {
 	mgr, _, cleanup := newJogManager(t)
 	defer cleanup()
 	base := time.Unix(100, 0)
-	now := base
-	mgr.now = func() time.Time { return now }
+	clock := newManualClock(base)
+	mgr.now = clock.Now
 	mgr.cfg.Tick = minJogTick
 	mgr.cfg.StatusInterval = minStatusEvery
 	mgr.cfg.DeadmanTimeout = time.Second
@@ -305,12 +305,14 @@ func TestActiveMotionRequestsBoundedStatusPolling(t *testing.T) {
 	drainUntil(t, s, "ack")
 	s.SetInput(Input{Seq: 2, Deadman: true, Axes: Axes{X: 1}, At: base})
 
-	now = base.Add(mgr.cfg.StatusInterval)
+	now := base.Add(mgr.cfg.StatusInterval)
+	clock.Set(now)
 	if s.shouldRequestStatus(now) {
 		t.Fatal("active jog should use the less frequent active-motion status interval")
 	}
 
 	now = base.Add(activeStatusPollInterval(mgr.cfg))
+	clock.Set(now)
 	if !s.shouldRequestStatus(now) {
 		t.Fatal("active jog should periodically poll status while motion input is live")
 	}
@@ -2137,7 +2139,17 @@ func TestJogKeepsLeaseDuringOwnRunStatus(t *testing.T) {
 	drainUntil(t, s, "motion")
 }
 
-func TestJogRelayIdleController(t *testing.T) {
+func TestJogRelayIdleAndPausedController(t *testing.T) {
+	for _, paused := range []bool{false, true} {
+		name := "Idle"
+		if paused {
+			name = "Pause"
+		}
+		t.Run(name, func(t *testing.T) { testJogRelayController(t, paused) })
+	}
+}
+
+func testJogRelayController(t *testing.T, paused bool) {
 	fm, err := carveratest.New()
 	if err != nil {
 		t.Fatal(err)
@@ -2145,6 +2157,19 @@ func TestJogRelayIdleController(t *testing.T) {
 	defer fm.Close()
 	status := "<Idle|MPos:0,0,0|WPos:0,0,0>"
 	fm.SetStatus(status)
+	if paused {
+		fm.SetStatus("<Run|MPos:0,0,0|WPos:0,0,0>")
+		c, err := client.Dial(fm.Addr(), time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = c.SendConsoleCommand("suspend", client.GcodeOpts{Cap: time.Second})
+		c.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		status = "<Pause|MPos:0,0,0|WPos:0,0,0>"
+	}
 	tr := machine.NewTracker()
 	if !tr.ObserveStatusPayload(status) {
 		t.Fatal("status precondition failed")

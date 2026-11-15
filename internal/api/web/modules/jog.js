@@ -13,7 +13,7 @@ export function jogInputActive(input) { return !!input?.deadman && ["x", "y", "z
 export function syncJogAvailabilityFromMachine(machine, jog, movementOwnedElsewhere = () => false) {
   if (!jog?.caps?.enabled) return;
   if (movementOwnedElsewhere()) return;
-  if (jog.armed && (machine.state === "Idle" || machine.state === "Run")) {
+  if (jog.armed && (machine.state === "Idle" || machine.state === "Run" || machine.state === "Pause")) {
     jog.availability = { available: true, message: "Jog session active." };
     if (jog.errorCode === "status_waiting") {
       jog.error = "";
@@ -25,9 +25,9 @@ export function syncJogAvailabilityFromMachine(machine, jog, movementOwnedElsewh
   const stale = !!machine.stale || Number(machine.age_ms) > 10000;
   let availability;
   if (stale || !machine.state || machine.state === "Unknown") {
-    availability = { available: false, reason: "stale_status", message: "Machine status is stale. Wait for a fresh Idle status before jogging." };
-  } else if (machine.state !== "Idle") {
-    availability = { available: false, reason: "not_idle", message: `Machine is ${machine.state}. Jogging requires fresh Idle status.` };
+    availability = { available: false, reason: "stale_status", message: "Machine status is stale. Wait for a fresh Idle or Pause status before jogging." };
+  } else if (machine.state !== "Idle" && machine.state !== "Pause") {
+    availability = { available: false, reason: "not_idle", message: `Machine is ${machine.state}. Jogging requires fresh Idle or Pause status.` };
   } else if (!hasMPos) {
     availability = { available: false, reason: "stale_status", message: "Machine position is unavailable. Wait for a status report with MPos before jogging." };
   } else {

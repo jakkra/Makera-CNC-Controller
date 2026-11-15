@@ -29,6 +29,7 @@ type FakeMachine struct {
 	statusReplyDelay    time.Duration     // optional test hook: delay "?" replies
 	statusQueries       int               // number of "?" polls received (test observation)
 	probeReplyDelay     time.Duration     // optional test hook: delay G30/G38 replies
+	silentJobControl    bool              // suspend/resume can succeed without text over Wi-Fi
 	dropStatusReplies   bool              // optional test hook: ignore "?" replies
 	dropStatusN         int               // optional test hook: ignore the next N "?" replies
 	dropMD5Replies      bool              // optional test hook: ignore md5sum replies
@@ -1151,8 +1152,11 @@ func (m *FakeMachine) handleManaged(c net.Conn, line string) {
 		m.suspendActive = true
 		m.suspendStarted = now
 		m.setStatusStateLocked("Pause")
+		silent := m.silentJobControl
 		m.mu.Unlock()
-		m.send(c, protocol.CmdNormalInfo, "Suspended, resume to continue playing\r\n")
+		if !silent {
+			m.send(c, protocol.CmdNormalInfo, "Suspended, resume to continue playing\r\n")
+		}
 	case strings.EqualFold(line, "resume"):
 		m.mu.Lock()
 		m.gcodes = append(m.gcodes, line)
@@ -1176,8 +1180,11 @@ func (m *FakeMachine) handleManaged(c net.Conn, line string) {
 		m.suspendedState = nil
 		m.suspendStarted = time.Time{}
 		m.setStatusStateLocked("Run")
+		silent := m.silentJobControl
 		m.mu.Unlock()
-		m.send(c, protocol.CmdNormalInfo, "Resuming playing\r\n")
+		if !silent {
+			m.send(c, protocol.CmdNormalInfo, "Resuming playing\r\n")
+		}
 	case strings.EqualFold(line, "M999"):
 		m.mu.Lock()
 		m.gcodes = append(m.gcodes, line)
@@ -1894,7 +1901,8 @@ func (m *FakeMachine) stopSpindleLocked() {
 		for len(parts) < 3 {
 			parts = append(parts, "0")
 		}
-		parts[0], parts[1] = "0", "0"
+		// Real Z1 status remembers the setpoint after stopping.
+		parts[0] = "0"
 		fields[i].value = strings.Join(parts, ",")
 	}
 	m.status = formatFakeStatus(bracketed, state, fields)
@@ -3148,4 +3156,11 @@ func (m *FakeMachine) SetStatusReplies(replies ...string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.statusReplies = append([]string(nil), replies...)
+}
+
+// SetSilentJobControl emulates Z1 Wi-Fi omitting suspend/resume text replies.
+func (m *FakeMachine) SetSilentJobControl(silent bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.silentJobControl = silent
 }

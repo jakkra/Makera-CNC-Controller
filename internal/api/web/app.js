@@ -1348,7 +1348,7 @@ function renderJog() {
 }
 
 function movementArmAvailable() {
-  return movementArmAvailableState(state.jog, machineReadyForOriginSet, movementOwnedElsewhere);
+  return movementArmAvailableState(state.jog, () => { const m = state.machine || {}; return !!m.connected && ["Idle", "Pause"].includes(m.state) && !m.stale && !(Number(m.age_ms) > 10000); }, movementOwnedElsewhere);
 }
 
 function movementArmLabel(j = state.jog) {
@@ -1375,13 +1375,13 @@ function jogErrorText(err) {
   case "busy":
     return "Movement control is held by another UI. Disarm it before taking control.";
   case "not_idle":
-    return "Machine is not Idle. Wait for fresh Idle status, then arm jog again.";
+    return "Wait for fresh Idle or Pause status, then arm jog again.";
   case "stale_status":
     return "Machine status or position is stale. Wait for a fresh status report before jogging.";
   case "status_waiting":
     return "Waiting for fresh machine status before continuing jog.";
   case "controller_waiting":
-    return "The controller requested the machine. Jog was disarmed; wait for Idle, then arm again.";
+    return "The controller requested the machine. Jog was disarmed; wait for Idle or Pause, then arm again.";
   case "machine_error":
     return "Machine I/O failed. Check the log, wait for reconnect, then arm again.";
   case "bad_input":

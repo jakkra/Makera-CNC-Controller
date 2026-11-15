@@ -2669,7 +2669,7 @@ func TestJobControlStateWaitsForVerifiedSpindleStop(t *testing.T) {
 		t.Fatalf("late pre-stop status control = %+v, want neither spindle action", control)
 	}
 
-	stopped, ok := machine.ParseStatusPayload("<Pause|S:0,0,100>")
+	stopped, ok := machine.ParseStatusPayload("<Pause|S:0,12000,100>")
 	if !ok {
 		t.Fatal("stopped status should parse")
 	}
@@ -3452,4 +3452,32 @@ func TestPausedSpindleReadyRequiresMeasuredRPM(t *testing.T) {
 			t.Fatalf("%s CanResume=%v", tc.raw, got)
 		}
 	}
+}
+
+func TestStoppedSpindleRetainsTargetAndExternalStartIsObserved(t *testing.T) {
+	svc, _ := newService(t)
+	now := time.Now()
+	svc.recordExecutionCommand("M3 S12000", gcodelog.SourceController, now)
+	svc.recordExecutionCommand("M5", gcodelog.SourceAPI, now.Add(time.Millisecond))
+	check := func(raw string, at time.Time, wantStopped bool) {
+		t.Helper()
+		st, ok := machine.ParseStatusPayload(raw)
+		if !ok {
+			t.Fatal(raw)
+		}
+		st.ObservedAt = at
+		svc.observeExecutionStatus(st)
+		ctx := svc.ExecutionContext()
+		if ctx.Spindle.Stopped != wantStopped || ctx.Spindle.SpeedRPM != 12000 || ctx.Spindle.Direction != "M3" {
+			t.Fatalf("observed %s: context %+v", raw, ctx.Spindle)
+		}
+		controls := jobControlState(st, ctx)
+		if wantStopped && spindleIsStopped(st.Spindle) && (!controls.CanStartSpindle || controls.CanResume || controls.CanStopSpindle) {
+			t.Fatalf("stopped controls: %+v", controls)
+		}
+	}
+	check("<Pause|S:12000,12000,100>", now, true) // late pre-M5 snapshot
+	check("<Pause|S:0,12000,100>", now.Add(2*time.Millisecond), true)
+	check("<Pause|S:0,12000,100>", now.Add(3*time.Millisecond), true) // retained target must not undo M5
+	check("<Pause|S:12000,12000,100>", now.Add(4*time.Millisecond), false)
 }

@@ -320,7 +320,7 @@ func (a *Arbiter) WithMachine(requireIdle bool, fn func(*client.Conn) error) err
 }
 
 // AcquireJog acquires a long-lived exclusive machine I/O lease for interactive
-// jogging. It requires fresh Idle state before acquiring the machine path; the
+// jogging. It requires fresh Idle or player Pause before acquiring the path; the
 // caller should still refresh status while the lease is active.
 func (a *Arbiter) AcquireJog(ctx context.Context) (*JogLease, error) {
 	if err := a.lockOp(ctx); err != nil {
@@ -335,7 +335,7 @@ func (a *Arbiter) AcquireJog(ctx context.Context) (*JogLease, error) {
 
 	a.mu.Lock()
 	st, _ := a.tracker.Snapshot()
-	if !a.tracker.Fresh(a.stateMaxAge) || !st.CanRunFileOps() {
+	if !a.tracker.Fresh(a.stateMaxAge) || (st != machine.Idle && st != machine.Pause) {
 		a.mu.Unlock()
 		return nil, ErrNotIdle
 	}

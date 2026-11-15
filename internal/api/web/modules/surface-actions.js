@@ -68,7 +68,7 @@ export function createSurfaceActions({
     const jog = getJog();
     if (jog.surfaceStepPending) return false;
     if (!surfaceJogBaseReady()) {
-      setStatusMessage("surface-jog", "Arm Movement after a fresh Idle status before jogging.", "error", { force: true });
+      setStatusMessage("surface-jog", "Arm Movement after a fresh Idle or Pause status before jogging.", "error", { force: true });
       return false;
     }
     const magnitude = Number(explicitDistance) > 0 ? Number(explicitDistance) : surfaceStepDistance();
@@ -97,7 +97,7 @@ export function createSurfaceActions({
   function beginSurfaceHoldJog(axis, sign) {
     const jog = getJog();
     if (!surfaceJogReady()) {
-      setStatusMessage("surface-jog", "Arm Movement after a fresh Idle status before jogging.", "error", { force: true });
+      setStatusMessage("surface-jog", "Arm Movement after a fresh Idle or Pause status before jogging.", "error", { force: true });
       return false;
     }
     jog.surfaceInput = { axis, sign: sign < 0 ? -1 : 1 };

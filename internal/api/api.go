@@ -575,6 +575,11 @@ func (s *Server) runPausedJobCommand(w http.ResponseWriter, r *http.Request) {
 	if !s.decodeJSON(w, r, &body) {
 		return
 	}
+	finish, ok := s.prepareJobAction(w, r)
+	if !ok {
+		return
+	}
+	defer finish()
 	result, err := s.svc.RunPausedJobCommand(body)
 	if err != nil {
 		s.mapError(w, err)
@@ -739,6 +744,11 @@ func (s *Server) postControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if action == "resume_job" {
+		finish, ok := s.prepareJobAction(w, r)
+		if !ok {
+			return
+		}
+		defer finish()
 		result, err := s.svc.ResumeJob()
 		if err != nil {
 			s.mapError(w, err)
@@ -999,4 +1009,21 @@ func requiresSameOrigin(r *http.Request) bool {
 		return false
 	}
 	return true
+}
+
+// Keep movement disarmed across the entire serialized job action, including
+// requests from another browser, so a new arm cannot take the operation lock
+// between settlement and the spindle/player command.
+func (s *Server) prepareJobAction(w http.ResponseWriter, r *http.Request) (func(), bool) {
+	if s.jog == nil {
+		return func() {}, true
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	finish, err := s.jog.BeginJobAction(ctx)
+	if err != nil {
+		writeErr(w, http.StatusConflict, "job action could not finish movement: "+err.Error())
+		return nil, false
+	}
+	return finish, true
 }

@@ -8682,3 +8682,15 @@ test("outline interaction binder preserves handler order, file actions, and loca
   spacing.onchange();
   assert.deepEqual(registrations.at(-1), ["scheduleOutlineFieldSpacingUpdate"]);
 });
+
+
+test("movement arm uses fresh Pause without relaxing the origin gate", () => {
+ const state = {machine:{state:"Pause",connected:true,stale:false,age_ms:10},jog:{caps:{enabled:true},link:"online",armed:false,availability:{available:true}}};
+ const ctx = buildContext(["movementArmAvailable"], [], {state,movementArmAvailableState,movementOwnedElsewhere:()=>false});
+ assert.equal(vm.runInContext("movementArmAvailable()",ctx),true);
+ state.machine.stale = true;
+ assert.equal(vm.runInContext("movementArmAvailable()",ctx),false);
+ state.machine.stale = false;
+ state.machine.state = "Run";
+ assert.equal(vm.runInContext("movementArmAvailable()",ctx),false);
+});

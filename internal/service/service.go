@@ -537,6 +537,11 @@ func (s *Service) ExecutionContext() store.ExecutionContext {
 	return s.execution
 }
 
+// spindleIsStopped deliberately ignores the remembered target after M5.
+func spindleIsStopped(spindle *machine.Spindle) bool {
+	return spindle != nil && finite(spindle.CurrentRPM) && math.Abs(spindle.CurrentRPM) < 1
+}
+
 // spindleAtSpeed requires measured RPM to reach at least 90% of the reported
 // target including override before verifying a spindle start or resuming a cut.
 func spindleAtSpeed(spindle *machine.Spindle) bool {
@@ -556,8 +561,8 @@ func pausedSpindleReady(st machine.Status, context store.ExecutionSpindleContext
 
 func jobControlState(st machine.Status, context store.ExecutionContext) JobControlState {
 	paused := st.State == machine.Pause
-	spindleRunning := st.Spindle != nil && (st.Spindle.CurrentRPM > 1 || st.Spindle.TargetRPM > 1)
-	spindleStopped := st.Spindle != nil && math.Abs(st.Spindle.CurrentRPM) < 1 && math.Abs(st.Spindle.TargetRPM) < 1
+	spindleRunning := st.Spindle != nil && finite(st.Spindle.CurrentRPM) && math.Abs(st.Spindle.CurrentRPM) >= 1
+	spindleStopped := spindleIsStopped(st.Spindle)
 	// Starting is only offered after a fresh status has actually confirmed that
 	// the spindle is stopped. Conversely, an already-issued M5 suppresses Stop
 	// while a late pre-M5 status snapshot is still making its way through the
@@ -609,7 +614,7 @@ func (s *Service) observeExecutionStatus(st machine.Status) {
 				}
 			}
 		}
-		if spindle := st.Spindle; spindle != nil && finite(spindle.TargetRPM) && spindle.TargetRPM > 0 &&
+		if spindle := st.Spindle; spindle != nil && !st.ObservedAt.Before(context.Spindle.UpdatedAt) && finite(spindle.TargetRPM) && spindle.TargetRPM > 0 &&
 			(context.Spindle.Direction == "M3" || context.Spindle.Direction == "M4") {
 			if !context.Spindle.SpeedKnown || math.Abs(context.Spindle.SpeedRPM-spindle.TargetRPM) > 0.5 {
 				context.Spindle.SpeedRPM = spindle.TargetRPM
@@ -618,8 +623,14 @@ func (s *Service) observeExecutionStatus(st machine.Status) {
 				context.Spindle.UpdatedAt = st.ObservedAt
 				changed = true
 			}
-			if context.Spindle.Stopped {
-				context.Spindle.Stopped = false
+		}
+		// Z1 retains TargetRPM after M5. Only measured RPM confirms a stop
+		// or an external restart; ignore observations older than our command.
+		if spindle := st.Spindle; spindle != nil && finite(spindle.CurrentRPM) &&
+			!st.ObservedAt.Before(context.Spindle.UpdatedAt) {
+			stopped := spindleIsStopped(spindle)
+			if context.Spindle.Stopped != stopped {
+				context.Spindle.Stopped = stopped
 				context.Spindle.UpdatedAt = st.ObservedAt
 				changed = true
 			}
@@ -2642,7 +2653,7 @@ func (s *Service) PauseJob() (JobControlResult, error) {
 			return fmt.Errorf("%w: machine state is %s, want Run", ErrJobControlUnavailable, st.State)
 		}
 		s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, "job pause (suspend)")
-		out, err := s.sendOperatorConsole(c, "suspend", client.GcodeOpts{ExpectReply: true, Cap: gcodeReplyCap})
+		out, err := s.sendOperatorConsole(c, "suspend", client.GcodeOpts{ExpectReply: false, Cap: gcodeReplyCap})
 		if out != "" {
 			s.gcodeLog.Append(gcodelog.DirRecv, gcodelog.SourceAPI, out)
 		}
@@ -2687,7 +2698,7 @@ func (s *Service) ResumeJob() (JobControlResult, error) {
 			return fmt.Errorf("%w: start the spindle and wait for measured RPM before resuming the paused job", ErrJobControlUnavailable)
 		}
 		s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, "job resume (resume)")
-		out, err := s.sendOperatorConsole(c, "resume", client.GcodeOpts{ExpectReply: true, Cap: gcodeReplyCap})
+		out, err := s.sendOperatorConsole(c, "resume", client.GcodeOpts{ExpectReply: false, Cap: gcodeReplyCap})
 		if out != "" {
 			s.gcodeLog.Append(gcodelog.DirRecv, gcodelog.SourceAPI, out)
 		}
@@ -2728,8 +2739,7 @@ func (s *Service) RunPausedJobCommand(req PausedJobCommandRequest) (PausedJobCom
 		case "stop_spindle":
 			res.Command = "M5"
 			verified = func(status machine.Status) bool {
-				return status.State == machine.Pause && status.Spindle != nil &&
-					math.Abs(status.Spindle.CurrentRPM) < 1 && math.Abs(status.Spindle.TargetRPM) < 1
+				return status.State == machine.Pause && spindleIsStopped(status.Spindle)
 			}
 		case "start_spindle":
 			context := s.ExecutionContext().Spindle

@@ -6,6 +6,8 @@ import {
   sameJogInput,
   jogInputActive,
   createJogFeature,
+  syncJogAvailabilityFromMachine,
+  movementArmAvailable,
 } from "./modules/jog.js";
 
 test("jog input comparison and deadman activity preserve thresholds", () => {
@@ -160,4 +162,20 @@ test("sampling follows replaced UI and workarea objects after mount", () => {
   feature.sampleJog();
   assert.equal(jog.pad, "Touch");
   assert.deepEqual(jog.axes, { x: 0, y: 1, z: 0 });
+});
+
+
+test("fresh Pause enables manual movement while Run, Hold and stale Pause cannot arm", () => {
+ const jog = { caps: {enabled:true}, link:"online", armed:false };
+ for (const state of ["Pause", "Idle", "Run", "Hold", "Alarm", "Unknown"]) {
+  syncJogAvailabilityFromMachine({state, stale:false, age_ms:10, mpos:{x:0,y:0,z:-10}}, jog);
+  const expected = ["Idle", "Pause"].includes(state);
+  assert.equal(jog.availability.available, expected, state);
+  assert.equal(movementArmAvailable(jog, () => expected), expected, state);
+ }
+ syncJogAvailabilityFromMachine({state:"Pause", stale:true, mpos:{x:0}}, jog);
+ assert.equal(jog.availability.available, false);
+ jog.armed = true;
+ syncJogAvailabilityFromMachine({state:"Pause", stale:false, age_ms:10, mpos:{x:0}}, jog);
+ assert.equal(jog.availability.available, true);
 });

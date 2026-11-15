@@ -9,6 +9,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/uwin/cnc-proxy/internal/client"
@@ -259,6 +260,9 @@ type command struct {
 	typ      string
 	seq      int64
 	complete chan struct{}
+	settle   bool
+	ctx      context.Context
+	result   chan error
 	action   string
 	axis     string
 	distance float64
@@ -311,10 +315,11 @@ type Manager struct {
 	cfg Config
 	arb *session.Arbiter
 
-	mu       sync.Mutex
-	sessions map[*Session]struct{}
-	owner    *Session
-	now      func() time.Time
+	mu        sync.Mutex
+	sessions  map[*Session]struct{}
+	owner     *Session
+	jobAction bool
+	now       func() time.Time
 
 	motionRevision  uint64
 	settledRevision uint64
@@ -386,20 +391,24 @@ func (m *Manager) availability(ignore *Session) Availability {
 	}
 	m.mu.Lock()
 	owner := m.owner
+	jobAction := m.jobAction
 	m.mu.Unlock()
+	if jobAction {
+		return Availability{Reason: CodeBusy, Message: "A job action is in progress."}
+	}
 	if owner != nil && owner != ignore {
 		return Availability{Available: false, Reason: CodeBusy, Message: "Movement control is held by another UI. Disarm it before taking control."}
 	}
 	st, _ := m.arb.Tracker().Current()
 	activeJog := ignore != nil && owner == ignore && ignore.hasLease()
 	if !m.arb.Tracker().Fresh(m.arb.StateMaxAge()) {
-		return Availability{Available: false, Reason: CodeStaleStatus, Message: "Machine status is stale. Wait for a fresh Idle status before jogging."}
+		return Availability{Available: false, Reason: CodeStaleStatus, Message: "Machine status is stale. Wait for a fresh Idle or Pause status before jogging."}
 	}
-	if activeJog && canContinueJog(st.State) && len(st.MPos) > 0 {
+	if activeJog && ignore.canContinueJog(st.State) && len(st.MPos) > 0 {
 		return Availability{Available: true, Message: "Jog session active."}
 	}
-	if st.State != machine.Idle {
-		return Availability{Available: false, Reason: CodeNotIdle, Message: "Machine is " + stateLabel(st.State) + ". Jogging requires fresh Idle status."}
+	if st.State != machine.Idle && st.State != machine.Pause {
+		return Availability{Available: false, Reason: CodeNotIdle, Message: "Machine is " + stateLabel(st.State) + ". Jogging requires fresh Idle or Pause status."}
 	}
 	if len(st.MPos) == 0 {
 		return Availability{Available: false, Reason: CodeStaleStatus, Message: "Machine position is unavailable. Wait for a status report with MPos before jogging."}
@@ -443,7 +452,7 @@ func (m *Manager) unregister(s *Session) {
 func (m *Manager) claimOwner(s *Session) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.owner != nil && m.owner != s {
+	if m.jobAction || (m.owner != nil && m.owner != s) {
 		return false
 	}
 	m.owner = s
@@ -500,7 +509,41 @@ func (m *Manager) DisarmActive(ctx context.Context) error {
 	if owner == nil {
 		return nil
 	}
-	return owner.disarmAndWait(ctx)
+	return owner.disarmAndWait(ctx, false)
+}
+
+// BeginJobAction excludes new arms until the returned function is called.
+// First stop admitting jog segments, then observe the last paused jog target
+// through the same serialized connection before releasing the operation lock.
+func (m *Manager) BeginJobAction(ctx context.Context) (func(), error) {
+	m.mu.Lock()
+	if m.jobAction {
+		m.mu.Unlock()
+		return nil, Error{Code: CodeBusy, Message: "a job action is already in progress"}
+	}
+	m.jobAction = true
+	owner := m.owner
+	m.mu.Unlock()
+	finish := func() {
+		m.mu.Lock()
+		m.jobAction = false
+		m.mu.Unlock()
+		m.broadcastState(nil, 0)
+	}
+	m.broadcastState(nil, 0)
+	if owner != nil {
+		if err := owner.disarmAndWait(ctx, true); err != nil {
+			finish()
+			return nil, err
+		}
+	}
+	return finish, nil
+}
+
+func (m *Manager) jobActionActive() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.jobAction
 }
 
 // Error is a stable jog error with an API code.
@@ -538,6 +581,7 @@ type Session struct {
 	admissionInFlight bool
 	captureBarrier    bool
 
+	pausedJob       atomic.Bool
 	mu              sync.Mutex
 	latest          Input
 	haveInput       bool
@@ -579,9 +623,10 @@ func (s *Session) Arm(seq int64) { s.enqueue(command{typ: "arm", seq: seq}) }
 // Disarm releases the machine lease.
 func (s *Session) Disarm(seq int64) { s.enqueue(command{typ: "disarm", seq: seq}) }
 
-func (s *Session) disarmAndWait(ctx context.Context) error {
+func (s *Session) disarmAndWait(ctx context.Context, settle bool) error {
 	complete := make(chan struct{})
-	cmd := command{typ: "disarm", complete: complete}
+	result := make(chan error, 1)
+	cmd := command{typ: "disarm", complete: complete, settle: settle, ctx: ctx, result: result}
 	select {
 	case s.cmds <- cmd:
 	case <-s.ctx.Done():
@@ -591,7 +636,12 @@ func (s *Session) disarmAndWait(ctx context.Context) error {
 	}
 	select {
 	case <-complete:
-		return nil
+		select {
+		case err := <-result:
+			return err
+		default:
+			return nil
+		}
 	case <-s.ctx.Done():
 		return nil
 	case <-ctx.Done():
@@ -751,7 +801,7 @@ func (s *Session) run() {
 			s.emit(Event{Type: "error", Code: CodeControllerWaiting, Message: "controller requested the machine connection"})
 			s.emitState(0)
 		case cmd := <-s.cmds:
-			if commandNeedsClearStatusTransaction(cmd.typ) && s.statusTransactionBusy() {
+			if (commandNeedsClearStatusTransaction(cmd.typ) || cmd.settle) && s.statusTransactionBusy() {
 				if len(deferred) >= cap(s.cmds) {
 					s.emit(Event{Type: "error", Seq: cmd.seq, Code: CodeBusy, Message: "jog command queue is full"})
 					continue
@@ -784,6 +834,10 @@ func (s *Session) handleCommand(cmd command) {
 	if cmd.complete != nil {
 		defer close(cmd.complete)
 	}
+	if (cmd.typ == "step" || cmd.typ == "target" || cmd.typ == "origin" || cmd.typ == "machine_origin") && s.mgr.jobActionActive() {
+		s.emit(Event{Type: "error", Seq: cmd.seq, Code: CodeBusy, Message: "a job action is in progress"})
+		return
+	}
 	switch cmd.typ {
 	case "arm":
 		s.handleArm(cmd.seq)
@@ -791,13 +845,22 @@ func (s *Session) handleCommand(cmd command) {
 		owner := s.mgr.ownerSession()
 		if owner != nil && owner != s {
 			ctx, cancel := context.WithTimeout(s.ctx, 2*time.Second)
-			err := owner.disarmAndWait(ctx)
+			err := owner.disarmAndWait(ctx, false)
 			cancel()
 			if err != nil {
 				s.emit(Event{Type: "error", Seq: cmd.seq, Code: CodeBusy, Message: "could not disarm movement control: " + err.Error()})
 				return
 			}
 		} else {
+			if cmd.settle {
+				err := s.settlePausedMotion(cmd.ctx)
+				if cmd.result != nil {
+					cmd.result <- err
+				}
+				if err != nil {
+					return
+				}
+			}
 			s.release(nil)
 		}
 		if cmd.seq != 0 {
@@ -851,7 +914,7 @@ func (s *Session) handleStep(seq int64, axis string, distance float64) {
 		s.emit(Event{Type: "error", Seq: seq, Code: CodeBusy, Message: "wait for the current tap move to reach its target"})
 		return
 	}
-	if !canContinueJog(st.State) {
+	if !s.canContinueJog(st.State) {
 		if st.State == machine.Alarm {
 			s.logAlarmStatus(st)
 		}
@@ -870,7 +933,7 @@ func (s *Session) handleStep(seq int64, axis string, distance float64) {
 		s.requestStatus()
 		return
 	}
-	if planned == nil || (queuedLead == 0 && statusObservedAfterQueue(lastStatusAt, queuedUntil)) {
+	if planned == nil || (queuedLead == 0 && statusObservedAfterQueue(lastStatusAt, queuedUntil) && (!s.pausedJob.Load() || s.queueSettled(st, planned))) {
 		planned = copyAxes(st.MPos)
 	}
 	if planned == nil {
@@ -970,7 +1033,7 @@ func (s *Session) handleOriginCommand(seq int64, cmd string, machineOrigin machi
 		if st.State == machine.Alarm {
 			s.logAlarmStatus(st)
 			s.release(nil)
-		} else if !canContinueJog(st.State) {
+		} else if !s.canContinueJog(st.State) {
 			s.release(nil)
 		}
 		s.emit(Event{Type: "error", Seq: seq, Code: CodeNotIdle, Message: "machine must be Idle to set origin: " + stateLabel(st.State)})
@@ -1064,7 +1127,7 @@ func (s *Session) handleTarget(seq int64, targetAxes machine.AxisValues, feedMMM
 		s.emit(Event{Type: "error", Seq: seq, Code: CodeBusy, Message: "tap move is awaiting the previous target"})
 		return
 	}
-	if !canContinueJog(st.State) {
+	if !s.canContinueJog(st.State) {
 		if st.State == machine.Alarm {
 			s.logAlarmStatus(st)
 		}
@@ -1092,7 +1155,7 @@ func (s *Session) handleTarget(seq int64, targetAxes machine.AxisValues, feedMMM
 		s.requestStatus()
 		return
 	}
-	if planned == nil || (queuedLead == 0 && statusObservedAfterQueue(lastStatusAt, queuedUntil)) {
+	if planned == nil || (queuedLead == 0 && statusObservedAfterQueue(lastStatusAt, queuedUntil) && (!s.pausedJob.Load() || s.queueSettled(st, planned))) {
 		planned = copyAxes(st.MPos)
 	}
 	if planned == nil {
@@ -1302,7 +1365,7 @@ func (s *Session) handleArm(seq int64) {
 		return
 	}
 	st, age := s.mgr.arb.Tracker().Current()
-	if !s.mgr.arb.Tracker().Fresh(s.mgr.arb.StateMaxAge()) || st.State != machine.Idle || len(st.MPos) == 0 {
+	if !s.mgr.arb.Tracker().Fresh(s.mgr.arb.StateMaxAge()) || (st.State != machine.Idle && st.State != machine.Pause) || len(st.MPos) == 0 {
 		lease.Release(nil)
 		code := CodeNotIdle
 		if !s.mgr.arb.Tracker().Fresh(s.mgr.arb.StateMaxAge()) || len(st.MPos) == 0 {
@@ -1315,6 +1378,7 @@ func (s *Session) handleArm(seq int64) {
 	now := s.mgr.now()
 	s.mu.Lock()
 	s.lease = lease
+	s.pausedJob.Store(st.State == machine.Pause)
 	s.leaseID++
 	s.statusInFlight = false
 	s.statusRetry = false
@@ -1503,7 +1567,8 @@ func (s *Session) applyStatusPayload(payload string) error {
 	var notReached *pendingTarget
 	if pending := s.targetPending; pending != nil {
 		switch {
-		case targetReached(st.MPos, pending.target):
+		case (!s.pausedJob.Load() && targetReached(st.MPos, pending.target)) ||
+			(s.pausedJob.Load() && pausedTargetReached(st.MPos, pending.target)):
 			completed = copyPendingTarget(pending)
 			s.targetPending = nil
 		case !now.Before(pending.verifyAfter) && st.State == machine.Idle:
@@ -1520,7 +1585,9 @@ func (s *Session) applyStatusPayload(payload string) error {
 	// firmware queue. A wall-clock estimate reaching zero does not prove that
 	// queue has drained; resetting planned here would lose our only bound on how
 	// far ahead we have submitted. Idle is the firmware's actual drain signal.
-	settled := queueLead(now, s.queuedUntil) == 0 && st.State == machine.Idle
+	// A suspended player keeps reporting Pause during manual motion, so its
+	// planned endpoint must also be observed before re-anchoring.
+	settled := queueLead(now, s.queuedUntil) == 0 && statusObservedAfterQueue(now, s.queuedUntil) && s.queueSettled(st, s.planned)
 	if settled {
 		s.planned = copyAxes(st.MPos)
 		s.segments = nil
@@ -1545,7 +1612,7 @@ func (s *Session) applyStatusPayload(payload string) error {
 			Message: "machine stopped before reaching the requested tap target",
 		})
 	}
-	if !canContinueJog(st.State) {
+	if !s.canContinueJog(st.State) {
 		s.release(nil)
 		s.emit(Event{Type: "error", Code: CodeNotIdle, Message: "machine left joggable state: " + stateLabel(st.State)})
 		s.emitState(0)
@@ -1554,6 +1621,9 @@ func (s *Session) applyStatusPayload(payload string) error {
 }
 
 func (s *Session) motionTick() {
+	if s.mgr.jobActionActive() {
+		return
+	}
 	now := s.mgr.now()
 	s.mu.Lock()
 	in := s.latest
@@ -1569,7 +1639,7 @@ func (s *Session) motionTick() {
 
 	queuedLead := queueLead(now, queuedUntil)
 	activeMotion := motionInputActive(haveInput, in, now, s.mgr.cfg)
-	if !canContinueJog(st.State) {
+	if !s.canContinueJog(st.State) {
 		if st.State == machine.Alarm {
 			s.logAlarmStatus(st)
 		}
@@ -1582,7 +1652,7 @@ func (s *Session) motionTick() {
 		if !now.Before(targetPending.verifyAfter) {
 			statusAfterMotion := !lastStatusAt.Before(targetPending.motionDoneAt)
 			statusFresh := !lastStatusAt.IsZero() && now.Sub(lastStatusAt) <= activeStatusMaxAge(s.mgr.cfg)
-			if statusAfterMotion && statusFresh && st.State != machine.Run {
+			if statusAfterMotion && statusFresh && st.State == machine.Idle {
 				if s.clearPendingTarget(targetPending.seq) {
 					s.emit(Event{
 						Type:    "error",
@@ -1594,7 +1664,7 @@ func (s *Session) motionTick() {
 				return
 			}
 			verifyTimeout := targetPending.verifyAfter.Add(statusQueryTimeout(s.mgr.cfg))
-			if !statusFresh && !statusInFlight && !now.Before(verifyTimeout) {
+			if (!statusFresh || s.pausedJob.Load()) && !statusInFlight && !now.Before(verifyTimeout) {
 				if s.clearPendingTarget(targetPending.seq) {
 					s.release(nil)
 					s.emit(Event{
@@ -1646,7 +1716,7 @@ func (s *Session) motionTick() {
 	// the same relative $J block again on every tick, eventually overrunning the
 	// firmware planner and its soft limits. Only a status observed after the
 	// predicted queue end may re-anchor the planner.
-	if planned == nil || (queuedLead == 0 && st.State == machine.Idle && !lastStatusAt.Before(queuedUntil)) {
+	if planned == nil || (queuedLead == 0 && s.queueSettled(st, planned) && !lastStatusAt.Before(queuedUntil)) {
 		planned = copyAxes(st.MPos)
 	}
 	segDur := jogSegmentDuration(s.mgr.cfg)
@@ -1669,7 +1739,7 @@ func (s *Session) motionTick() {
 	lastCmd := ""
 	for sent := 0; sent < maxSegmentsPerTick; sent++ {
 		s.admissionMu.Lock()
-		if s.captureBarrier {
+		if s.captureBarrier || s.mgr.jobActionActive() {
 			s.admissionMu.Unlock()
 			break
 		}
@@ -2271,6 +2341,84 @@ func activeStatusMaxAge(cfg Config) time.Duration {
 
 func canContinueJog(st machine.State) bool {
 	return st == machine.Idle || st == machine.Run
+}
+
+func (s *Session) canContinueJog(st machine.State) bool {
+	if s.pausedJob.Load() {
+		return st == machine.Pause
+	}
+	return canContinueJog(st)
+}
+
+func pausedTargetReached(position, target machine.AxisValues) bool {
+	if len(position) == 0 || len(target) == 0 {
+		return false
+	}
+	for axis, wanted := range target {
+		actual, ok := position[axis]
+		if !ok || math.IsNaN(actual) || math.IsInf(actual, 0) || math.Abs(actual-wanted) > 0.001 {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Session) queueSettled(st machine.Status, planned machine.AxisValues) bool {
+	if s.pausedJob.Load() {
+		return st.State == machine.Pause && pausedTargetReached(st.MPos, planned)
+	}
+	return st.State == machine.Idle
+}
+
+// Called only by the session loop after the outstanding status transaction.
+// Pause remains Pause during manual movement, so state alone cannot prove that
+// it is safe to stop the spindle or return to the suspended cutting position.
+func (s *Session) settlePausedMotion(ctx context.Context) error {
+	s.mu.Lock()
+	lease := s.lease
+	target := copyAxes(s.planned)
+	s.haveInput = false
+	s.mu.Unlock()
+	if lease == nil || !s.pausedJob.Load() {
+		return nil
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("waiting for paused jog to finish: %w", err)
+		}
+		select {
+		case <-s.ctx.Done():
+			return s.ctx.Err()
+		case <-lease.Abort:
+			return Error{Code: CodeControllerWaiting, Message: "controller requested the machine connection"}
+		default:
+		}
+		timeout := statusQueryTimeout(s.mgr.cfg)
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < timeout {
+			timeout = time.Until(deadline)
+		}
+		payload, err := lease.Conn.QueryState(timeout)
+		if err != nil {
+			return fmt.Errorf("verifying paused jog position: %w", err)
+		}
+		if !s.mgr.arb.Tracker().ObserveStatusPayload(payload) {
+			return Error{Code: CodeStaleStatus, Message: "machine returned malformed status"}
+		}
+		st, _ := s.mgr.arb.Tracker().Current()
+		if st.State != machine.Pause {
+			return Error{Code: CodeNotIdle, Message: "machine left Pause while waiting for jog to finish"}
+		}
+		if pausedTargetReached(st.MPos, target) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for paused jog to finish: %w", ctx.Err())
+		case <-s.ctx.Done():
+			return s.ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 }
 
 func stateLabel(st machine.State) string {
