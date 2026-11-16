@@ -269,10 +269,10 @@
     #status-connection { flex: 0 0 12px; }
     #machine-status-popout { flex: 0 1 auto; min-width: 0; }
     #machine .badge { display: block; max-width: 100%; min-height: 34px; padding-inline: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 34px; text-align: center; }
-    .toolbar-metric { flex-basis: 68px; width: 68px; padding-inline: 4px; }
-    .toolbar-metric b { font-size: 10px; }
+    .toolbar-metric { flex: 0 1 auto; width: auto; min-width: 0; padding-inline: 3px; }
+    .toolbar-metric b { font-size: 9px; }
     .toolbar-metric small { font-size: 9px; }
-    #command-actions { width: auto; justify-self: end; }
+    #command-actions { width: 44px; justify-self: end; }
     #mobile-actions-toggle { width: 44px; min-width: 44px; padding: 0; font-size: 0; }
     #mobile-actions-toggle::before { content: "•••"; font-size: 15px; letter-spacing: 1px; }
     #ctl-halt { min-width: 78px; min-height: 40px; }
