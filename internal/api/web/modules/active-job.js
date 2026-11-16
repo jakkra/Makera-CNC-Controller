@@ -46,17 +46,28 @@ export function mountActiveJobLoader({
   getMachine,
   renderAttention,
 }) {
+  let reloadRequested = false;
   async function loadActiveGcode() {
-    if (getActiveGcodeLoading()) return;
+    if (getActiveGcodeLoading()) {
+      // Cache/selection events can arrive after the current response was read.
+      // Keep one follow-up read so the tool prompt receives the new metadata.
+      reloadRequested = true;
+      return;
+    }
     setActiveGcodeLoading(true);
     try {
-      const r = await request("/api/gcode/active");
-      setActiveGcode(await r.json());
-      clearConnectivityIssue("active-gcode");
-      renderActiveGcode();
-      renderAttention(getMachine() || {});
-    } catch (e) {
-      setConnectivityIssue("active-gcode", "Active gcode unavailable: " + e.message);
+      do {
+        reloadRequested = false;
+        try {
+          const r = await request("/api/gcode/active");
+          setActiveGcode(await r.json());
+          clearConnectivityIssue("active-gcode");
+          renderActiveGcode();
+          renderAttention(getMachine() || {});
+        } catch (e) {
+          setConnectivityIssue("active-gcode", "Active gcode unavailable: " + e.message);
+        }
+      } while (reloadRequested);
     } finally {
       setActiveGcodeLoading(false);
     }

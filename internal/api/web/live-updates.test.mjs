@@ -51,3 +51,14 @@ test("poll preserves status endpoint and refreshes jobs after status success or 
   await failure.live.pollMachine();
   assert.deepEqual(failure.calls, [["error", "machine-status", "Machine status unavailable: offline"], ["jobs"]]);
 });
+
+
+test("control stream delivers active preview invalidations without opening Files", () => {
+  const {live,streams,calls}=setup();
+  live.connectControlSSE();
+  const event={kind:"active_gcode",active_gcode_path:"/sd/gcodes/current.nc"};
+  streams[0].events.change({data:JSON.stringify(event)});
+  assert.equal(streams.length,1);
+  assert.equal(streams[0].url,"/api/events?scope=control");
+  assert.deepEqual(calls,[["change",event]]);
+});

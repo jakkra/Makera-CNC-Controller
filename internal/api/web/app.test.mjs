@@ -8005,7 +8005,9 @@ test("active job loader enforces single flight and terminal render order", async
   const loader = mountActiveJobLoader({
     request: async (url) => {
       requests.push(url);
-      return { json: () => new Promise((resolve) => { resolveResponse = resolve; }) };
+      return { json: () => requests.length === 1
+        ? new Promise((resolve) => { resolveResponse = resolve; })
+        : { path: "/sd/gcodes/part.nc" } };
     },
     getActiveGcodeLoading: () => loading,
     setActiveGcodeLoading: (value) => { loading = value; events.push(["loading", value]); },
@@ -8022,7 +8024,8 @@ test("active job loader enforces single flight and terminal render order", async
   resolveResponse({ path: "/sd/gcodes/part.nc" });
   await first;
   assert.deepEqual(active, { path: "/sd/gcodes/part.nc" });
-  assert.deepEqual(events, [["loading", true], "set-active", ["clear", "active-gcode"], "active", ["attention", "Idle"], ["loading", false]]);
+  assert.deepEqual(requests, ["/api/gcode/active", "/api/gcode/active"]);
+  assert.deepEqual(events, [["loading", true], "set-active", ["clear", "active-gcode"], "active", ["attention", "Idle"], "set-active", ["clear", "active-gcode"], "active", ["attention", "Idle"], ["loading", false]]);
 
   const failed = mountActiveJobLoader({
     request: async () => { throw new Error("offline"); },

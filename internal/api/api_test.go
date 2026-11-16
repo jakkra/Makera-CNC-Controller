@@ -3481,3 +3481,64 @@ func TestEventsFilesScopeOmitsGcode(t *testing.T) {
 		t.Errorf("files snapshot unexpectedly included gcode data: %q", got)
 	}
 }
+
+func TestEventsControlScopeRefreshesOnlyActiveProgramMetadata(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := "/sd/gcodes/current.nc"
+	if err := st.PutEntry(store.Entry{Path: active, Sync: store.RemoteOnly}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetActiveGcodePath(active); err != nil {
+		t.Fatal(err)
+	}
+	svc, err := service.New(st, session.New(session.Config{Dial: func() (*client.Conn, error) { t.Error("metadata event filtering contacted CNC"); return nil, io.EOF }}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Close()
+	srv := httptest.NewServer(New(svc).Handler())
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/api/events?scope=control", nil)
+	resp := do(t, req)
+	defer resp.Body.Close()
+	scanner := bufio.NewScanner(resp.Body)
+	readData := func() string {
+		t.Helper()
+		for scanner.Scan() {
+			if strings.HasPrefix(scanner.Text(), "data: ") {
+				return strings.TrimPrefix(scanner.Text(), "data: ")
+			}
+		}
+		t.Fatalf("missing stream data: %v", scanner.Err())
+		return ""
+	}
+	_ = readData() // initial control snapshot
+	if err := st.PutEntry(store.Entry{Path: "/sd/gcodes/unrelated.nc", Sync: store.Synced}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutEntry(store.Entry{Path: active, Sync: store.Synced}); err != nil {
+		t.Fatal(err)
+	}
+	var event store.Event
+	if err := json.Unmarshal([]byte(readData()), &event); err != nil {
+		t.Fatal(err)
+	}
+	if event.Kind != "active_gcode" || event.ActiveGcodePath != active || event.Entry != nil || event.Job != nil {
+		t.Fatalf("wrong scoped event: %+v", event)
+	}
+	next := "/sd/gcodes/next.nc"
+	if err := st.SetActiveGcodePath(next); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(readData()), &event); err != nil {
+		t.Fatal(err)
+	}
+	if event.Kind != "active_gcode" || event.ActiveGcodePath != next {
+		t.Fatalf("selection change missing: %+v", event)
+	}
+}

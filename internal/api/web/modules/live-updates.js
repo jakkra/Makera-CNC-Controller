@@ -32,6 +32,7 @@ export function createLiveUpdates({
     });
     es.addEventListener("machine", (e) => applyMachineStatus(JSON.parse(e.data)));
     es.addEventListener("gcode", (e) => appendGcodeLine(JSON.parse(e.data)));
+    es.addEventListener("change", (e) => applyChange(JSON.parse(e.data)));
     es.onerror = () => setConnectivityIssue("control-sse", "Control event stream disconnected; retrying.");
   }
 

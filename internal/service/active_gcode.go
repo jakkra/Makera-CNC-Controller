@@ -153,6 +153,10 @@ type MachineActionResult struct {
 	Machine  machine.AxisValues `json:"machine,omitempty"`
 }
 
+// ActiveGcodePath reads the current selection without parsing a preview or
+// contacting the machine. Event subscribers use it to filter cache changes.
+func (s *Service) ActiveGcodePath() string { return s.store.ActiveGcodePath() }
+
 // ActiveGcode returns the current proxy-side file selection.
 func (s *Service) ActiveGcode() ActiveGcode {
 	s.activeMu.Lock()

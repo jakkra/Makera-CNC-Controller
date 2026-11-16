@@ -887,7 +887,7 @@ func (s *Server) postBackupImport(w http.ResponseWriter, r *http.Request) {
 // Optional scope narrows the stream for UI surfaces that should not depend on
 // unrelated data being loaded:
 //   - all or empty: machine, attention, files, jobs, and gcode
-//   - control: machine, attention, and gcode only
+//   - control: machine, attention, gcode, and active-program invalidations
 //   - files: machine, files, and jobs only
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
@@ -910,7 +910,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 
 	var ch <-chan store.Event
 	var unsub func()
-	if includeFiles {
+	if includeFiles || scope == "control" {
 		ch, unsub = s.svc.Subscribe()
 		defer unsub()
 	}
@@ -960,6 +960,16 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		case ev, ok := <-ch:
 			if !ok {
 				return
+			}
+			if !includeFiles {
+				// Tool metadata can finish caching while the Files surface has never
+				// been opened. Invalidate only the active preview on the control stream;
+				// catalog entries, job queues and other files remain out of this scope.
+				activePath := s.svc.ActiveGcodePath()
+				if ev.Kind != "active_gcode" && (ev.Kind != "entry" || ev.Entry == nil || activePath == "" || ev.Entry.Path != activePath) {
+					continue
+				}
+				ev = store.Event{Kind: "active_gcode", ActiveGcodePath: activePath}
 			}
 			sendEvent(w, "change", s.svc.EnrichEventJob(ev))
 			flusher.Flush()
