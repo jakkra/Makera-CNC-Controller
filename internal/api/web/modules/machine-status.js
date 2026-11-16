@@ -374,6 +374,16 @@ function renderMachine() {
     wifiBadge.setAttribute("aria-label", label);
     wifiBadge.title = label;
   }
+  const tempBadge = document.getElementById("toolbar-spindle-temp");
+  if (tempBadge) {
+    const temp = m.spindle?.spindle_temp_c;
+    const knownTemp = m.connected === true && typeof temp === "number" && Number.isFinite(temp);
+    const text = knownTemp ? `${temp.toFixed(1)} °C` : "—";
+    setTextIfChanged(document.getElementById("toolbar-spindle-temp-value"), text);
+    const label = knownTemp ? `Spindle temperature: ${text}` : "Spindle temperature unavailable";
+    tempBadge.setAttribute("aria-label", label);
+    tempBadge.title = label;
+  }
   const connection = document.getElementById("status-connection");
   if (connection) {
     const status = m.reconnecting ? "reconnecting" : (m.connected ? "connected" : "outage");

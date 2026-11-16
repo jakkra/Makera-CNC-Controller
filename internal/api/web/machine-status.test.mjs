@@ -100,3 +100,25 @@ test("toolbar keeps Wi-Fi SSID and signal current independently of CNC state", (
   status.renderMachine();
   assert.equal(nodes.get("toolbar-wifi-ssid").textContent, "Unavailable");
 });
+
+test("toolbar shows reported spindle temperature beside Wi-Fi", () => {
+  const nodes = new Map();
+  for (const id of ["alarm-panel", "mode", "age", "pending", "state", "status-mpos", "status-wpos", "status-feed", "status-spindle", "status-tool", "toolbar-spindle-temp", "toolbar-spindle-temp-value"]) {
+    nodes.set(id, { textContent: "", setAttribute(key, value) { this[key] = value; } });
+  }
+  let machine = { connected: true, state: "Idle", spindle: { current_rpm: 0, target_rpm: 12000, override: 100, spindle_temp_c: 45.5, power_temp_c: 27.8 } };
+  const status = createMachineStatusFeature({
+    documentRef: { getElementById: (id) => nodes.get(id) || null, querySelectorAll: () => [] },
+    getMachine: () => machine,
+  });
+  status.renderMachine();
+  assert.equal(nodes.get("toolbar-spindle-temp-value").textContent, "45.5 °C");
+  assert.equal(nodes.get("toolbar-spindle-temp")["aria-label"], "Spindle temperature: 45.5 °C");
+  machine = { connected: true, state: "Idle", spindle: { current_rpm: 0, target_rpm: 0, override: 100 } };
+  status.renderMachine();
+  assert.equal(nodes.get("toolbar-spindle-temp-value").textContent, "—", "models without the field must not show a temperature");
+  machine = { connected: false, state: "Unknown", spindle: { current_rpm: 0, target_rpm: 0, override: 100, spindle_temp_c: 50 } };
+  status.renderMachine();
+  assert.equal(nodes.get("toolbar-spindle-temp-value").textContent, "—", "stale temperature must not be shown while disconnected");
+  assert.equal(nodes.get("toolbar-spindle-temp")["aria-label"], "Spindle temperature unavailable");
+});
