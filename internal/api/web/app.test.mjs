@@ -1568,7 +1568,7 @@ test("Surface footer includes one stateful Auto Vacuum control", () => {
   assert.match(htmlSource, /id="surface-footer-vacuum"/);
   assert.match(source, /createSurfaceActions\(/);
   assert.match(surfaceActionsModuleSource, /request\("\/api\/outputs\/auto-vacuum"/);
-  assert.match(surfaceJogModuleSource, /Auto Vacuum · \$\{vacuumEnabled \? "On" : "Off"\}/);
+  assert.match(surfaceJogModuleSource, /vacuumEnabled \? "On" : "Off"/);
 });
 
 test("disabled jog capability is stable and never opens a WebSocket", () => {

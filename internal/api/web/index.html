@@ -830,9 +830,15 @@
   <button type="button" class="surface-quick-button" data-surface-setup data-surface-action="probe-z">⌁&nbsp; Probe Z</button>
   <button type="button" class="surface-quick-button" data-surface-setup data-surface-action="work-zero">⌖&nbsp; Work zero</button>
   <button type="button" class="surface-quick-button" data-surface-setup data-surface-action="files">▱&nbsp; Open jobs</button>
-  <div class="surface-output-actions">
-  <button type="button" id="surface-footer-vacuum" class="surface-quick-button" aria-pressed="false" aria-busy="false" title="Toggle Auto Vacuum">Auto Vacuum</button>
-  <span class="spindle-fan-actions" aria-label="Spindle fan"><span>Spindle fan</span><button type="button" data-spindle-fan="on" aria-label="Spindle fan on at 100 percent">On</button><button type="button" data-spindle-fan="off" aria-label="Spindle fan off">Off</button></span>
+  <div class="surface-output-actions" aria-label="Machine outputs">
+    <div class="surface-output-control">
+      <span class="surface-output-label">Auto Vacuum</span>
+      <button type="button" id="surface-footer-vacuum" class="surface-quick-button" aria-pressed="false" aria-busy="false" aria-label="Toggle Auto Vacuum" title="Toggle Auto Vacuum">—</button>
+    </div>
+    <div class="surface-output-control">
+      <span class="surface-output-label">Spindle fan</span>
+      <span class="spindle-fan-actions" aria-label="Spindle fan"><button type="button" data-spindle-fan="on" aria-label="Spindle fan on at 100 percent">On</button><button type="button" data-spindle-fan="off" aria-label="Spindle fan off">Off</button></span>
+    </div>
   </div>
   <button type="button" id="surface-footer-hold" class="surface-quick-button" hidden>Ⅱ&nbsp; Hold</button>
   <button type="button" id="surface-footer-resume" class="surface-quick-button" hidden>▶&nbsp; Resume</button>

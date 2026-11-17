@@ -178,7 +178,7 @@ export function createSurfaceJogFeature({
       vacuum.setAttribute("aria-pressed", String(vacuumEnabled));
       vacuum.setAttribute("aria-busy", String(state.autoVacuumPending));
       vacuum.title = !vacuumKnown ? "Auto Vacuum state is not reported by this machine" : (vacuumEnabled ? "Turn Auto Vacuum off" : "Turn Auto Vacuum on");
-      setTextIfChanged(vacuum, state.autoVacuumPending ? "Auto Vacuum…" : (vacuumKnown ? `Auto Vacuum · ${vacuumEnabled ? "On" : "Off"}` : "Auto Vacuum · —"));
+      setTextIfChanged(vacuum, state.autoVacuumPending ? "Updating…" : (vacuumKnown ? (vacuumEnabled ? "On" : "Off") : "—"));
     }
     root?.classList.toggle("is-job-state", !actions.setup);
     const labels = {
