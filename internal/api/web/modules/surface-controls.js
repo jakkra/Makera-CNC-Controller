@@ -88,6 +88,20 @@ export function createSurfaceControls({ state, documentRef = document, callbacks
     bind(documentRef.getElementById("surface-footer-hold"), () => sendControl("hold"));
     bind(documentRef.getElementById("surface-footer-resume"), () => resumeActiveJob());
     bind(documentRef.getElementById("surface-footer-vacuum"), onVacuum);
+    const mobileLayout = documentRef.defaultView?.matchMedia("(max-width: 760px), (pointer: coarse) and (max-width: 1179px)");
+    const slot = documentRef.getElementById("mobile-output-slot");
+    const footer = documentRef.getElementById("surface-quick-actions");
+    const outputs = footer?.querySelector(".surface-output-actions");
+    if (mobileLayout && slot && outputs) {
+      // Move the existing nodes so listeners and pending state survive resizing.
+      const nextSibling = outputs.nextSibling;
+      const placeOutputs = () => {
+        if (mobileLayout.matches) slot.appendChild(outputs);
+        else footer.insertBefore(outputs, nextSibling);
+      };
+      placeOutputs();
+      mobileLayout.addEventListener("change", placeOutputs);
+    }
   }
 
   function init() {

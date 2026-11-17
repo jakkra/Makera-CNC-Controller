@@ -17,8 +17,8 @@ const aggregateCSS = readFileSync(join(webDir, "styles", "app.css"), "utf8").rep
 
 test("external stylesheet preserves the extracted inline CSS bytes", () => {
   const digest = createHash("sha256").update(css).digest("hex");
-  assert.equal(Buffer.byteLength(css), 172364);
-  assert.equal(digest, "2d2f78d6ef31867bc3bba3ea3fea7d1056dd24b284b4ad7d48f87b020613d6dd");
+  assert.equal(Buffer.byteLength(css), 171957);
+  assert.equal(digest, "db893f5cb4399286e04bf76929a0cab70ab8130e1061d06c837d5710771d2595");
   assert.equal(aggregateCSS, css, "styles/app.css must stay synchronized with the split stylesheets");
   assert.doesNotMatch(html, /<style(?:\s[^>]*)?>/i);
   for (const name of cssFiles) {
