@@ -1548,3 +1548,14 @@
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-label::after { content: ""; }
     body[data-active-tab="dashboard"] .dashboard-machine .machine-axis-unit { display: block; right: auto; bottom: 5px; left: 12px; font-size: 10px; }
   }
+
+  /* Output controls remain available on phones and installed mobile web apps. */
+  @media (max-width: 760px), (pointer: coarse) and (max-width: 1179px) {
+    body:not(.dashboard-embed) #surface-quick-actions { position: fixed; z-index: 70; left: 0; right: 0; bottom: calc(85px + env(safe-area-inset-bottom)); height: 88px; display: block; background: rgba(8,14,19,.98); border-top: 1px solid #31404a; }
+    body:not(.dashboard-embed) #surface-quick-actions > :not(.surface-output-actions) { display: none !important; }
+    body:not(.dashboard-embed) .surface-output-actions { box-sizing: border-box; width: 100%; height: 100%; padding: 12px 16px; gap: 16px; border: 0; }
+    body:not(.dashboard-embed) .surface-output-control { grid-template-rows: 12px 44px; }
+    body:not(.dashboard-embed) .surface-output-actions button { height: 44px; min-height: 44px; font-size: 14px; }
+    body:not(.dashboard-embed) main { padding-bottom: calc(185px + env(safe-area-inset-bottom)); }
+    body:not(.dashboard-embed) #status-bar { left: 0; bottom: calc(173px + env(safe-area-inset-bottom)); }
+  }
