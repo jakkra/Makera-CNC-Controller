@@ -4248,3 +4248,27 @@ var (
 	ErrJobControlUnavailable        = errors.New("service: job control unavailable")
 	ErrDirectoryNotEmpty            = errors.New("service: directory not empty")
 )
+
+// SetSpindleFan sends an explicit 0/100 percent override. Z1 status does not
+// include fan output feedback, so the result deliberately remains unverified.
+func (s *Service) SetSpindleFan(enabled bool) (MachineActionResult, error) {
+	command := "M811 S0"
+	if enabled {
+		command = "M811 S100"
+	}
+	result := MachineActionResult{Action: "spindle_fan", Command: command}
+	err := s.arb.WithMachine(false, func(c *client.Conn) error {
+		s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, command)
+		_, err := s.sendOperatorGcode(c, command, client.GcodeOpts{ExpectReply: false, Cap: gcodeReplyCap})
+		return err
+	})
+	if err != nil {
+		return result, err
+	}
+	value := "0%"
+	if enabled {
+		value = "100%"
+	}
+	result.Message = "Spindle fan command sent: " + value + ". Output feedback is unavailable."
+	return result, nil
+}

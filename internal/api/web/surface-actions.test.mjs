@@ -137,6 +137,23 @@ test("Surface hold jog refuses motion when the jog session is not ready", () => 
   const { actions, jog, calls } = makeActions({ surfaceJogReady: () => false });
   assert.equal(actions.beginSurfaceHoldJog("x", 1), false);
   assert.equal(jog.surfaceInput, undefined);
-  assert.deepEqual(calls.status[0], ["surface-jog", "Arm Movement after a fresh Idle status before jogging.", "error", { force: true }]);
+  assert.deepEqual(calls.status[0], ["surface-jog", "Arm Movement after a fresh Idle or Pause status before jogging.", "error", { force: true }]);
   assert.equal(calls.input.length, 0);
+});
+
+
+test("spindle fan sends explicit on/off and keeps buttons pending without inventing state", async () => {
+ const buttons=[{setAttribute(){}},{setAttribute(){}}];
+ let complete;
+ const f=makeActions({documentRef:{querySelectorAll:()=>buttons},request:async(url,opts)=>{f.calls.request.push([url,opts]);return new Promise(resolve=>{complete=()=>resolve({json:async()=>({verified:false,message:"Command sent; no feedback"})})})}});
+ const first=f.actions.setSpindleFan(true);
+ assert.equal(buttons[0].disabled,true);
+ await f.actions.setSpindleFan(false);
+ assert.equal(f.calls.request.length,1);
+ assert.equal(f.calls.request[0][0],"/api/outputs/spindle-fan");
+ assert.equal(JSON.parse(f.calls.request[0][1].body).enabled,true);
+ complete();await first;
+ assert.equal(buttons[0].disabled,false);
+ assert.equal(f.calls.status.at(-1)[1],"Command sent; no feedback");
+ assert.notEqual(f.calls.status.at(-1)[2],"ok");
 });

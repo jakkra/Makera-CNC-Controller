@@ -135,7 +135,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/gcode/log", s.getGcodeLog)                // recent gcode I/O lines
 	mux.HandleFunc("POST /api/control", s.postControl)                 // realtime, job-player, or recovery action
 	mux.HandleFunc("POST /api/feed-override", s.postFeedOverride)      // body: {percent}; valid while running
-	mux.HandleFunc("POST /api/outputs/auto-vacuum", s.postAutoVacuum)  // body: {enabled}; valid while running
+	mux.HandleFunc("POST /api/outputs/spindle-fan", s.postSpindleFan)
+	mux.HandleFunc("POST /api/outputs/auto-vacuum", s.postAutoVacuum) // body: {enabled}; valid while running
 	mux.HandleFunc("GET /api/ui/settings", s.getUISettings)
 	mux.HandleFunc("PUT /api/ui/settings", s.putUISettings)
 	mux.HandleFunc("POST /api/machine/learn", s.learnMachineParameters)
@@ -1053,4 +1054,28 @@ func (s *Server) machineStatus() any {
 		service.MachineStatus
 		Network networkinfo.Status `json:"network"`
 	}{st, s.networkStatus()}
+}
+
+func (s *Server) postSpindleFan(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if !s.decodeJSON(w, r, &body) {
+		return
+	}
+	if body.Enabled == nil {
+		writeErr(w, http.StatusBadRequest, "enabled required")
+		return
+	}
+	finish, ok := s.prepareJobAction(w, r)
+	if !ok {
+		return
+	}
+	defer finish()
+	result, err := s.svc.SetSpindleFan(*body.Enabled)
+	if err != nil {
+		s.mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }

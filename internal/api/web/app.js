@@ -467,6 +467,7 @@ const surfaceActions = createSurfaceActions({
 });
 const {
   setAutoVacuum,
+  setSpindleFan,
   toggleSurfaceMovementArm,
   sendSurfaceStep,
   beginSurfaceHoldJog,
@@ -2432,6 +2433,10 @@ function init() {
   bindJogArmInteractions({ bindButtonAction, toggleTapMoveArm });
   surfaceControls.init();
   surfaceShell.bindInteractions({ bindButtonAction });
+  for (const button of document.querySelectorAll("[data-spindle-fan]")) {
+    button.disabled = state.readOnly || !state.machine?.connected || !!state.machine?.stale;
+    bindButtonAction(button, () => setSpindleFan(button.dataset.spindleFan === "on"));
+  }
   surfaceControls.bindFooterInteractions({
     bindButtonAction,
     sendControl,

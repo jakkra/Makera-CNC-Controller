@@ -148,6 +148,9 @@ export function createSurfaceJogFeature({
   }
 
   function renderSurfaceQuickActions(machineState = getMachineActionState()) {
+    for (const button of document?.querySelectorAll?.("[data-spindle-fan]") || []) {
+      if (button.getAttribute?.("aria-busy") !== "true") button.disabled = getReadOnly() || !state.machine?.connected || !!state.machine?.stale;
+    }
     const root = document?.getElementById("surface-quick-actions");
     const actions = surfaceQuickActionState(machineState);
     for (const button of document?.querySelectorAll?.("[data-surface-setup]") || []) button.hidden = !actions.setup;

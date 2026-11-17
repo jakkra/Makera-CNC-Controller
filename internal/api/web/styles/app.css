@@ -85,6 +85,12 @@
   .command-group { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: var(--gap-xs); align-items: center; min-width: 0; }
   .command-panel form { margin: 0; }
   #command-actions > #ctl-halt { flex: 0 0 auto; min-width: 84px; font-weight: 650; }
+
+  .spindle-fan-actions { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .spindle-fan-actions > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 11px; white-space: nowrap; }
+  .spindle-fan-actions button { min-width: 36px; min-height: 32px; justify-content: center; padding: 4px; }
+  .surface-output-actions { min-width: 0; display: grid; grid-template-rows: 1fr 1fr; gap: 4px; padding: 4px; }
+  .surface-output-actions .surface-quick-button { min-height: 0; padding: 0 4px; }
   main { flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; padding: clamp(14px, 2vw, 22px); }
   main > *, .view > .page-section { width: 100%; min-width: 0; }
   #status-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 120; display: grid; justify-items: end; padding: 8px 20px calc(8px + env(safe-area-inset-bottom)); background: transparent; border: 0; box-shadow: none; pointer-events: none; overflow: visible; }

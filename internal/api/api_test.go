@@ -3542,3 +3542,41 @@ func TestEventsControlScopeRefreshesOnlyActiveProgramMetadata(t *testing.T) {
 		t.Fatalf("selection change missing: %+v", event)
 	}
 }
+
+func TestSpindleFanExplicitCommandsDuringRun(t *testing.T) {
+	srv, m, tr := serverWithMachine(t)
+	m.SetStatus("<Run|MPos:0,0,0|S:12000,12000,100>")
+	tr.Observe(machine.Run)
+	for _, enabled := range []bool{true, false} {
+		resp := postJSON(t, srv.URL+"/api/outputs/spindle-fan", map[string]bool{"enabled": enabled})
+		var result service.MachineActionResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		want := "M811 S0"
+		if enabled {
+			want = "M811 S100"
+		}
+		if resp.StatusCode != http.StatusOK || result.Command != want || result.Verified {
+			t.Fatalf("fan command result %+v HTTP %d", result, resp.StatusCode)
+		}
+	}
+	var commands []string
+	for _, cmd := range m.Gcodes() {
+		if strings.HasPrefix(cmd, "M811") {
+			commands = append(commands, cmd)
+		}
+		if cmd == "M5" {
+			t.Fatal("fan action stopped spindle")
+		}
+	}
+	if !reflect.DeepEqual(commands, []string{"M811 S100", "M811 S0"}) {
+		t.Fatal(commands)
+	}
+	resp := postJSON(t, srv.URL+"/api/outputs/spindle-fan", map[string]bool{})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatal(resp.StatusCode)
+	}
+}

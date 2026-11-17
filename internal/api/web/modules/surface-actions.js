@@ -3,6 +3,7 @@
 // Surface jog behavior.
 
 export function createSurfaceActions({
+  documentRef = globalThis.document,
   getMachine = () => ({}),
   getReadOnly = () => false,
   getAutoVacuumPending = () => false,
@@ -32,6 +33,25 @@ export function createSurfaceActions({
   sendJogInput = () => {},
 } = {}) {
   if (typeof request !== "function") throw new TypeError("request is required");
+
+  let fanPending = false;
+  async function setSpindleFan(enabled) {
+    if (fanPending || getReadOnly()) return;
+    fanPending = true;
+    const buttons = documentRef?.querySelectorAll?.("[data-spindle-fan]") || [];
+    for (const button of buttons) { button.disabled = true; button.setAttribute("aria-busy", "true"); }
+    setStatusMessage("spindle-fan", "Sending spindle fan command…", "", { timeoutMs: 0, force: true });
+    try {
+      const response = await request("/api/outputs/spindle-fan", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:!!enabled})});
+      const result = await response.json();
+      setStatusMessage("spindle-fan", result.message, result.verified ? "ok" : "", {force:true});
+    } catch (error) {
+      setStatusMessage("spindle-fan", "Spindle fan command failed: " + error.message, "error", {force:true});
+    } finally {
+      fanPending = false;
+      for (const button of buttons) { button.disabled = getReadOnly(); button.setAttribute("aria-busy", "false"); }
+    }
+  }
 
   async function setAutoVacuum(enabled) {
     const machine = getMachine() || {};
@@ -130,6 +150,7 @@ export function createSurfaceActions({
 
   return {
     setAutoVacuum,
+    setSpindleFan,
     toggleSurfaceMovementArm,
     sendSurfaceStep,
     beginSurfaceHoldJog,
