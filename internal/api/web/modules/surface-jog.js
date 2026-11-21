@@ -234,7 +234,7 @@ export function createSurfaceJogFeature({
     for (const button of document?.querySelectorAll?.("[data-surface-step]") || []) button.setAttribute("aria-pressed", String(Number(button.dataset.surfaceStep) === surfaceStepDistance(surface)));
     for (const button of document?.querySelectorAll?.("[data-surface-motion]") || []) button.setAttribute("aria-pressed", String(button.dataset.surfaceMotion === surface.motion));
     for (const button of document?.querySelectorAll?.(".surface-mpg-axis") || []) button.setAttribute("aria-pressed", String(button.dataset.surfaceMpgAxis === surface.mpg_axis));
-    for (const button of document?.querySelectorAll?.("[data-surface-axis], [data-surface-z-sign], [data-surface-a-sign], [data-surface-a-turn], [data-surface-hold-sign], [data-surface-goto]") || []) {
+    for (const button of document?.querySelectorAll?.("[data-surface-axis], [data-surface-z-sign], [data-surface-a-sign], [data-surface-a-turn], [data-surface-hold-sign], [data-surface-goto], .surface-positions:not(.is-saving) [data-surface-position]") || []) {
       button.disabled = busy;
       setSoftDisabled(button, !busy && !ready);
     }

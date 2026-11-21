@@ -172,6 +172,14 @@
   .surface-goto { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-sm); }
   .surface-goto-title { grid-column: 1 / -1; color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
   .surface-goto button { min-height: 48px; justify-content: center; white-space: nowrap; }
+  .surface-positions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap-sm); align-items: center; }
+  .surface-positions .surface-goto-title { grid-column: 1 / 3; }
+  .surface-positions-save { grid-column: 3 / -1; min-height: 36px; justify-content: center; font-size: 12px; }
+  .surface-positions-save[aria-pressed="true"], .surface-positions.is-saving [data-surface-position] { border-color: var(--warn); color: var(--warn); }
+  .surface-positions [data-surface-position] { min-height: 64px; display: grid; place-items: center; align-content: center; gap: 2px; padding: 4px 2px; }
+  .surface-positions [data-surface-position] b { font-size: 20px; line-height: 1; }
+  .surface-positions [data-surface-position] small { color: var(--muted); font-size: 10px; line-height: 1.25; white-space: pre-line; font-variant-numeric: tabular-nums; }
+  .surface-positions [data-surface-position].is-empty b { color: var(--muted); }
   .surface-jog-actions button { min-height: 52px; justify-content: center; }
   .surface-jog-actions button:last-child:nth-child(odd) { grid-column: 1 / -1; }
   .surface-position-panel { align-content: start; grid-template-rows: auto auto auto; }

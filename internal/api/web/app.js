@@ -29,6 +29,7 @@ import { createJogView } from "./modules/jog-view.js";
 import { createGamepadControls } from "./modules/gamepad-controls.js";
 import { createSurfaceControls } from "./modules/surface-controls.js";
 import { surfaceGotoDestination } from "./modules/surface-goto.js";
+import { createSurfaceSavedPositions } from "./modules/surface-saved-positions.js";
 import { createSurfaceActions } from "./modules/surface-actions.js";
 import { createWorkAreaInteractions } from "./modules/workarea-interactions.js";
 import { createWorkMoveInteractions } from "./modules/work-move.js";
@@ -595,6 +596,13 @@ const {
   sampleJog, releaseJogInput, scheduleJogSample, bindSurfaceMPGWheel, bindZStepInteractions, bindJogArmInteractions,
 } = jogFeature;
 
+const surfaceSavedPositions = createSurfaceSavedPositions({
+  documentRef: document,
+  getMachinePosition: () => currentAxisValues().mpos,
+  sendTapMove: (...args) => sendTapMove(...args),
+  setStatusMessage: (...args) => setStatusMessage(...args),
+  renderJog: () => renderJog(),
+});
 const surfaceControls = createSurfaceControls({
   state: featureState.surfaceControls,
   documentRef: document,
@@ -2447,6 +2455,7 @@ function init() {
   dashboardProfiles.bindResponsiveInteractions({ applyDashboardProfile, currentDashboardProfile, windowRef: window });
   bindJogArmInteractions({ bindButtonAction, toggleTapMoveArm });
   surfaceControls.init();
+  surfaceSavedPositions.bind(bindButtonAction);
   surfaceShell.bindInteractions({ bindButtonAction });
   for (const button of document.querySelectorAll("[data-spindle-fan]")) {
     button.disabled = state.readOnly || !state.machine?.connected || !!state.machine?.stale;
