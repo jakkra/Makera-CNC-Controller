@@ -73,3 +73,35 @@ test("origin probing interactions bind only on demand and preserve registration 
   assert.equal(nodes.get("probe-3d-modal").closeCount, 1);
   assert.match(originProbingModuleSource, /function bindInteractions\(/);
 });
+
+test("Probe Z runs with the 3D Probe active and still rejects other tools", async () => {
+  const run = async ({ probe, probe3D }) => {
+    const requests = [];
+    const messages = [];
+    const jog = {};
+    const feature = createOriginProbing({
+      documentRef: { getElementById: () => null, querySelectorAll: () => [] },
+      getMachine: () => ({ connected: true, state: "Idle", stale: false }),
+      getUI: () => ({ machine: { learned: {} } }),
+      getJog: () => jog,
+      renderJog: () => {},
+      tapMoveTargetBusy: () => false,
+      isProbeToolActive: () => probe, is3DProbeToolActive: () => probe3D,
+      currentAxisValues: () => ({ wpos: { x: 1, y: 2, z: 3 } }),
+      axisValue: (values, axis) => Number.isFinite(values?.[axis]) ? values[axis] : null,
+      request: async (url, opts) => { requests.push([url, opts.method]); return { json: async () => ({ verified: true, message: "Work Z zero verified at probe contact." }) }; },
+      pollMachine: async () => {},
+      appendGcodeLine: () => {},
+      setStatusMessage: (...args) => messages.push(args),
+    });
+    await feature.runAutoZProbe();
+    return { requests, messages, jog };
+  };
+  const with3D = await run({ probe: false, probe3D: true });
+  assert.deepEqual(with3D.requests, [["/api/probe/auto-z", "POST"]]);
+  assert.equal(with3D.messages.at(-1)[1], "Work Z zero verified at probe contact.");
+  assert.equal(with3D.jog.zProbePending, false);
+  const withCutter = await run({ probe: false, probe3D: false });
+  assert.deepEqual(withCutter.requests, []);
+  assert.equal(withCutter.messages.at(-1)[1], "Z probe requires the probe tool or the 3D Probe to be active.");
+});

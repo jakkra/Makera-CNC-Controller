@@ -130,6 +130,13 @@ type Service struct {
 	executionRecoveryPath string
 	executionRecoveryAt   time.Time
 
+	// pausedSpindleScan memoizes whether the paused program restarts the
+	// spindle before its next feed move (see paused_resume.go).
+	pausedSpindleScanMu     sync.Mutex
+	pausedSpindleScanKey    pausedSpindleScanKey
+	pausedSpindleScanResult bool
+	pausedSpindleScanValid  bool
+
 	observerStop    chan struct{}
 	observerClose   sync.Once
 	observerMu      sync.Mutex
@@ -524,8 +531,19 @@ func (s *Service) Status() MachineStatus {
 		Progress:     st.Progress,
 		Machine:      st.Machine,
 		ActiveJob:    s.machineJobProgress(st),
-		JobControl:   jobControlState(st, s.ExecutionContext()),
+		JobControl:   s.jobControlStateFor(st),
 	}
+}
+
+// jobControlStateFor extends jobControlState with the active-program check
+// that lets a program-authored pause resume before the spindle is running
+// when the program itself starts the spindle before its next feed move.
+func (s *Service) jobControlStateFor(st machine.Status) JobControlState {
+	control := jobControlState(st, s.ExecutionContext())
+	if control.Paused && !control.CanResume && s.pausedProgramRestartsSpindle(st) {
+		control.CanResume = true
+	}
+	return control
 }
 
 // ExecutionContext returns the current in-memory view. Unlike the store's
@@ -2694,7 +2712,7 @@ func (s *Service) ResumeJob() (JobControlResult, error) {
 		if st.State != machine.Pause {
 			return fmt.Errorf("%w: machine state is %s, want Hold or Pause", ErrJobControlUnavailable, st.State)
 		}
-		if !pausedSpindleReady(st, s.ExecutionContext().Spindle) {
+		if !pausedSpindleReady(st, s.ExecutionContext().Spindle) && !s.pausedProgramRestartsSpindle(st) {
 			return fmt.Errorf("%w: start the spindle and wait for measured RPM before resuming the paused job", ErrJobControlUnavailable)
 		}
 		s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, "job resume (resume)")

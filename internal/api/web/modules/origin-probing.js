@@ -17,7 +17,14 @@ export function createOriginProbing({
     get jog() { return getJog(); },
     get activeTab() { return getActiveTab(); },
     get outline() { return getOutline(); },
-  };function machineReadyForOriginSet() {
+  };// Probe Z is a plain G38.2 touch-off at the current XY. The firmware routes
+// it to the wireless Z probe (tool 0) or, with tool 9999 active, to the wired
+// 3D Probe input, so either probe may run it without a tool change.
+function zProbeToolActive() {
+  return !!isProbeToolActive() || !!is3DProbeToolActive();
+}
+
+function machineReadyForOriginSet() {
   const m = state.machine || {};
   const age = Number(m.age_ms);
   return !!m.connected && m.state === "Idle" && !m.stale && (!Number.isFinite(age) || age <= 10000);
@@ -33,7 +40,7 @@ function renderOriginButtons() {
   const apiReady = !j.armed && machineReadyForOriginSet() && !externalJogBusy;
   const ready = (jogReady || apiReady) && !j.armPending && !tapMoveTargetBusy() && !j.zStepPending && !pendingAxis && !zProbePending;
   const busy = !!j.armPending || tapMoveTargetBusy() || !!j.zStepPending || !!pendingAxis || zProbePending;
-  const probeReady = apiReady && isProbeToolActive();
+  const probeReady = apiReady && zProbeToolActive();
   const probe3DReady = apiReady && is3DProbeToolActive();
   for (const btn of document.querySelectorAll("[data-origin-zero]")) {
     btn.disabled = busy;
@@ -802,8 +809,8 @@ async function runAutoZProbe() {
     renderJog();
     return;
   }
-  if (!isProbeToolActive()) {
-    setOriginFeedback("Z probe requires the probe tool to be active.", "error");
+  if (!zProbeToolActive()) {
+    setOriginFeedback("Z probe requires the probe tool or the 3D Probe to be active.", "error");
     renderJog();
     return;
   }
