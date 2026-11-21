@@ -17,6 +17,7 @@ export function createSurfaceControls({ state, documentRef = document, callbacks
     sendSurfaceStep,
     normalizeMachineSettings,
     clampNumber,
+    goToSurfaceDestination,
   } = callbacks;
 
   function bindSurfaceStepButton(button, axis, sign) {
@@ -179,6 +180,9 @@ ${text.detail}` : text.primary;
     }
     bindSurfaceMPGWheel();
     bindSurfaceXYMap();
+    for (const button of documentRef.querySelectorAll("[data-surface-goto]")) {
+      bindButtonAction(button, () => goToSurfaceDestination?.(button.dataset.surfaceGoto));
+    }
     documentRef.getElementById("surface-jog-settings-open").onclick = () => documentRef.getElementById("surface-settings-modal")?.showModal();
     documentRef.getElementById("surface-settings-close").onclick = () => documentRef.getElementById("surface-settings-modal")?.close();
   }

@@ -218,7 +218,7 @@ export function createWorkMoveInteractions({
     renderJog();
   }
 
-  function sendTapMove(target) {
+  function sendTapMove(target, labelOverride = "") {
     if (getJogLink() !== "online") {
       setTapFeedback("Jog service is not connected.", "error");
       connectJog();
@@ -238,14 +238,16 @@ export function createWorkMoveInteractions({
     }
     const machine = normalizeMachineSettings(getMachineSettings());
     const safeZEnabled = !machine.safe_z_disabled;
-    const label = tapTargetLabel(target);
-    const seq = sendJog({ type: "target", target: { x: target.x, y: target.y }, feed_mm_min: feed, safe_z_enabled: safeZEnabled, safe_z_mm: safeZForTapMove(machine) });
+    const label = labelOverride || tapTargetLabel(target);
+    const machineTarget = { x: target.x, y: target.y };
+    if (Number.isFinite(target.z)) machineTarget.z = target.z;
+    const seq = sendJog({ type: "target", target: machineTarget, feed_mm_min: feed, safe_z_enabled: safeZEnabled, safe_z_mm: safeZForTapMove(machine) });
     if (!seq) {
       setTapFeedback("Jog service is not connected.", "error");
       return;
     }
     const base = getJogTarget() || getJogObserved() || getJogMpos() || getMachineMpos() || {};
-    setJogTarget({ ...base, x: target.x, y: target.y });
+    setJogTarget({ ...base, ...machineTarget });
     setJogTargetPending(seq);
     setJogTargetMotionPending(seq);
     setJogTargetLabel(label);

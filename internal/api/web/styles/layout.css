@@ -65,6 +65,9 @@
   .surface-hold-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-sm); }
   .surface-hold-controls button { min-height: 72px; justify-content: center; font-size: 18px; font-weight: 750; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   .surface-jog-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-sm); }
+  .surface-goto { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-sm); }
+  .surface-goto-title { grid-column: 1 / -1; color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+  .surface-goto button { min-height: 48px; justify-content: center; white-space: nowrap; }
   .surface-jog-actions button { min-height: 52px; justify-content: center; }
   .surface-jog-actions button:last-child:nth-child(odd) { grid-column: 1 / -1; }
   .surface-position-panel { align-content: start; grid-template-rows: auto auto auto; }

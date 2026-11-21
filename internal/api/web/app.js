@@ -28,6 +28,7 @@ import { createJogFeature, JOG_INPUT_DEADZONE, jogInputActive, movementArmAvaila
 import { createJogView } from "./modules/jog-view.js";
 import { createGamepadControls } from "./modules/gamepad-controls.js";
 import { createSurfaceControls } from "./modules/surface-controls.js";
+import { surfaceGotoDestination } from "./modules/surface-goto.js";
 import { createSurfaceActions } from "./modules/surface-actions.js";
 import { createWorkAreaInteractions } from "./modules/workarea-interactions.js";
 import { createWorkMoveInteractions } from "./modules/work-move.js";
@@ -614,6 +615,7 @@ const surfaceControls = createSurfaceControls({
     normalizeMachineSettings,
     clampNumber,
     applySurfaceAutomaticView,
+    goToSurfaceDestination,
   },
 });
 const originProbing = createOriginProbing({
@@ -1398,6 +1400,19 @@ function currentAxisValues() {
     mpos: preferJog ? (state.jog.mpos || state.machine.mpos) : (state.machine.mpos || state.jog.mpos),
     wpos: preferJog ? (state.jog.wpos || state.machine.wpos) : (state.machine.wpos || state.jog.wpos),
   };
+}
+
+function goToSurfaceDestination(kind) {
+  const destination = surfaceGotoDestination(kind, {
+    workOrigin: currentWorkOrigin(),
+    learned: normalizeMachineSettings(state.ui.machine).learned,
+  });
+  if (destination.error) {
+    setStatusMessage("surface-jog", destination.error, "error", { force: true });
+    return false;
+  }
+  sendTapMove(destination.target, destination.label);
+  return true;
 }
 
 function currentWorkOrigin() {

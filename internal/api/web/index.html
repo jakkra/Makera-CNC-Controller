@@ -493,6 +493,13 @@
       <aside class="surface-jog-panel surface-position-panel" aria-label="Live machine position">
         <div class="machine-readout-host" data-machine-readout-host></div>
         <div class="surface-position-summary"><strong id="surface-position-state">Machine state unknown</strong><span id="surface-position-detail">Waiting for machine status</span></div>
+        <div class="surface-goto" role="group" aria-labelledby="surface-goto-title">
+          <span id="surface-goto-title" class="surface-goto-title">Go to</span>
+          <button type="button" data-surface-goto="origin" title="Move to work X0 Y0 at safe Z">⌖&nbsp; Work origin</button>
+          <button type="button" data-surface-goto="clearance" title="Move to the machine clearance position">⇱&nbsp; Clearance</button>
+          <button type="button" data-surface-goto="anchor1" title="Move to Anchor 1 at safe Z">◣&nbsp; Anchor 1</button>
+          <button type="button" data-surface-goto="anchor2" title="Move to Anchor 2 at safe Z">◢&nbsp; Anchor 2</button>
+        </div>
         <div class="surface-position-actions"><button type="button" id="surface-open-active-job">Active job</button><button type="button" id="surface-jog-settings-open">Settings</button></div>
       </aside>
     </section>
