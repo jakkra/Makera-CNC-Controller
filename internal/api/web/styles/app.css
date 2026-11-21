@@ -176,7 +176,7 @@
   .surface-positions .surface-goto-title { grid-column: 1 / 3; }
   .surface-positions-save { grid-column: 3 / -1; min-height: 36px; justify-content: center; font-size: 12px; }
   .surface-positions-save[aria-pressed="true"], .surface-positions.is-saving [data-surface-position] { border-color: var(--warn); color: var(--warn); }
-  .surface-positions [data-surface-position] { min-height: 64px; display: grid; place-items: center; align-content: center; gap: 2px; padding: 4px 2px; }
+  .surface-positions [data-surface-position] { min-height: 62px; display: grid; place-items: center; align-content: center; gap: 2px; padding: 4px 2px; }
   .surface-positions [data-surface-position] b { font-size: 20px; line-height: 1; }
   .surface-positions [data-surface-position] small { color: var(--muted); font-size: 10px; line-height: 1.25; white-space: pre-line; font-variant-numeric: tabular-nums; }
   .surface-positions [data-surface-position].is-empty b { color: var(--muted); }
