@@ -1,3 +1,5 @@
+import { bedMapExtent, bedPlatePlacement, bedPlateSVG, describeBedTarget } from "./bed-plate.js";
+
 export function createSurfaceControls({ state, documentRef = document, callbacks = {} }) {
   const {
     bindButtonAction,
@@ -65,17 +67,38 @@ export function createSurfaceControls({ state, documentRef = document, callbacks
     const modal = documentRef.getElementById("surface-xy-map-modal");
     const plot = documentRef.getElementById("surface-xy-map-plot");
     const target = documentRef.getElementById("surface-xy-map-target");
+    let selected = null;
+    const mapModel = () => {
+      const machine = normalizeMachineSettings(state.ui.machine);
+      const work = machine.work_area;
+      const placement = bedPlatePlacement(machine.learned);
+      return { work, placement, extent: bedMapExtent(work, placement) };
+    };
+    const render = () => {
+      if (!plot) return;
+      const { work, placement, extent } = mapModel();
+      const ratio = (extent.x_max - extent.x_min) / Math.max(1e-6, extent.y_max - extent.y_min);
+      if (plot.style) {
+        plot.style.aspectRatio = String(ratio);
+        plot.style.width = `min(100%, calc(60dvh * ${ratio.toFixed(4)}))`;
+      }
+      plot.innerHTML = bedPlateSVG({ work, placement, target: selected });
+    };
     const close = () => modal?.close();
-    documentRef.getElementById("surface-map-open")?.addEventListener("click", () => modal?.showModal());
+    documentRef.getElementById("surface-map-open")?.addEventListener("click", () => { render(); modal?.showModal(); });
     documentRef.getElementById("surface-map-close")?.addEventListener("click", close);
     documentRef.getElementById("surface-map-close-bottom")?.addEventListener("click", close);
     modal?.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
     plot?.addEventListener("pointerdown", (e) => {
       const rect = plot.getBoundingClientRect();
-      const work = normalizeMachineSettings(state.ui.machine).work_area;
-      const x = work.x_min + clampNumber((e.clientX - rect.left) / Math.max(1, rect.width), 0, 1) * (work.x_max - work.x_min);
-      const y = work.y_max - clampNumber((e.clientY - rect.top) / Math.max(1, rect.height), 0, 1) * (work.y_max - work.y_min);
-      target.textContent = `X ${x.toFixed(1)}  Y ${y.toFixed(1)} mm`;
+      const { placement, extent } = mapModel();
+      const x = extent.x_min + clampNumber((e.clientX - rect.left) / Math.max(1, rect.width), 0, 1) * (extent.x_max - extent.x_min);
+      const y = extent.y_max - clampNumber((e.clientY - rect.top) / Math.max(1, rect.height), 0, 1) * (extent.y_max - extent.y_min);
+      const text = describeBedTarget(placement, x, y);
+      selected = { x, y, feature: text.feature || null };
+      target.textContent = text.detail ? `${text.primary}
+${text.detail}` : text.primary;
+      render();
     });
   }
 
