@@ -122,6 +122,58 @@
   .probe-3d-preflight.is-visible { color: var(--err); background: rgba(232,106,95,.1); border-color: rgba(232,106,95,.46); }
   .probe-3d-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .probe-3d-actions button { min-height: 40px; justify-content: center; }
+  #probe-3d-modal { width: min(760px, calc(100vw - 24px)); }
+  .probe-3d-picker { display: grid; gap: 8px; }
+  .p3d-options { display: grid; gap: 8px; }
+  .p3d-categories { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .p3d-variants { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .p3d-option { min-width: 0; min-height: 56px; display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: center; gap: 8px; padding: 6px 8px; text-align: left; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; }
+  .p3d-variants .p3d-option { min-height: 44px; grid-template-columns: 32px minmax(0, 1fr); }
+  .p3d-option:hover:not(:disabled) { border-color: var(--muted); }
+  .p3d-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .p3d-option.is-checked { border-color: var(--accent); background: rgba(87,166,214,.14); box-shadow: inset 0 0 0 1px var(--accent); }
+  .p3d-option:disabled { opacity: .55; cursor: default; }
+  .p3d-option-icon svg { display: block; width: 100%; height: auto; }
+  .p3d-option-text { min-width: 0; display: grid; gap: 0; line-height: 1.25; }
+  .p3d-option-text b { overflow-wrap: anywhere; font-size: 13px; font-weight: 650; }
+  .p3d-option-text small { overflow-wrap: anywhere; color: var(--muted); font-size: 11px; }
+  .p3d-icon-stock { fill: #3a4448; stroke: #6c7a80; stroke-width: 1.2; }
+  .p3d-icon-hole { fill: var(--bg); stroke: #6c7a80; stroke-width: 1.2; }
+  .p3d-icon-hole-ring { fill: var(--bg); stroke: #6c7a80; stroke-width: 3; }
+  .p3d-icon-mark { fill: var(--accent); }
+  .p3d-icon-axis { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 3 2; }
+  .p3d-option.is-checked .p3d-icon-stock { fill: #43535a; stroke: #8fb6cc; }
+  .probe-3d-figure { margin: 0; display: grid; gap: 8px; padding: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); }
+  .probe-3d-diagram { aspect-ratio: 376 / 228; }
+  .probe-3d-diagram svg { display: block; width: 100%; height: 100%; }
+  .probe-3d-caption { display: grid; gap: 2px; color: var(--text); line-height: 1.4; }
+  .probe-3d-caption b { color: var(--accent); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .p3d-legend { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-size: 11px; }
+  .p3d-legend li { display: inline-flex; align-items: center; gap: 6px; }
+  .p3d-legend i { display: inline-block; width: 18px; height: 10px; }
+  .p3d-key-start { background: radial-gradient(circle, var(--ok) 0 4px, transparent 4.5px); }
+  .p3d-key-move { border-top: 2px solid var(--warn); margin-top: 8px; height: 0 !important; }
+  .p3d-key-travel { border-top: 2px dashed var(--muted); margin-top: 8px; height: 0 !important; }
+  .p3d-key-origin { background: radial-gradient(circle, transparent 0 3px, var(--accent) 3.5px 5px, transparent 5.5px); }
+  .p3d-view-bg { fill: #14191a; }
+  .p3d-view-title { fill: var(--muted); font-size: 10px; letter-spacing: .08em; }
+  .p3d-stock { fill: #3a4448; stroke: #6c7a80; stroke-width: 1.5; }
+  .p3d-pocket { fill: #14191a; stroke: #6c7a80; stroke-width: 1.5; }
+  .p3d-ball { fill: var(--ok); stroke: #0c0f0e; stroke-width: 1.5; }
+  .p3d-ball-ghost { fill: none; stroke: var(--ok); stroke-width: 1.5; stroke-dasharray: 2 2; }
+  .p3d-stylus { stroke: #b9c4cc; stroke-width: 3; stroke-linecap: round; }
+  .p3d-stylus-ghost { stroke: #b9c4cc; stroke-width: 2; stroke-dasharray: 3 3; opacity: .6; }
+  .p3d-travel { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 4; fill: none; }
+  .p3d-probe-move { stroke: var(--warn); stroke-width: 2.5; }
+  .p3d-arrowhead-move { fill: var(--warn); }
+  .p3d-arrowhead-dim { fill: var(--accent); }
+  .p3d-dim { stroke: var(--accent); stroke-width: 1; }
+  .p3d-dim-label { fill: var(--text); font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: #14191a; stroke-width: 3px; }
+  .p3d-origin circle { fill: none; stroke: var(--accent); stroke-width: 2; }
+  .p3d-origin line { stroke: var(--accent); stroke-width: 1.5; }
+  .p3d-zero-line { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 2 3; }
+  .p3d-zero-label { fill: var(--accent); font-size: 10px; font-weight: 650; }
+  @media (max-width: 760px) { .p3d-categories, .p3d-variants { grid-template-columns: repeat(2, minmax(0, 1fr)); } .p3d-option { grid-template-columns: 36px minmax(0, 1fr); } }
   .control-command-drawer .tap-primary-controls { grid-template-columns: minmax(0, 1fr) 90px; }
   .control-command-drawer .tap-feed-field { width: 100%; }
   .control-command-drawer .tap-feed-stepper { grid-template-columns: 34px minmax(0, 1fr) 34px; }

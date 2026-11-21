@@ -924,9 +924,10 @@
     <button type="button" id="probe-3d-close" aria-label="Close 3D Probe">Close</button>
   </div>
   <div class="probe-3d-body">
-    <label class="probe-3d-mode">
-      <span>Probe operation</span>
-      <select id="probe-3d-kind">
+    <div class="probe-3d-picker">
+      <div id="probe-3d-categories" class="p3d-options p3d-categories" role="radiogroup" aria-label="Probe operation"></div>
+      <div id="probe-3d-variants" class="p3d-options p3d-variants" role="radiogroup" aria-label="Corner"></div>
+      <select id="probe-3d-kind" hidden aria-hidden="true" tabindex="-1">
         <optgroup label="Outside corner">
           <option value="outside_bottom_left">Bottom-left corner</option>
           <option value="outside_top_left">Top-left corner</option>
@@ -948,7 +949,17 @@
           <option value="boss_block_y">Boss / block — Y only</option>
         </optgroup>
       </select>
-    </label>
+    </div>
+    <figure class="probe-3d-figure">
+      <div id="probe-3d-diagram" class="probe-3d-diagram"></div>
+      <figcaption class="probe-3d-caption"><b id="probe-3d-sets"></b><span id="probe-3d-placement"></span></figcaption>
+      <ul class="p3d-legend" aria-label="Diagram legend">
+        <li><i class="p3d-key-start"></i>Start position</li>
+        <li><i class="p3d-key-move"></i>Probing move</li>
+        <li><i class="p3d-key-travel"></i>Rapid travel</li>
+        <li><i class="p3d-key-origin"></i>New origin</li>
+      </ul>
+    </figure>
     <div class="probe-3d-fields">
       <label id="probe-3d-x-field" class="probe-3d-field"><span>X Offset</span><input id="probe-3d-x" type="number" value="20" min="0" max="5000" step="0.1" inputmode="decimal"></label>
       <label id="probe-3d-y-field" class="probe-3d-field"><span>Y Offset</span><input id="probe-3d-y" type="number" value="20" min="0" max="5000" step="0.1" inputmode="decimal"></label>

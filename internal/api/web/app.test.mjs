@@ -8332,11 +8332,13 @@ test("3D probe popup exposes the warning and disables Probe for a predicted conf
     ["probe-3d-close", element()],
   ]);
   const warning = "Soft-limit risk: X target -302.725 mm is below learned minimum -302.000 mm.";
+  const pickerRenders = [];
   const ctx = buildContext(["renderProbe3DForm"], [], {
     state: { jog: { probe3DPending: false } },
     document: { getElementById: (id) => elements.get(id) || null },
     probe3DFieldRules: () => ({ x: true, y: true, z: true, note: "Probe note." }),
     probe3DPreflightFromControls: () => ({ blocked: true, warning }),
+    probe3DPicker: { render: (view) => pickerRenders.push(view) },
     setTextIfChanged: (node, text) => { node.textContent = text; },
     setElementBusy: () => {},
   });
@@ -8345,6 +8347,7 @@ test("3D probe popup exposes the warning and disables Probe for a predicted conf
   assert.equal(elements.get("probe-3d-run").disabled, true);
   assert.equal(attrs.get("aria-hidden"), "false");
   assert.ok(toggles.some(([name, active]) => name === "is-visible" && active));
+  assert.deepEqual(JSON.parse(JSON.stringify(pickerRenders)), [{ kind: "boss_block", values: { x: "50", y: "50", z: "2" }, pending: false }]);
 });
 
 test("3D probe action sends the selected controller workflow", async () => {

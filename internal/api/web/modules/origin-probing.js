@@ -1,3 +1,5 @@
+import { createProbe3DPicker } from "./probe-3d-picker.js";
+
 export function createOriginProbing({
   documentRef = document, getMachine = () => ({}), getUI = () => ({}), getJog = () => ({}),
   getActiveTab = () => "", getOutline = () => ({}), request, pollMachine, sendJog, connectJog,
@@ -11,6 +13,7 @@ export function createOriginProbing({
   const document = documentRef;
   const setTimeout = setTimeoutRef;
   const clearTimeout = clearTimeoutRef;
+  const probe3DPicker = createProbe3DPicker({ documentRef: document, onChange: () => renderProbe3DForm() });
   const state = {
     get machine() { return getMachine(); },
     get ui() { return getUI(); },
@@ -639,6 +642,15 @@ function renderProbe3DForm() {
   if (diameter) diameter.disabled = pending;
   const note = document.getElementById("probe-3d-note");
   if (note) note.textContent = rules.note;
+  probe3DPicker.render({
+    kind,
+    values: {
+      x: document.getElementById("probe-3d-x")?.value,
+      y: document.getElementById("probe-3d-y")?.value,
+      z: document.getElementById("probe-3d-z")?.value,
+    },
+    pending,
+  });
   const preflight = probe3DPreflightFromControls();
   const preflightNode = document.getElementById("probe-3d-preflight");
   if (preflightNode) {
@@ -695,7 +707,7 @@ function openProbe3D() {
   if (!dialog || dialog.open) return;
   renderProbe3DForm();
   dialog.showModal();
-  document.getElementById("probe-3d-kind")?.focus();
+  probe3DPicker.focusSelected();
 }
 
 function closeProbe3D() {
