@@ -1543,7 +1543,7 @@
     #surface-map-open { min-height: 56px; border-radius: 12px; font-size: 15px; font-weight: 700; }
     .surface-a-guard { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; padding: 12px; border: 1px solid #3a4a54; border-radius: 14px; background: rgba(13,20,24,.6); }
     .surface-a-title { grid-column: 1 / -1; color: #8ca5b4; font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
-    .surface-a-guard button { min-height: 64px; justify-content: center; border: 1px solid #52626b; border-radius: 12px; background: linear-gradient(160deg,#24313a,#121a20); color: #e8f0f4; font-size: 19px; font-weight: 750; white-space: nowrap; }
+    .surface-a-guard button { min-height: 62px; justify-content: center; border: 1px solid #52626b; border-radius: 12px; background: linear-gradient(160deg,#24313a,#121a20); color: #e8f0f4; font-size: 19px; font-weight: 750; white-space: nowrap; }
     .surface-a-guard button[data-surface-a-turn] { grid-column: 1 / -1; min-height: 52px; font-size: 16px; }
     .surface-position-panel { align-content: start; justify-content: stretch; padding-inline: 22px; }
     .surface-position-panel .machine-axis-grid { grid-template-columns: repeat(2, minmax(0,1fr)); grid-auto-rows: 74px; }
