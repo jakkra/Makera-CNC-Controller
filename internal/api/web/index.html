@@ -462,11 +462,11 @@
           <div class="surface-primary-motion">
             <div id="surface-directional-panel">
               <div class="surface-direction-pad" aria-label="XY jog directions">
-                <button type="button" data-surface-axis="y" data-surface-sign="1" aria-label="Jog Y positive">Y+</button>
-                <button type="button" data-surface-axis="x" data-surface-sign="-1" aria-label="Jog X negative">X−</button>
-                <span class="surface-jog-center" aria-hidden="true">XY</span>
-                <button type="button" data-surface-axis="x" data-surface-sign="1" aria-label="Jog X positive">X+</button>
-                <button type="button" data-surface-axis="y" data-surface-sign="-1" aria-label="Jog Y negative">Y−</button>
+                <button type="button" data-surface-axis="y" data-surface-sign="1" aria-label="Jog Y positive"><span class="surface-dir-arrow" aria-hidden="true">▲</span>Y+</button>
+                <button type="button" data-surface-axis="x" data-surface-sign="-1" aria-label="Jog X negative"><span class="surface-dir-arrow" aria-hidden="true">◀</span>X−</button>
+                <span class="surface-jog-center" aria-hidden="true"><small>XY step</small><b id="surface-jog-center-step">1 mm</b></span>
+                <button type="button" data-surface-axis="x" data-surface-sign="1" aria-label="Jog X positive"><span class="surface-dir-arrow" aria-hidden="true">▶</span>X+</button>
+                <button type="button" data-surface-axis="y" data-surface-sign="-1" aria-label="Jog Y negative"><span class="surface-dir-arrow" aria-hidden="true">▼</span>Y−</button>
               </div>
             </div>
             <div id="surface-mpg-panel" hidden>
@@ -484,9 +484,9 @@
             </div>
           </div>
           <div class="surface-axis-column">
-            <div class="surface-jog-actions"><button type="button" data-surface-z-sign="1">Z+</button><button type="button" data-surface-z-sign="-1">Z−</button></div>
+            <div class="surface-jog-actions"><button type="button" data-surface-z-sign="1" aria-label="Jog Z up"><span class="surface-dir-arrow" aria-hidden="true">▲</span>Z+</button><button type="button" data-surface-z-sign="-1" aria-label="Jog Z down">Z−<span class="surface-dir-arrow" aria-hidden="true">▼</span></button></div>
             <button type="button" id="surface-map-open">XY Target Map</button>
-            <div class="surface-a-guard" role="group" aria-label="A axis rotary jog"><span aria-hidden="true">A</span><button type="button" data-surface-a-sign="-1">A−</button><button type="button" data-surface-a-sign="1">A+</button><button type="button" data-surface-a-turn="360" aria-label="Rotate A axis positive 360 degrees">+360°</button></div>
+            <div class="surface-a-guard" role="group" aria-label="A axis rotary jog"><span class="surface-a-title" aria-hidden="true">A axis</span><button type="button" data-surface-a-sign="-1" aria-label="Jog A negative">↺&nbsp;A−</button><button type="button" data-surface-a-sign="1" aria-label="Jog A positive">A+&nbsp;↻</button><button type="button" data-surface-a-turn="360" aria-label="Rotate A axis positive 360 degrees">+360°</button></div>
           </div>
         </div>
       </section>

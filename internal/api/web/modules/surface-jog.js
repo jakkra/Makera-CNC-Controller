@@ -230,6 +230,7 @@ export function createSurfaceJogFeature({
     setTextIfChanged(document?.getElementById("surface-position-detail"), detail);
     renderSurfaceQuickActions(machineState);
     setTextIfChanged(document?.getElementById("surface-jog-options-summary"), surfaceJogOptionsSummary(surface));
+    setTextIfChanged(document?.getElementById("surface-jog-center-step"), `${surfaceStepDistance(surface)} mm`);
     for (const button of document?.querySelectorAll?.("[data-surface-step]") || []) button.setAttribute("aria-pressed", String(Number(button.dataset.surfaceStep) === surfaceStepDistance(surface)));
     for (const button of document?.querySelectorAll?.("[data-surface-motion]") || []) button.setAttribute("aria-pressed", String(button.dataset.surfaceMotion === surface.motion));
     for (const button of document?.querySelectorAll?.(".surface-mpg-axis") || []) button.setAttribute("aria-pressed", String(button.dataset.surfaceMpgAxis === surface.mpg_axis));

@@ -42,7 +42,11 @@
   .surface-motion-stage, .surface-primary-motion, .surface-axis-column { display: contents; }
   .surface-kiosk-precision, .surface-kiosk-motion, .surface-a-guard, #surface-kiosk-nav, #surface-quick-actions { display: none; }
   .surface-direction-pad { width: min(100%, 440px); aspect-ratio: 1; justify-self: center; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 8px; }
-  .surface-direction-pad button { min-height: 76px; font-size: clamp(20px, 3vw, 30px); font-weight: 750; justify-content: center; }
+  .surface-direction-pad button { min-height: 76px; flex-direction: column; gap: 2px; font-size: clamp(20px, 3vw, 30px); font-weight: 750; justify-content: center; }
+  .surface-dir-arrow { display: block; color: var(--accent); font-size: .5em; line-height: 1; }
+  .surface-jog-actions button { flex-direction: column; gap: 2px; }
+  .surface-jog-center small { display: block; font-size: 10px; }
+  .surface-jog-center b { display: block; color: var(--text); font-size: 15px; letter-spacing: 0; text-transform: none; }
   .surface-direction-pad button[data-surface-axis="x"][data-surface-sign="-1"] { grid-area: 2 / 1; }
   .surface-direction-pad button[data-surface-axis="y"][data-surface-sign="1"] { grid-area: 1 / 2; }
   .surface-direction-pad button[data-surface-axis="y"][data-surface-sign="-1"] { grid-area: 3 / 2; }

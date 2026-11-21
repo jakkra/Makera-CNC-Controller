@@ -376,22 +376,24 @@
     .surface-jog-mode { grid-column: 3; grid-row: 1; }
     .surface-jog-mode button { min-height: 52px; border: 0; border-right: 1px solid #3a4a54; border-radius: 0; }
     .surface-jog-mode button:last-child { border-right: 0; }
-    .surface-motion-stage { order: 2; min-height: 0; display: grid; grid-template-columns: minmax(440px,1fr) 180px; gap: 24px; align-items: center; }
+    .surface-motion-stage { order: 2; min-height: 0; display: grid; grid-template-columns: minmax(420px,1fr) 210px; gap: 28px; align-items: center; }
     .surface-primary-motion { min-height: 0; display: grid; align-items: center; }
     #surface-directional-panel, #surface-mpg-panel { min-height: 0; }
-    .surface-direction-pad { width: min(49vh, 440px); max-width: 100%; gap: 8px; transform: rotate(45deg) scale(.96); }
-    .surface-direction-pad button, .surface-jog-center { border: 1px solid #52626b; border-radius: 14px; background: linear-gradient(145deg,#202b32,#11191e); transform: rotate(-45deg); }
-    .surface-direction-pad button { min-height: 100px; color: #e1e9ed; font-size: 25px; }
-    .surface-jog-center { color: #68d9ee; border-color: #68d9ee; font-size: 13px; }
-    .surface-axis-column { min-height: 0; align-self: start; display: grid; grid-template-rows: 152px 52px 60px; gap: 12px; }
-    .surface-jog-actions { display: grid; grid-template-columns: 1fr; grid-template-rows: repeat(2,76px); gap: 0; }
-    .surface-jog-actions button { min-height: 0; border-radius: 0; border-color: #52626b; font-size: 21px; font-weight: 750; }
-    .surface-jog-actions button:first-child { border-radius: 10px 10px 0 0; }
-    .surface-jog-actions button:nth-child(2) { border-top: 0; border-radius: 0 0 10px 10px; }
-    #surface-map-open { grid-row: 2; min-height: 52px; border-radius: 2px; font-size: 14px; }
-    .surface-a-guard { display: grid; grid-template-columns: 38px repeat(3,minmax(0,1fr)); gap: 0; align-items: stretch; min-height: 58px; border: 1px solid #3a4a54; color: #77848d; }
-    .surface-a-guard span { display: grid; place-items: center; border-right: 1px solid #3a4a54; }
-    .surface-a-guard button { padding: 0 4px; border: 0; border-radius: 0; background: transparent; color: #65717a; font-size: 13px; font-weight: 750; }
+    .surface-direction-pad { width: min(50vh, 430px); max-width: 100%; gap: 10px; justify-self: center; }
+    .surface-direction-pad button { min-height: 0; border: 1px solid #52626b; border-radius: 16px; background: linear-gradient(160deg,#24313a,#121a20); color: #e8f0f4; font-size: 28px; box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 6px 14px rgba(0,0,0,.25); }
+    .surface-direction-pad button .surface-dir-arrow { font-size: 18px; margin-bottom: 4px; }
+    .surface-direction-pad button:active, .surface-jog-actions button:active, .surface-a-guard button:active { background: #1d3d4a; border-color: #68d9ee; }
+    .surface-jog-center { margin: 14%; border: 1px solid #3a4a54; border-radius: 50%; background: #0d1418; color: #8ca5b4; font-size: 10px; font-weight: 700; text-align: center; align-content: center; gap: 2px; }
+    .surface-jog-center b { color: #68d9ee; font-size: 17px; font-weight: 750; }
+    .surface-axis-column { min-height: 0; align-self: center; display: grid; grid-template-rows: auto auto auto; gap: 14px; }
+    .surface-jog-actions { display: grid; grid-template-columns: 1fr; grid-template-rows: repeat(2,92px); gap: 10px; }
+    .surface-jog-actions button { min-height: 0; border: 1px solid #52626b; border-radius: 16px; background: linear-gradient(160deg,#24313a,#121a20); color: #e8f0f4; font-size: 26px; font-weight: 750; }
+    .surface-jog-actions button .surface-dir-arrow { font-size: 16px; }
+    #surface-map-open { min-height: 56px; border-radius: 12px; font-size: 15px; font-weight: 700; }
+    .surface-a-guard { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; padding: 12px; border: 1px solid #3a4a54; border-radius: 14px; background: rgba(13,20,24,.6); }
+    .surface-a-title { grid-column: 1 / -1; color: #8ca5b4; font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+    .surface-a-guard button { min-height: 64px; justify-content: center; border: 1px solid #52626b; border-radius: 12px; background: linear-gradient(160deg,#24313a,#121a20); color: #e8f0f4; font-size: 19px; font-weight: 750; white-space: nowrap; }
+    .surface-a-guard button[data-surface-a-turn] { grid-column: 1 / -1; min-height: 52px; font-size: 16px; }
     .surface-position-panel { align-content: start; justify-content: stretch; padding-inline: 22px; }
     .surface-position-panel .machine-axis-grid { grid-template-columns: repeat(2, minmax(0,1fr)); grid-auto-rows: 74px; }
     .surface-position-panel .machine-axis { min-height: 0; grid-template-columns: 40px minmax(0,1fr); grid-template-rows: 1fr 1fr; gap: 2px 6px; padding: 7px 10px; }
