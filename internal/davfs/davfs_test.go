@@ -532,6 +532,7 @@ func TestWebDAVRangedPutAssemblesOriginalContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(svc.Close)
 	srv := httptest.NewServer(New(svc).Handler(""))
 	defer srv.Close()
 
@@ -554,6 +555,9 @@ func TestWebDAVRangedPutAssemblesOriginalContent(t *testing.T) {
 	}
 	if entry.Sync != store.LocalOnly || entry.Size != int64(split) {
 		t.Fatalf("entry after first range = %+v, want local_only %d bytes", entry, split)
+	}
+	if len(svc.Upcoming().Items) != 0 {
+		t.Fatal("partial range entered Up next")
 	}
 	if jobs := svc.Jobs(); len(jobs) != 0 {
 		t.Fatalf("first range queued jobs: %+v", jobs)
@@ -596,7 +600,7 @@ func TestWebDAVRangedPutAssemblesOriginalContent(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		got, ok := m.File("/sd/gcodes/ranged.nc")
-		if ok && bytes.Equal(got, content) {
+		if ok && bytes.Equal(got, content) && svc.Upcoming().OfferID == jobs[0].ID {
 			return
 		}
 		if ok && len(got) != len(content) {

@@ -6,6 +6,7 @@ export function createWorkMoveInteractions({
   getDefaultMachineSettings = () => ({}),
   normalizeMachineSettings = (machine) => machine || {},
   getJogCaps = () => null,
+  getZStepFeed = () => 0,
   getJogLink = () => "",
   getJogArmed = () => false,
   getJogTargetPending = () => 0,
@@ -218,7 +219,7 @@ export function createWorkMoveInteractions({
     renderJog();
   }
 
-  function sendTapMove(target, labelOverride = "") {
+  function sendTapMove(target, labelOverride = "", { requireSafeZ = false, fastSafeZ = false, yRetractMM = 0 } = {}) {
     if (getJogLink() !== "online") {
       setTapFeedback("Jog service is not connected.", "error");
       connectJog();
@@ -237,11 +238,14 @@ export function createWorkMoveInteractions({
       return;
     }
     const machine = normalizeMachineSettings(getMachineSettings());
-    const safeZEnabled = !machine.safe_z_disabled;
+    const safeZEnabled = requireSafeZ || !machine.safe_z_disabled;
     const label = labelOverride || tapTargetLabel(target);
-    const machineTarget = { x: target.x, y: target.y };
-    if (Number.isFinite(target.z)) machineTarget.z = target.z;
-    const seq = sendJog({ type: "target", target: machineTarget, feed_mm_min: feed, safe_z_enabled: safeZEnabled, safe_z_mm: safeZForTapMove(machine) });
+    const machineTarget = {};
+    for (const axis of ["x", "y", "z"]) if (Number.isFinite(target[axis])) machineTarget[axis] = target[axis];
+    const seq = sendJog({ type: "target", target: machineTarget, feed_mm_min: feed, safe_z_enabled: safeZEnabled, safe_z_mm: safeZForTapMove(machine),
+      ...(fastSafeZ ? { fast_safe_z: true } : {}),
+      ...(yRetractMM ? { y_retract_mm: yRetractMM } : {}),
+    });
     if (!seq) {
       setTapFeedback("Jog service is not connected.", "error");
       return;
@@ -285,7 +289,8 @@ export function createWorkMoveInteractions({
     if (tapMoveTargetBusy() || getJogZStepPending() || hasPendingOriginOperation()) return;
     const distance = currentZStepDistance() * dir;
     const label = zStepLabel(distance);
-    const seq = sendJog({ type: "step", axis: "z", distance });
+    const feed = getZStepFeed();
+    const seq = sendJog({ type: "step", axis: "z", distance, ...(feed ? { feed_mm_min: feed } : {}) });
     if (!seq) {
       setTapFeedback("Jog service is not connected.", "error");
       return;

@@ -1,0 +1,122 @@
+// All controller tabs observe the same queue. Dismissal belongs to this tab.
+export function mountUpNext({ document, request, setStatusMessage, canStart, readOnly, relPath }) {
+  const list = document.getElementById("up-next-items");
+  const popup = document.getElementById("upload-offer");
+  const title = document.getElementById("upload-offer-title");
+  const start = document.getElementById("upload-offer-start");
+  const dismiss = document.getElementById("upload-offer-dismiss");
+  const rows = new Map();
+  let current = { items: [] };
+  let offered = null;
+  const dismissed = new Set();
+  let timer;
+  let busy = false;
+  let transferText = "";
+
+  async function act(item, action, fromOffer = false) {
+    if (!item || busy || readOnly()) return;
+    if (action === "start" && !fromOffer && !globalThis.confirm("Start " + relPath(item.path) + "?")) return;
+    busy = true;
+    render();
+    const label = relPath(item.path);
+    const message = (text, kind, options = {}) => setStatusMessage("up-next-action", text, kind, { force: true, ...options });
+    message((action === "start" ? "Starting " : "Removing from Up next: ") + label, "info", { timeoutMs: 0 });
+    try {
+      const response = await request("/api/up-next/" + action, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: item.path, id: item.id, md5: item.md5, from_offer: fromOffer }),
+      });
+      const result = await response.json();
+      if (action === "remove") {
+        apply(result);
+        if (result.items.some((entry) => entry.id === item.id)) throw new Error("File still listed in Up next");
+        message("Removed from Up next: " + label, "ok");
+      } else {
+        if (offered?.id === item.id) offered = null;
+        current.items = current.items.filter((entry) => entry.id !== item.id);
+        message(result.message, result.verified ? "ok" : "info");
+      }
+    } catch (error) {
+      message(label + ": " + error.message, "error");
+    } finally {
+      busy = false;
+      render();
+    }
+  }
+
+  function makeRow(item) {
+    const row = document.createElement("li");
+    const name = document.createElement("span");
+    const run = document.createElement("button");
+    const remove = document.createElement("button");
+    run.textContent = "Start job";
+    remove.textContent = "Remove";
+    run.type = remove.type = "button";
+    run.onclick = () => act(item, "start");
+    remove.onclick = () => act(item, "remove");
+    run.setAttribute("aria-label", "Start " + relPath(item.path));
+    remove.setAttribute("aria-label", "Remove " + relPath(item.path) + " from Up next");
+    row.append(name, run, remove);
+    return { row, name, run, remove };
+  }
+
+  function render() {
+    if (!list || !popup) return;
+    const ids = new Set(current.items.map((item) => item.id));
+    for (const id of dismissed) if (!ids.has(id)) dismissed.delete(id);
+    for (const [id, value] of rows) {
+      if (!ids.has(id)) { value.row.remove(); rows.delete(id); }
+    }
+    current.items.forEach((item, index) => {
+      const value = rows.get(item.id) || makeRow(item);
+      rows.set(item.id, value);
+      const path = relPath(item.path);
+      if (value.name.textContent !== path) value.name.textContent = path;
+      value.run.disabled = busy || readOnly() || !canStart() || !item.ready;
+      value.remove.disabled = busy || readOnly();
+      if (list.children[index] !== value.row) list.insertBefore(value.row, list.children[index] || null);
+    });
+    document.getElementById("up-next-count").textContent = String(current.items.length);
+    popup.hidden = !offered || dismissed.has(offered.id) || !canStart() || readOnly();
+    if (!popup.hidden) title.textContent = "Start " + relPath(offered.path) + "?";
+    start.disabled = busy;
+    start.setAttribute("aria-busy", String(busy));
+  }
+
+  function apply(snapshot) {
+    if (!Array.isArray(snapshot?.items)) return;
+    current = snapshot;
+    clearTimeout(timer);
+    offered = current.items.find((item) => item.id === current.offer_id) || null;
+    if (offered && current.offer_ms > 0) {
+      timer = setTimeout(() => { offered = null; render(); }, current.offer_ms);
+    } else offered = null;
+    showTransfer(current.transfer);
+    render();
+  }
+
+  function showTransfer(t) {
+    const text = t ? `Uploading ${relPath(t.path)} to CNC · ${t.percent}%` : "";
+    if (text !== transferText) {
+      transferText = text;
+      setStatusMessage("cnc-transfer", text, "info", { timeoutMs: 0 });
+    }
+  }
+
+  if (start) {
+    // A transfer can replace the prompt between pointer-down and activation.
+    let pressedID;
+    start.onpointerdown = () => { pressedID = offered?.id; };
+    start.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") pressedID = offered?.id;
+    };
+    start.onblur = start.onpointercancel = () => { pressedID = undefined; };
+    start.onclick = () => {
+      const matches = pressedID === undefined || pressedID === offered?.id;
+      pressedID = undefined;
+      if (matches && !popup.hidden) return act(offered, "start", true);
+    };
+  }
+  if (dismiss) dismiss.onclick = () => { if (offered) dismissed.add(offered.id); render(); };
+  return { apply, render, showTransfer };
+}

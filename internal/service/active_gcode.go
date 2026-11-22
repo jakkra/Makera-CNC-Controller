@@ -37,6 +37,7 @@ const (
 var errMachineProgressUnsupported = errors.New("service: machine does not support the progress command")
 
 type activeGcodeState struct {
+	MD5           string
 	Path          string
 	Preview       GcodePreview
 	SourceOffsets []int64
@@ -177,6 +178,9 @@ func (s *Service) ActiveGcode() ActiveGcode {
 		s.clearActiveGcode(active.Path)
 		return ActiveGcode{Message: "No active gcode selected."}
 	}
+	if active.MD5 != entry.MD5 {
+		return s.activeGcodeFromStoredPath(storedPath)
+	}
 	return s.activeGcodeSnapshot(active, entry)
 }
 
@@ -192,7 +196,7 @@ func (s *Service) activeGcodeFromStoredPath(remotePath string) ActiveGcode {
 			defer rc.Close()
 			preview, offsets, err := parseGcodePreviewWithFeed(rc, s.machineFeedProfile())
 			if err == nil {
-				active := activeGcodeState{Path: cacheEntry.Path, Preview: preview, SourceOffsets: offsets, SelectedAt: time.Now()}
+				active := activeGcodeState{Path: cacheEntry.Path, MD5: cacheEntry.MD5, Preview: preview, SourceOffsets: offsets, SelectedAt: time.Now()}
 				s.activeMu.Lock()
 				// The persisted selection is authoritative. In particular, firmware
 				// playback discovery can replace a previously selected file while its
@@ -243,7 +247,7 @@ func (s *Service) SelectActiveGcode(remotePath string) (ActiveGcode, error) {
 	if err != nil {
 		return ActiveGcode{}, err
 	}
-	active := activeGcodeState{Path: entry.Path, Preview: preview, SourceOffsets: offsets, SelectedAt: time.Now()}
+	active := activeGcodeState{Path: entry.Path, MD5: entry.MD5, Preview: preview, SourceOffsets: offsets, SelectedAt: time.Now()}
 	if err := s.store.SetActiveGcodePath(entry.Path); err != nil {
 		return ActiveGcode{}, err
 	}
@@ -705,6 +709,9 @@ func (s *Service) RunActiveGcode() (MachineActionResult, error) {
 	if runnable, message := runnableGcode(entry); !runnable {
 		return MachineActionResult{Action: "run_gcode", Path: path, Message: message}, ErrActiveGcodeUnavailable
 	}
+	if u := entry.Upcoming; u.ID != 0 && !u.ReadyAt.IsZero() && entry.Sync == store.Synced && entry.CacheState == store.CacheReady {
+		return s.StartUpcoming(UpcomingAction{ID: u.ID, Path: path, MD5: entry.MD5})
+	}
 	display := "play " + path
 	out, err := s.sendConsoleMachineAction(display, protocol.PlayLine(path))
 	res := MachineActionResult{
@@ -792,9 +799,9 @@ func (s *Service) ChangeTool(toolID int) (MachineActionResult, error) {
 
 // ContinueToolChange mirrors the controller's M490.2 action, which clears the
 // firmware's manual tool-change waiting state after the operator confirms.
-func (s *Service) ContinueToolChange() (MachineActionResult, error) {
+func (s *Service) ContinueToolChange(expectedTool *int) (MachineActionResult, error) {
 	display := strings.TrimSpace(protocol.ContinueToolChangeLine())
-	out, err := s.sendToolContinueAction(display, protocol.ContinueToolChangeLine())
+	out, err := s.sendToolContinueAction(display, protocol.ContinueToolChangeLine(), expectedTool)
 	res := MachineActionResult{
 		Action:  "continue_tool_change",
 		Command: display,
@@ -878,6 +885,9 @@ func (s *Service) zProbeSetWorkZero(retractSafe bool) (MachineActionResult, erro
 		}
 		if st.State != machine.Idle {
 			return fmt.Errorf("%w: machine reports %s", ErrMachineStatusStale, statusSummary(st))
+		}
+		if st.Tool == nil || (st.Tool.Active != ToolIDProbe && st.Tool.Active != ToolID3DProbe) {
+			return fmt.Errorf("%w: active tool is %s; Probe or 3D Probe is required", ErrProbeUnavailable, toolStatusLabel(st.Tool))
 		}
 		startZ, ok := finiteAxisValue(st.MPos, "z")
 		if !ok {
@@ -1194,7 +1204,7 @@ func (s *Service) sendToolMachineAction(displayLine, wireLine string) (string, e
 	return out, err
 }
 
-func (s *Service) sendToolContinueAction(displayLine, wireLine string) (string, error) {
+func (s *Service) sendToolContinueAction(displayLine, wireLine string, expectedTool *int) (string, error) {
 	s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, displayLine)
 	var out string
 	err := s.arb.WithMachine(false, func(c *client.Conn) error {
@@ -1207,6 +1217,9 @@ func (s *Service) sendToolContinueAction(displayLine, wireLine string) (string, 
 		}
 		if st.State != machine.Tool {
 			return fmt.Errorf("%w: machine reports %s", ErrToolChangeUnavailable, statusSummary(st))
+		}
+		if expectedTool != nil && (st.Tool == nil || st.Tool.Target == nil || *st.Tool.Target != *expectedTool) {
+			return fmt.Errorf("%w: machine is no longer waiting for %s", ErrToolChangeUnavailable, toolDisplayName(*expectedTool))
 		}
 		o, e := s.sendOperatorConsole(c, ensureWireLine(wireLine), client.GcodeOpts{Cap: gcodeReplyCap})
 		out = o

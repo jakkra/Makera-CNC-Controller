@@ -219,3 +219,11 @@
   @media (max-width: 440px) {
     .machine-settings-travel-fields, .machine-settings-origin-fields, .machine-settings-motion-fields { grid-template-columns: 1fr; }
   }
+
+  #up-next-panel { grid-column: 1 / -1; }
+  #up-next-items { max-height: 160px; overflow: auto; margin: 0; padding: 0 16px; list-style: none; }
+  #up-next-items li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 4px 0; }
+  #up-next-items li span, #upload-offer-title { overflow-wrap: anywhere; }
+  #upload-offer { position: fixed; right: 16px; bottom: calc(80px + env(safe-area-inset-bottom)); z-index: 115; width: min(320px, calc(100vw - 32px)); box-sizing: border-box; padding: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 4px 16px #0005; }
+  #upload-offer-title { display: block; margin-bottom: 12px; }
+  #upload-offer button { min-height: 36px; }

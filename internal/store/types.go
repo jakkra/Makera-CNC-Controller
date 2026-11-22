@@ -45,20 +45,30 @@ const (
 	CacheValidating CacheState = "validating"
 )
 
+// UpcomingProgram identifies one queued or transferred revision awaiting operator start.
+type UpcomingProgram struct {
+	ID      int64     `json:"id"`
+	Path    string    `json:"path"`
+	MD5     string    `json:"md5"`
+	Order   int       `json:"order,omitempty"`
+	ReadyAt time.Time `json:"ready_at"`
+}
+
 // Entry is one file (or directory) in the catalog. Path is the machine-absolute
 // path (e.g. "/sd/gcodes/part.nc"). For directories, Size is 0 and MD5 empty.
 type Entry struct {
-	Path           string     `json:"path"`
-	IsDir          bool       `json:"is_dir"`
-	Size           int64      `json:"size"`
-	MTime          time.Time  `json:"mtime"`
-	MD5            string     `json:"md5,omitempty"`        // content MD5 (uncompressed)
-	CachePath      string     `json:"cache_path,omitempty"` // local cache file, if held
-	CacheState     CacheState `json:"cache_state"`
-	CacheCheckedAt time.Time  `json:"cache_checked_at,omitempty"`
-	Sync           SyncState  `json:"sync"`
-	Error          string     `json:"error,omitempty"` // detail when Sync == Error
-	UpdatedAt      time.Time  `json:"updated_at"`
+	Upcoming       UpcomingProgram `json:"upcoming,omitzero"`
+	Path           string          `json:"path"`
+	IsDir          bool            `json:"is_dir"`
+	Size           int64           `json:"size"`
+	MTime          time.Time       `json:"mtime"`
+	MD5            string          `json:"md5,omitempty"`        // content MD5 (uncompressed)
+	CachePath      string          `json:"cache_path,omitempty"` // local cache file, if held
+	CacheState     CacheState      `json:"cache_state"`
+	CacheCheckedAt time.Time       `json:"cache_checked_at,omitempty"`
+	Sync           SyncState       `json:"sync"`
+	Error          string          `json:"error,omitempty"` // detail when Sync == Error
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
 // JobKind is the type of a queued operation.

@@ -20,21 +20,26 @@ test("Surface preferences keep the established defaults and reject invalid persi
     method: "directional",
     motion: "step",
     step_mm: 1,
+    z_step_feed_mm_min: 0,
+    saved_position_include_z: false,
+    saved_position_retract_y: false,
+    saved_position_retract_mm: 200,
     mpg_axis: "x",
     mpg_feedback: "confirmed",
     position_space: "work",
   });
-  const storage = { getItem: () => JSON.stringify({ auto_switch: false, start_view: "bad", method: "bad", motion: "bad", step_mm: 7, mpg_axis: "bad", mpg_feedback: "bad", position_space: "bad" }) };
+  const storage = { getItem: () => JSON.stringify({ auto_switch: false, start_view: "bad", method: "bad", motion: "bad", step_mm: 7, mpg_axis: "bad", mpg_feedback: "bad", position_space: "bad", saved_position_include_y: true }) };
   assert.deepEqual(loadSurfaceViewPreferences({ storage }), { ...defaultSurfaceViewPreferences(), auto_switch: false });
 });
 
 test("Surface preferences persist under the stable per-device key", () => {
   let saved = null;
-  const storage = { setItem: (key, value) => { saved = { key, value }; } };
-  const surface = { method: "mpg", step_mm: 0.1 };
+  const storage = { setItem: (key, value) => { saved = { key, value }; }, getItem: () => saved.value };
+  const surface = { method: "mpg", step_mm: 0.1, saved_position_include_z: true };
   saveSurfaceViewPreferences(surface, { storage });
   assert.equal(saved.key, SURFACE_VIEW_PREFERENCES_KEY);
   assert.deepEqual(JSON.parse(saved.value), surface);
+  assert.equal(loadSurfaceViewPreferences({ storage }).saved_position_include_z, true);
 });
 
 test("restricted storage never blocks Surface startup or preference changes", () => {

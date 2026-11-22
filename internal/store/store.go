@@ -27,15 +27,17 @@ type Store struct {
 	active    string
 	execution ExecutionContext
 	subs      map[int]chan Event
+	transfer  *Transfer
 	nextSub   int
 }
 
 // Event notifies subscribers of a change, for pushing to the web UI.
 type Event struct {
-	Kind            string `json:"kind"` // "entry" | "job" | "active_gcode"
-	Entry           *Entry `json:"entry,omitempty"`
-	Job             *Job   `json:"job,omitempty"`
-	ActiveGcodePath string `json:"active_gcode_path,omitempty"`
+	Transfer        *Transfer `json:"transfer,omitempty"`
+	Kind            string    `json:"kind"` // "entry" | "job" | "active_gcode"
+	Entry           *Entry    `json:"entry,omitempty"`
+	Job             *Job      `json:"job,omitempty"`
+	ActiveGcodePath string    `json:"active_gcode_path,omitempty"`
 }
 
 type persisted struct {
@@ -365,6 +367,9 @@ func (b *Batch) ListJobs() []Job {
 
 // PutEntry inserts or replaces an entry in this batch.
 func (b *Batch) PutEntry(e Entry) Entry {
+	if u := e.Upcoming; u.ID != 0 && (u.Path != e.Path || u.MD5 != e.MD5 || e.Sync == RemoteOnly || e.Sync == PendingDelete || e.Sync == PendingRename) {
+		e.Upcoming = UpcomingProgram{}
+	}
 	normalizeNewEntry(&e)
 	e.UpdatedAt = b.now
 	cp := e
@@ -1765,4 +1770,27 @@ func clearJobDiagnostics(j *Job) {
 	j.BlockedReason = ""
 	j.BlockedMessage = ""
 	j.BlockedUntil = nil
+}
+
+type Transfer struct {
+	ID      int64  `json:"id"`
+	Path    string `json:"path"`
+	Percent int    `json:"percent"`
+}
+
+// Packet progress is ephemeral. Never fsync or enqueue work per packet.
+func (s *Store) SetTransfer(t *Transfer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.transfer = t
+	s.publishLocked(Event{Kind: "transfer", Transfer: t})
+}
+func (s *Store) Transfer() *Transfer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.transfer == nil {
+		return nil
+	}
+	t := *s.transfer
+	return &t
 }

@@ -330,6 +330,7 @@
                 <span class="active-gcode-stat"><span>Progress</span><strong id="active-gcode-progress">-</strong></span>
                 <span class="active-gcode-stat"><span>Elapsed</span><strong id="active-gcode-elapsed">-</strong></span>
                 <span class="active-gcode-stat"><span>Remaining</span><strong id="active-gcode-remaining">-</strong></span>
+                <span class="active-gcode-stat next-tool-stat"><span>Next tool change</span><strong id="active-gcode-next-tool">–</strong></span>
               </div>
             </div>
             <div class="active-gcode-actions">
@@ -615,8 +616,15 @@
                         <button type="button" id="origin-set-xyz-open">Set XYZ</button>
                         <button type="button" id="origin-set-open">Set Origin</button>
                         <button type="button" id="origin-presets-open">Origin Presets</button>
+                      </div>
+                    </div>
+                    <div class="origin-group has-title">
+                      <div class="origin-group-title">Probing</div>
+                      <div class="origin-action-grid">
                         <button type="button" id="origin-probe-z">Probe Z</button>
                         <button type="button" id="origin-probe-3d">3D Probe</button>
+                        <button type="button" id="origin-probe-edge">Measure edge</button>
+                        <button type="button" id="origin-probe-tool" disabled>Fit 3D Probe</button>
                       </div>
                     </div>
                   </div>
@@ -686,6 +694,7 @@
                     <button type="button" id="workarea-zoom-in" title="Zoom in">+</button>
                   </div>
                   <div id="outline-preview-controls" class="outline-preview-controls">
+                    <button type="button" id="workarea-map-open">XY Map</button>
                     <button type="button" id="outline-start" class="primary">Capture outline</button>
                     <button type="button" id="outline-load">Load outline</button>
                     <div id="outline-active-controls" class="outline-active-controls" hidden>
@@ -706,6 +715,7 @@
                 <svg id="workarea-plot" class="not-armed" viewBox="0 0 100 100" role="img" aria-label="Machine XY travel area">
                   <g id="workarea-viewport">
                     <rect id="workarea-boundary" x="6" y="6" width="88" height="88"></rect>
+                    <g id="workarea-bed-plate" aria-hidden="true"></g>
                     <g id="workarea-grid"></g>
                     <line id="workarea-origin-x" x1="6" y1="94" x2="94" y2="94"></line>
                     <line id="workarea-origin-y" x1="94" y1="6" x2="94" y2="94"></line>
@@ -825,6 +835,10 @@
     </section>
 
     <section class="files-secondary-grid">
+      <details class="files-secondary-panel" id="up-next-panel" open>
+        <summary><span>Up next</span><b id="up-next-count">0</b></summary>
+        <ol id="up-next-items" aria-label="Upcoming programs"></ol>
+      </details>
       <details class="files-secondary-panel">
         <summary><span>Transfer activity</span><b id="active-jobs">0</b></summary>
         <div id="jobs" class="files-secondary-body"></div>
@@ -975,18 +989,32 @@
         <li><i class="p3d-key-origin"></i>New origin</li>
       </ul>
     </figure>
+    <div class="probe-3d-settings">
+      <div class="probe-3d-fields">
+        <label id="probe-3d-x-field" class="probe-3d-field"><span>X Offset</span><input id="probe-3d-x" type="number" value="20" min="0" max="5000" step="0.1" inputmode="decimal"></label>
+        <label id="probe-3d-y-field" class="probe-3d-field"><span>Y Offset</span><input id="probe-3d-y" type="number" value="20" min="0" max="5000" step="0.1" inputmode="decimal"></label>
+        <label id="probe-3d-z-field" class="probe-3d-field"><span>Z Offset</span><input id="probe-3d-z" type="number" value="2" min="0" max="5000" step="0.1" inputmode="decimal"></label>
+        <label class="probe-3d-field"><span>Probe Diameter</span><input id="probe-3d-diameter" type="number" value="2" min="0.001" max="5000" step="0.001" inputmode="decimal"></label>
+      </div>
+      <p id="probe-3d-note" class="probe-3d-note">Position the 3D Probe for the selected operation and make sure it is stable.</p>
+      <div class="probe-3d-actions">
+        <button type="button" id="probe-3d-cancel">Cancel</button>
+        <button type="button" id="probe-3d-run" class="primary" aria-describedby="probe-3d-note probe-3d-preflight">Probe</button>
+      </div>
+      <p id="probe-3d-preflight" class="probe-3d-preflight" aria-hidden="true"></p>
+    </div>
+  </div>
+</dialog>
+<dialog id="probe-edge-modal" class="origin-modal" aria-labelledby="probe-edge-title">
+  <div class="machine-settings-modal-head"><h2 id="probe-edge-title">Measure edge</h2><button type="button" id="probe-edge-close">Close</button></div>
+  <div class="machine-settings-modal-body">
+    <p id="probe-edge-placement">Place the wired probe at contact height with a clear approach along the selected axis.</p>
     <div class="probe-3d-fields">
-      <label id="probe-3d-x-field" class="probe-3d-field"><span>X Offset</span><input id="probe-3d-x" type="number" value="20" min="0" max="5000" step="0.1" inputmode="decimal"></label>
-      <label id="probe-3d-y-field" class="probe-3d-field"><span>Y Offset</span><input id="probe-3d-y" type="number" value="20" min="0" max="5000" step="0.1" inputmode="decimal"></label>
-      <label id="probe-3d-z-field" class="probe-3d-field"><span>Z Offset</span><input id="probe-3d-z" type="number" value="2" min="0" max="5000" step="0.1" inputmode="decimal"></label>
-      <label class="probe-3d-field"><span>Probe Diameter</span><input id="probe-3d-diameter" type="number" value="2" min="0.001" max="5000" step="0.001" inputmode="decimal"></label>
+      <label class="probe-3d-field"><span>Direction</span><select id="probe-edge-direction"><option value="x+">X+</option><option value="x-">X−</option><option value="y+">Y+</option><option value="y-">Y−</option></select></label>
+      <label class="probe-3d-field"><span>Travel (mm)</span><input id="probe-edge-travel" type="number" min="0.1" max="40" step="0.1" value="10" inputmode="decimal" required></label>
+      <label class="probe-3d-field"><span>Tip diameter (mm)</span><input id="probe-edge-tip" type="number" min="0.01" max="20" step="0.01" value="2" inputmode="decimal" required></label>
     </div>
-    <p id="probe-3d-note" class="probe-3d-note">Position the 3D Probe for the selected operation and make sure it is stable.</p>
-    <p id="probe-3d-preflight" class="probe-3d-preflight" aria-hidden="true"></p>
-    <div class="probe-3d-actions">
-      <button type="button" id="probe-3d-cancel">Cancel</button>
-      <button type="button" id="probe-3d-run" class="primary" aria-describedby="probe-3d-note probe-3d-preflight">Probe</button>
-    </div>
+    <div class="probe-3d-actions"><button type="button" id="probe-edge-run" class="primary" aria-describedby="probe-edge-placement">Probe edge</button></div>
   </div>
 </dialog>
 <dialog id="surface-settings-modal" class="surface-settings" aria-labelledby="surface-settings-title">
@@ -994,16 +1022,31 @@
   <div class="surface-settings-body">
     <label><input id="surface-auto-switch" type="checkbox" checked> Automatically switch view for machine state</label>
     <label>Idle start view<select id="surface-start-view"><option value="jog">Position machine</option><option value="active-job">Active job</option><option value="dashboard">Dashboard</option></select></label>
+    <label>Z step speed<select id="surface-z-step-feed"><option value="0">Server default</option><option value="100">100 mm/min</option><option value="300">300 mm/min</option><option value="600">600 mm/min</option><option value="900">900 mm/min</option></select></label>
     <label>MPG click feedback<select id="surface-mpg-feedback"><option value="confirmed">Confirmed step</option><option value="detent">Every wheel click</option></select></label>
+    <fieldset class="surface-recall-settings">
+      <legend>Saved position recall</legend>
+      <label><input type="checkbox" id="surface-recall-include-z"> Move to saved Z after XY</label>
+      <label><input type="checkbox" id="surface-recall-retract-y"> Retract Y toward the back before X</label>
+      <label for="surface-recall-retract-mm">Y retract (mm) <input id="surface-recall-retract-mm" type="number" min="1" step="1" inputmode="numeric" value="200" required></label>
+    </fieldset>
     <p class="muted">These preferences are stored only on this device.</p>
   </div>
 </dialog>
 <dialog id="surface-xy-map-modal" class="surface-xy-map" aria-labelledby="surface-xy-map-title">
-  <div class="machine-settings-modal-head"><h2 id="surface-xy-map-title">XY target preview</h2><button type="button" id="surface-map-close" aria-label="Close XY map">Close</button></div>
+  <div class="machine-settings-modal-head"><h2 id="surface-xy-map-title">XY target map</h2><button type="button" id="surface-map-close" aria-label="Close XY map">Close</button></div>
   <div class="surface-xy-map-body">
     <div id="surface-xy-map-plot" class="surface-xy-map-plot" role="img" aria-label="XY travel map over the bed plate; selecting a point does not move the machine"></div>
     <div id="surface-xy-map-target" class="surface-xy-map-target">No target selected</div>
-    <div class="surface-xy-map-actions"><button type="button" id="surface-map-close-bottom">Close</button></div>
+    <div class="surface-xy-map-coordinates" aria-label="Machine coordinates in millimeters">
+      <label>Machine X <input id="surface-map-x" type="number" step="0.001" inputmode="decimal"></label>
+      <label>Machine Y <input id="surface-map-y" type="number" step="0.001" inputmode="decimal"></label>
+    </div>
+    <div class="surface-xy-map-actions">
+      <button type="button" id="surface-map-arm" aria-pressed="false">Arm Movement</button>
+      <button type="button" id="surface-map-move" class="primary" disabled aria-label="Hold until filled, then release to move to the selected point">Hold, release to move</button>
+      <button type="button" id="surface-map-close-bottom">Close</button>
+    </div>
   </div>
 </dialog>
 <dialog id="origin-set-modal" class="origin-modal" aria-labelledby="origin-set-title">
@@ -1091,6 +1134,11 @@
     </div>
   </div>
 </dialog>
+<aside id="upload-offer" aria-labelledby="upload-offer-title" hidden>
+  <strong id="upload-offer-title"></strong>
+  <button type="button" id="upload-offer-start" class="primary">Start job</button>
+  <button type="button" id="upload-offer-dismiss">Dismiss</button>
+</aside>
 <div id="status-bar" role="status" aria-live="polite" hidden>
   <div id="notice"></div>
 </div>

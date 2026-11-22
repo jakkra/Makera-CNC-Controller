@@ -31,6 +31,9 @@ coverage.out
 # per-session permission grants). The shared .claude/settings.json IS tracked.
 /.claude/settings.local.json
 
+# Codex chat attachments (screenshots pasted into sessions)
+/.codex-attachments/
+
 # Editor / OS cruft
 .DS_Store
 *.swp

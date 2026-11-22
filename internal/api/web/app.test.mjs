@@ -6305,6 +6305,25 @@ function makeWorkMoveFeature({ state, document, origin = { x: 10, y: 20, z: 30 }
   });
 }
 
+test("Saved-position recall forwards fast clearance and optional final Z through the target message", () => {
+  const moves = [];
+  const state = { ui: { machine: { safe_z_disabled: true } }, machine: {}, jog: { link: "online", armed: true } };
+  const feature = makeWorkMoveFeature({
+    state,
+    document: { getElementById: (id) => id === "tap-feed-mm-min" ? { value: "600", setCustomValidity() {} } : null, querySelector: () => null },
+    sendJog: (message) => { moves.push(message); return 1; },
+  });
+  feature.sendTapMove({ x: -10, y: -20, z: -15 }, "position A", { requireSafeZ: true, fastSafeZ: true, yRetractMM: 200 });
+  assert.deepEqual(moves[0], {
+    type: "target", target: { x: -10, y: -20, z: -15 }, feed_mm_min: 600,
+    safe_z_enabled: true, safe_z_mm: 5, fast_safe_z: true, y_retract_mm: 200,
+  });
+  state.jog.targetPending = state.jog.targetMotionPending = 0;
+  feature.sendTapMove({ x: -10, y: -20 }, "position A", { requireSafeZ: true, fastSafeZ: true });
+  assert.deepEqual(moves[1].target, { x: -10, y: -20 });
+  assert.equal(moves[1].y_retract_mm, undefined);
+});
+
 test("Tap Move ignores a second tap until the first target is observed", () => {
   let sent = 0;
   const state = { ui: { machine: {} }, machine: {}, jog: {
@@ -6468,6 +6487,11 @@ test("a terminal target error releases Tap Move without disarming", () => {
   assert.equal(sent.length, 1);
   assert.equal(sent[0].type, "target");
   assert.equal(state.jog.targetMotionPending, 13);
+
+  vm.runInContext("applyJogEvent({ type: 'error', seq: 13, code: 'status_waiting', message: 'Waiting for fresh machine status before tap move.' })", ctx);
+  assert.equal(state.jog.armed, true);
+  assert.equal(workMove.tapMoveTargetBusy(), false);
+  assert.match(state.jog.tapFeedback, /Move failed: Waiting for fresh machine status/);
 });
 
 test("active gcode render does not publish warnings before the operator tries to run it", () => {
@@ -8267,10 +8291,9 @@ test("3D probe field rules mirror the controller variants", () => {
 });
 
 test("3D Probe is a dedicated firmware tool ID", () => {
-  const ctx = buildContext(["validToolID", "toolDisplayName"]);
-  assert.equal(vm.runInContext("validToolID(9999, false)", ctx), true);
-  assert.equal(vm.runInContext("toolDisplayName(9999)", ctx), "3D Probe");
-  assert.equal(vm.runInContext("validToolID(1000, false)", ctx), false);
+  assert.equal(validToolID(9999, false), true);
+  assert.equal(toolDisplayName(9999), "3D Probe");
+  assert.equal(validToolID(1000, false), false);
 });
 
 test("3D probe travel preflight mirrors deterministic firmware positioning", () => {
@@ -8626,7 +8649,7 @@ test("Surface footer ignores transient Run while an armed MPG gesture is held", 
   assert.match(binding, /window\.addEventListener\("pointerup", release\)/);
 });
 
-test("Surface XY map remains a local preview and never issues machine motion", () => {
+test("Selecting an XY map point previews coordinates without issuing motion", () => {
   const listeners = {};
   const modal = { addEventListener: (type, fn) => { listeners["modal:" + type] = fn; }, close() {} };
   const plot = {

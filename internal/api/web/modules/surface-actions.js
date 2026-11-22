@@ -24,6 +24,7 @@ export function createSurfaceActions({
   surfaceJogBaseReady = () => false,
   surfaceJogReady = () => false,
   surfaceStepDistance = () => 1,
+  getZStepFeed = () => 0,
   surfaceStepUnit = (axis) => String(axis).toLowerCase() === "a" ? "°" : "mm",
   sendJog = () => 0,
   connectJog = () => {},
@@ -93,7 +94,10 @@ export function createSurfaceActions({
     }
     const magnitude = Number(explicitDistance) > 0 ? Number(explicitDistance) : surfaceStepDistance();
     const distance = magnitude * (sign < 0 ? -1 : 1);
-    const seq = sendJog({ type: "step", axis, distance });
+    const message = { type: "step", axis, distance };
+    const feed = axis === "z" && source === "button" ? getZStepFeed() : 0;
+    if (feed) message.feed_mm_min = feed;
+    const seq = sendJog(message);
     if (!seq) {
       setStatusMessage("surface-jog", "Jog service is not connected.", "error", { force: true });
       connectJog();

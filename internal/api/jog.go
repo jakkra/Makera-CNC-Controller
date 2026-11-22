@@ -43,6 +43,8 @@ type jogClientMessage struct {
 	Feed      float64            `json:"feed_mm_min"`
 	SafeZ     float64            `json:"safe_z_mm"`
 	SafeZOn   *bool              `json:"safe_z_enabled"`
+	FastSafeZ bool               `json:"fast_safe_z"`
+	YRetract  float64            `json:"y_retract_mm"`
 }
 
 func (s *Server) jogWS(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +112,7 @@ func (s *Server) jogWS(w http.ResponseWriter, r *http.Request) {
 		case "capture_position":
 			sess.CapturePosition(msg.Seq)
 		case "step":
-			sess.Step(msg.Seq, msg.Axis, msg.Distance)
+			sess.StepAtFeed(msg.Seq, msg.Axis, msg.Distance, msg.Feed)
 		case "origin":
 			value := 0.0
 			if msg.Value != nil {
@@ -150,7 +152,7 @@ func (s *Server) jogWS(w http.ResponseWriter, r *http.Request) {
 			if safeZEnabled {
 				safeZ = s.svc.SafeZTargetMM(safeZ)
 			}
-			sess.Target(msg.Seq, target, msg.Feed, safeZEnabled, safeZ)
+			sess.TargetWithClearance(msg.Seq, target, msg.Feed, jog.TargetClearance{SafeZEnabled: safeZEnabled, SafeZMM: safeZ, FastZ: msg.FastSafeZ, YRetractMM: msg.YRetract})
 		default:
 			sess.ReportError(msg.Seq, jog.CodeBadInput, "type must be one of: arm, input, capture_position, target, step, origin, origin_reference, control, disarm")
 		}

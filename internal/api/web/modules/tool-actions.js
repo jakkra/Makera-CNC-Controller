@@ -1,11 +1,17 @@
+import { setTextIfChanged } from "./dom.js";
+import { TOOL_3D_PROBE } from "./tooling.js";
+
 export function createToolActions({
   documentRef = document, request, validToolID, toolDisplayName,
   getMachine = () => ({}), getPending = () => "", setPending = () => {},
+  getReadOnly = () => false,
   setSoftDisabled, setElementBusy, setStatusMessage,
-  disarmTapMoveForCommand, appendGcodeLine, pollMachine, setTimeoutRef = setTimeout,
+  disarmTapMoveForCommand, appendGcodeLine, pollMachine, setTimeoutRef = setTimeout, clearTimeoutRef = clearTimeout,
 } = {}) {
   const document = documentRef;
   const setTimeout = setTimeoutRef;
+  let probeExchange = "";
+  let probeExchangeTimer;
   const state = {
     get machine() { return getMachine(); },
     get toolPending() { return getPending(); },
@@ -109,7 +115,11 @@ async function changeTool(toolID = null) {
       body: JSON.stringify({ tool_id: toolID }),
     });
     const result = await r.json();
-    setToolFeedback(result.message || "Change-tool command sent; machine confirmation was not available.", result.verified ? "ok" : "");
+    if (toolID === TOOL_3D_PROBE) {
+      watchProbeExchange("positioning");
+    } else {
+      setToolFeedback(result.message || "Change-tool command sent; machine confirmation was not available.", result.verified ? "ok" : "");
+    }
     resetToolSelects();
     refreshMachineAfterToolAction();
   } catch (e) {
@@ -128,11 +138,17 @@ async function continueToolChange() {
     return;
   }
   if (!beginToolAction("continue")) return;
+  const for3DProbe = probeChangeWaiting(state.machine);
   setToolFeedback("Continuing tool change...", "");
   try {
-    const r = await request("/api/tool/continue", { method: "POST" });
+    const path = for3DProbe ? "/api/tool/continue?tool_id=" + TOOL_3D_PROBE : "/api/tool/continue";
+    const r = await request(path, { method: "POST" });
     const result = await r.json();
-    setToolFeedback(result.message || "Tool-change continue command sent; machine confirmation was not available.", result.verified ? "ok" : "");
+    if (for3DProbe) {
+      watchProbeExchange("finishing");
+    } else {
+      setToolFeedback(result.message || "Tool-change continue command sent; machine confirmation was not available.", result.verified ? "ok" : "");
+    }
     refreshMachineAfterToolAction();
   } catch (e) {
     appendGcodeLine({ seq: "local-" + Date.now(), dir: "recv", source: "api", text: "error: " + e.message });
@@ -160,7 +176,7 @@ async function calibrateCurrentTool() {
 }
 
 function beginToolAction(action) {
-  if (state.toolPending) {
+  if (state.toolPending || probeExchange) {
     setToolFeedback("Tool action already in progress.", "error");
     renderToolActions();
     return false;
@@ -180,7 +196,49 @@ function refreshMachineAfterToolAction() {
   setTimeout(pollMachine, 1200);
 }
 
+function freshToolStatus(m) {
+  return !!m?.connected && !m.stale && !(Number(m.age_ms) > 10000);
+}
+
+function probeChangeWaiting(m) {
+  return freshToolStatus(m) && m.state === "Tool" && m.tool?.target === TOOL_3D_PROBE;
+}
+
+function watchProbeExchange(phase) {
+  probeExchange = phase;
+  setToolFeedback(phase === "positioning" ? "Moving to the 3D Probe exchange position..." : "Finishing the 3D Probe exchange...", "");
+  probeExchangeTimer = setTimeout(() => {
+    finishProbeExchange("The machine did not confirm the 3D Probe exchange.", "error");
+    renderToolActions();
+  }, 60000);
+}
+
+function finishProbeExchange(message, kind) {
+  clearTimeoutRef(probeExchangeTimer);
+  probeExchange = "";
+  setToolFeedback(message, kind);
+}
+
+function observeProbeExchange(m) {
+  if (!probeExchange || !freshToolStatus(m)) return;
+  if (m.state === "Alarm" || (m.state === "Tool" && m.tool?.target != null && !probeChangeWaiting(m))) {
+    finishProbeExchange("3D Probe exchange interrupted. The machine reports " + m.state + ".", "error");
+  } else if (m.state === "Idle" && m.tool?.active === TOOL_3D_PROBE) {
+    finishProbeExchange("Machine reports the 3D Probe active.", "ok");
+  } else if (probeExchange === "positioning" && probeChangeWaiting(m)) {
+    finishProbeExchange("Fit and connect the 3D Probe, then press Continue.", "");
+  }
+}
+
+function exchangeProbe() {
+  const m = state.machine;
+  if (getReadOnly() || state.toolPending || probeExchange || !freshToolStatus(m)) return;
+  if (probeChangeWaiting(m)) return continueToolChange();
+  if (m.state === "Idle" && m.tool?.active !== TOOL_3D_PROBE) return changeTool(TOOL_3D_PROBE);
+}
+
 function renderToolActions(m = state.machine || {}) {
+  observeProbeExchange(m);
   const set = document.getElementById("tool-set");
   const change = document.getElementById("tool-change-set");
   const cont = document.getElementById("tool-continue");
@@ -189,7 +247,7 @@ function renderToolActions(m = state.machine || {}) {
   const changeSelect = document.getElementById("tool-change-select");
   const setInput = document.getElementById("tool-id");
   const changeInput = document.getElementById("tool-change-id");
-  const pendingAction = state.toolPending || "";
+  const pendingAction = state.toolPending || (probeExchange === "positioning" ? "change" : probeExchange === "finishing" ? "continue" : "");
   const setPending = pendingAction === "set";
   const changePending = pendingAction === "change";
   const continuePending = pendingAction === "continue";
@@ -229,6 +287,17 @@ function renderToolActions(m = state.machine || {}) {
     cal.textContent = calibratePending ? "Calibrating..." : "Calibrate";
     setElementBusy(cal, calibratePending);
   }
+  const probe = document.getElementById("origin-probe-tool");
+  if (probe) {
+    const confirm = probeChangeWaiting(m);
+    const busy = changePending || continuePending;
+    probe.disabled = getReadOnly() || !!pendingAction ||
+      (!confirm && (!freshToolStatus(m) || m.state !== "Idle" || m.tool?.active === TOOL_3D_PROBE));
+    probe.classList.toggle("primary", confirm);
+    setTextIfChanged(probe, confirm ? "Continue" : "Fit 3D Probe");
+    probe.setAttribute("aria-label", confirm ? "Continue 3D Probe exchange" : "Fit 3D Probe");
+    setElementBusy(probe, busy);
+  }
 }
 
 function setToolFeedback(text, kind) {
@@ -244,6 +313,8 @@ function clearToolFeedback() {
     bindButtonAction(document.getElementById("tool-change-set"), () => changeTool());
     bindButtonAction(document.getElementById("tool-continue"), continueToolChange);
     bindButtonAction(document.getElementById("tool-calibrate"), calibrateCurrentTool);
+    const probe = document.getElementById("origin-probe-tool");
+    if (probe) bindButtonAction(probe, exchangeProbe);
     document.getElementById("tool-set-select").onchange = (e) => handleToolSelect("set", e.target.value);
     document.getElementById("tool-change-select").onchange = (e) => handleToolSelect("change", e.target.value);
   }

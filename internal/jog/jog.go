@@ -69,6 +69,7 @@ type Config struct {
 	Enabled         bool
 	MaxXYMMMin      float64
 	MaxZMMMin       float64
+	MaxZStepMMMin   float64
 	MaxADegMin      float64
 	Tick            time.Duration
 	StatusInterval  time.Duration
@@ -113,6 +114,7 @@ func DefaultConfig() Config {
 		Enabled:         true,
 		MaxXYMMMin:      firmwareMaxXYMMMin,
 		MaxZMMMin:       300,
+		MaxZStepMMMin:   900,
 		MaxADegMin:      firmwareMaxADegMin,
 		Tick:            20 * time.Millisecond,
 		StatusInterval:  100 * time.Millisecond,
@@ -129,6 +131,10 @@ func (c Config) normalize() Config {
 	if c.MaxZMMMin <= 0 {
 		c.MaxZMMMin = d.MaxZMMMin
 	}
+	if c.MaxZStepMMMin <= 0 || math.IsNaN(c.MaxZStepMMMin) {
+		c.MaxZStepMMMin = d.MaxZStepMMMin
+	}
+	c.MaxZStepMMMin = min(c.MaxZStepMMMin, firmwareMaxZMMMin)
 	if c.MaxADegMin <= 0 {
 		c.MaxADegMin = d.MaxADegMin
 	}
@@ -192,6 +198,7 @@ type Capabilities struct {
 	Axes             []string     `json:"axes"`
 	MaxXYMMMin       float64      `json:"max_xy_mm_min"`
 	MaxZMMMin        float64      `json:"max_z_mm_min"`
+	MaxZStepMMMin    float64      `json:"max_z_step_mm_min"`
 	MaxADegMin       float64      `json:"max_a_deg_min"`
 	TickMs           int64        `json:"tick_ms"`
 	StatusIntervalMs int64        `json:"status_interval_ms"`
@@ -257,20 +264,19 @@ type motionRevisions struct {
 }
 
 type command struct {
-	typ      string
-	seq      int64
-	complete chan struct{}
-	settle   bool
-	ctx      context.Context
-	result   chan error
-	action   string
-	axis     string
-	distance float64
-	value    float64
-	target   machine.AxisValues
-	feed     float64
-	safeZOn  bool
-	safeZ    float64
+	typ       string
+	seq       int64
+	complete  chan struct{}
+	settle    bool
+	ctx       context.Context
+	result    chan error
+	action    string
+	axis      string
+	distance  float64
+	value     float64
+	target    machine.AxisValues
+	feed      float64
+	clearance TargetClearance
 }
 
 type statusResult struct {
@@ -361,6 +367,13 @@ func (m *Manager) motionRevisions() motionRevisions {
 	return motionRevisions{motion: m.motionRevision, settled: m.settledRevision}
 }
 
+func (m *Manager) maxZStepFeed() float64 {
+	if m.cfg.MotionPrimitive != MotionPrimitiveInstant {
+		return 0
+	}
+	return m.cfg.MaxZStepMMMin
+}
+
 // Capabilities reports static limits plus current availability.
 func (m *Manager) Capabilities() Capabilities {
 	return m.capabilities(nil)
@@ -372,6 +385,7 @@ func (m *Manager) capabilities(ignore *Session) Capabilities {
 		Axes:             []string{"x", "y", "z", "a"},
 		MaxXYMMMin:       m.cfg.MaxXYMMMin,
 		MaxZMMMin:        m.cfg.MaxZMMMin,
+		MaxZStepMMMin:    m.maxZStepFeed(),
 		MaxADegMin:       m.cfg.MaxADegMin,
 		TickMs:           m.cfg.Tick.Milliseconds(),
 		StatusIntervalMs: m.cfg.StatusInterval.Milliseconds(),
@@ -656,7 +670,11 @@ func (s *Session) Control(seq int64, action string) {
 
 // Step requests one explicit axis jog from an armed session.
 func (s *Session) Step(seq int64, axis string, distance float64) {
-	s.enqueue(command{typ: "step", seq: seq, axis: axis, distance: distance})
+	s.StepAtFeed(seq, axis, distance, 0)
+}
+
+func (s *Session) StepAtFeed(seq int64, axis string, distance, feed float64) {
+	s.enqueue(command{typ: "step", seq: seq, axis: axis, distance: distance, feed: feed})
 }
 
 // SetOrigin sets the current work-coordinate axis value.
@@ -670,9 +688,21 @@ func (s *Session) SetMachineOrigin(seq int64, origin machine.AxisValues) {
 	s.enqueue(command{typ: "machine_origin", seq: seq, target: copyAxes(origin)})
 }
 
-// Target requests one explicit XY move from an armed session.
+// TargetClearance describes the approach to an explicit jog target.
+type TargetClearance struct {
+	SafeZEnabled bool
+	SafeZMM      float64
+	FastZ        bool
+	YRetractMM   float64
+}
+
+// Target requests an explicit move from an armed session.
 func (s *Session) Target(seq int64, target machine.AxisValues, feedMMMin float64, safeZEnabled bool, safeZMM float64) {
-	s.enqueue(command{typ: "target", seq: seq, target: copyAxes(target), feed: feedMMMin, safeZOn: safeZEnabled, safeZ: safeZMM})
+	s.TargetWithClearance(seq, target, feedMMMin, TargetClearance{SafeZEnabled: safeZEnabled, SafeZMM: safeZMM})
+}
+
+func (s *Session) TargetWithClearance(seq int64, target machine.AxisValues, feedMMMin float64, clearance TargetClearance) {
+	s.enqueue(command{typ: "target", seq: seq, target: copyAxes(target), feed: feedMMMin, clearance: clearance})
 }
 
 // ReportError emits a client-facing validation error.
@@ -878,22 +908,34 @@ func (s *Session) handleCommand(cmd command) {
 		s.emit(Event{Type: "ack", Seq: cmd.seq})
 		s.emitState(cmd.seq)
 	case "step":
-		s.handleStep(cmd.seq, cmd.axis, cmd.distance)
+		s.handleStep(cmd.seq, cmd.axis, cmd.distance, cmd.feed)
 	case "origin":
 		s.handleOrigin(cmd.seq, cmd.axis, cmd.value)
 	case "machine_origin":
 		s.handleMachineOrigin(cmd.seq, cmd.target)
 	case "target":
-		s.handleTarget(cmd.seq, cmd.target, cmd.feed, cmd.safeZOn, cmd.safeZ)
+		s.handleTarget(cmd.seq, cmd.target, cmd.feed, cmd.clearance)
 	}
 }
 
-func (s *Session) handleStep(seq int64, axis string, distance float64) {
+func (s *Session) handleStep(seq int64, axis string, distance, feed float64) {
 	axis = strings.ToLower(strings.TrimSpace(axis))
 	delta, err := stepDelta(axis, distance)
 	if err != nil {
 		s.emit(Event{Type: "error", Seq: seq, Code: CodeBadInput, Message: err.Error()})
 		return
+	}
+	cfg := s.mgr.cfg
+	if feed != 0 {
+		if cfg.MotionPrimitive != MotionPrimitiveInstant {
+			s.emit(Event{Type: "error", Seq: seq, Code: CodeBadInput, Message: "Z step speed selection requires instant jog"})
+			return
+		}
+		if axis != "z" || math.IsNaN(feed) || feed < 1 || feed > s.mgr.maxZStepFeed() {
+			s.emit(Event{Type: "error", Seq: seq, Code: CodeBadInput, Message: fmt.Sprintf("Z step speed must be between 1 and %.0f mm/min", cfg.MaxZStepMMMin)})
+			return
+		}
+		cfg.MaxZMMMin = feed
 	}
 	now := s.mgr.now()
 	s.mu.Lock()
@@ -962,8 +1004,8 @@ func (s *Session) handleStep(seq int64, axis string, distance float64) {
 		s.emit(Event{Type: "ack", Seq: seq, Target: target})
 		return
 	}
-	dur := stepJogDuration(delta, s.mgr.cfg)
-	cmd := jogCommandForDuration(target, delta, s.mgr.cfg, dur)
+	dur := stepJogDuration(delta, cfg)
+	cmd := jogCommandForDuration(target, delta, cfg, dur)
 	if err := lease.Conn.WriteGcodeLine(cmd); err != nil {
 		s.failLease(CodeMachineError, err)
 		return
@@ -1084,7 +1126,7 @@ func (s *Session) handleOriginCommand(seq int64, cmd string, machineOrigin machi
 	s.requestStatus()
 }
 
-func (s *Session) handleTarget(seq int64, targetAxes machine.AxisValues, feedMMMin float64, safeZEnabled bool, safeZMM float64) {
+func (s *Session) handleTarget(seq int64, targetAxes machine.AxisValues, feedMMMin float64, clearance TargetClearance) {
 	if len(targetAxes) == 0 {
 		s.emit(Event{Type: "error", Seq: seq, Code: CodeBadInput, Message: "target requires at least one axis"})
 		return
@@ -1099,11 +1141,21 @@ func (s *Session) handleTarget(seq int64, targetAxes machine.AxisValues, feedMMM
 			return
 		}
 	}
-	if safeZEnabled && (math.IsNaN(safeZMM) || math.IsInf(safeZMM, 0)) {
+	if clearance.SafeZEnabled && (math.IsNaN(clearance.SafeZMM) || math.IsInf(clearance.SafeZMM, 0)) {
 		s.emit(Event{Type: "error", Seq: seq, Code: CodeBadInput, Message: "safe Z must be finite"})
 		return
 	}
-	cfg := s.mgr.cfg.normalize()
+	if math.IsNaN(clearance.YRetractMM) || math.IsInf(clearance.YRetractMM, 0) || clearance.YRetractMM < 0 {
+		s.emit(Event{Type: "error", Seq: seq, Code: CodeBadInput, Message: "Y retract distance must be finite and nonnegative"})
+		return
+	}
+	if clearance.YRetractMM != 0 {
+		if _, hasY := targetAxes["y"]; !clearance.SafeZEnabled || !hasY {
+			s.emit(Event{Type: "error", Seq: seq, Code: CodeBadInput, Message: "Y retract requires Safe Z and a Y target"})
+			return
+		}
+	}
+	cfg := s.mgr.cfg
 	if math.IsNaN(feedMMMin) || math.IsInf(feedMMMin, 0) || feedMMMin <= 0 || feedMMMin > maxTargetFeedMMMin {
 		s.emit(Event{Type: "error", Seq: seq, Code: CodeBadInput, Message: fmt.Sprintf("feed must be between 1 and %.0f mm/min", maxTargetFeedMMMin)})
 		return
@@ -1186,7 +1238,8 @@ func (s *Session) handleTarget(seq int64, targetAxes machine.AxisValues, feedMMM
 	for axis, value := range effectiveTargetAxes {
 		finalTarget[axis] = value
 	}
-	finalTarget = clampJogTarget(planned, finalTarget, s.mgr.softLimits())
+	limits := s.mgr.softLimits()
+	finalTarget = clampJogTarget(planned, finalTarget, limits)
 	for axis := range effectiveTargetAxes {
 		effectiveTargetAxes[axis] = finalTarget[axis]
 	}
@@ -1199,59 +1252,86 @@ func (s *Session) handleTarget(seq int64, targetAxes machine.AxisValues, feedMMM
 	}
 	hasXYMove := fullDelta.X != 0 || fullDelta.Y != 0
 
+	// Retract only for a cross-bed X move. The requested Y is still the
+	// final destination. Validate the retreat before sending any axis.
+	retractY := planned["y"]
+	useYRetract := clearance.YRetractMM != 0 && fullDelta.X != 0
+	if useYRetract {
+		startY := planned["y"]
+		finalY := targetAxes["y"]
+		if !validSoftLimitRange(limits.YMin, limits.YMax) || math.IsNaN(startY) ||
+			startY < limits.YMin || startY > limits.YMax || finalY < limits.YMin || finalY > limits.YMax {
+			s.emit(Event{Type: "error", Seq: seq, Code: CodeBadInput, Message: "Y retract requires the current and saved Y inside learned Y travel"})
+			return
+		}
+		retractY = min(limits.YMax, startY+clearance.YRetractMM)
+		if retractY-startY < jogCoordinateResolutionMM/2 {
+			retractY = startY
+		}
+	}
+
 	lastCmd := ""
-	if safeZEnabled && hasXYMove {
+	moveTo := func(target machine.AxisValues, feed float64, motionConfig Config) bool {
+		delta := axesDelta(planned, target)
+		if axesEmpty(delta) {
+			return true
+		}
+		duration := targetMoveDuration(delta, feed, motionConfig)
+		var err error
+		planned, queuedUntil, queuedLead, lastCmd, err = s.writePlannedJogSegment(now, lease, planned, target, delta, duration, queuedUntil, motionConfig)
+		if err != nil {
+			s.failLease(CodeMachineError, err)
+			return false
+		}
+		return true
+	}
+	if clearance.SafeZEnabled && hasXYMove {
 		plannedZ, ok := planned["z"]
 		if !ok || math.IsNaN(plannedZ) || math.IsInf(plannedZ, 0) {
 			s.emit(Event{Type: "error", Seq: seq, Code: CodeStaleStatus, Message: "machine Z position is unavailable for safe tap move"})
 			return
 		}
-		if plannedZ < safeZMM {
+		if plannedZ < clearance.SafeZMM {
 			safeTarget := copyAxes(planned)
-			safeTarget["z"] = safeZMM
-			safeTarget = clampJogTarget(planned, safeTarget, s.mgr.softLimits())
-			safeDelta := axesDelta(planned, safeTarget)
-			if safeDelta.Z != 0 {
-				var err error
-				planned, queuedUntil, queuedLead, lastCmd, err = s.writePlannedJogSegment(now, lease, planned, safeTarget, safeDelta, stepJogDuration(safeDelta, cfg), queuedUntil, cfg)
-				if err != nil {
-					s.failLease(CodeMachineError, err)
-					return
-				}
+			safeTarget["z"] = clearance.SafeZMM
+			safeTarget = clampJogTarget(planned, safeTarget, limits)
+			liftConfig := cfg
+			if clearance.FastZ && s.mgr.maxZStepFeed() > 0 {
+				liftConfig.MaxZMMMin = s.mgr.maxZStepFeed()
 			}
-		}
-	}
-	if safeZEnabled && hasXYMove {
-		xyTarget := copyAxes(planned)
-		if x, ok := effectiveTargetAxes["x"]; ok {
-			xyTarget["x"] = x
-		}
-		if y, ok := effectiveTargetAxes["y"]; ok {
-			xyTarget["y"] = y
-		}
-		xyDelta := axesDelta(planned, xyTarget)
-		if xyDelta.X != 0 || xyDelta.Y != 0 {
-			var err error
-			planned, queuedUntil, queuedLead, lastCmd, err = s.writePlannedJogSegment(now, lease, planned, xyTarget, xyDelta, targetMoveDuration(xyDelta, feedMMMin, cfg), queuedUntil, cfg)
-			if err != nil {
-				s.failLease(CodeMachineError, err)
+			if !moveTo(safeTarget, feedMMMin, liftConfig) {
 				return
 			}
 		}
+		xyTarget := copyAxes(planned)
+		if useYRetract {
+			xyTarget["y"] = retractY
+			if !moveTo(xyTarget, feedMMMin, cfg) {
+				return
+			}
+			xyTarget = copyAxes(planned)
+			xyTarget["x"] = effectiveTargetAxes["x"]
+			if !moveTo(xyTarget, feedMMMin, cfg) {
+				return
+			}
+			xyTarget = copyAxes(planned)
+		}
+		for _, axis := range []string{"x", "y"} {
+			if value, ok := effectiveTargetAxes[axis]; ok {
+				xyTarget[axis] = value
+			}
+		}
+		if !moveTo(xyTarget, feedMMMin, cfg) {
+			return
+		}
 	}
-
 	target := copyAxes(planned)
 	for axis, value := range effectiveTargetAxes {
 		target[axis] = value
 	}
 	delta := axesDelta(planned, target)
-	if delta.X != 0 || delta.Y != 0 || delta.Z != 0 {
-		var err error
-		_, queuedUntil, queuedLead, lastCmd, err = s.writePlannedJogSegment(now, lease, planned, target, delta, targetMoveDuration(delta, feedMMMin, cfg), queuedUntil, cfg)
-		if err != nil {
-			s.failLease(CodeMachineError, err)
-			return
-		}
+	if !moveTo(target, feedMMMin, cfg) {
+		return
 	}
 	s.emitMotionEstimate(now, st, target, delta, lastCmd, queuedLead)
 	s.mu.Lock()

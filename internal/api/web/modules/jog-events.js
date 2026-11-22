@@ -213,10 +213,9 @@ export function createJogEventHandler({ state, documentRef, performanceRef, call
         state.jog.tapFeedbackKind = "ok";
       }
     } else if (ev.type === "error") {
-      const terminalSessionError = ev.code !== "status_waiting";
-      if (!terminalSessionError) {
-        // A delayed status reply is an internal retry state, not an operator
-        // warning and not a terminal result for any pending movement action.
+      if (ev.code === "status_waiting" && !ev.seq) {
+        // Continuous jog waits for the next status. A sequenced step or
+        // target rejected by the server must release the pending control.
         if (state.jog.errorCode === "status_waiting") {
           state.jog.error = "";
           state.jog.errorCode = "";
@@ -225,8 +224,8 @@ export function createJogEventHandler({ state, documentRef, performanceRef, call
         renderOutlineCapture();
         return;
       }
+      if (ev.seq) state.jog.sent.delete(ev.seq);
       if (ev.seq && resolveOutlineCaptureIntent(ev.seq, null, ev.message || jogErrorText(ev.code))) {
-        state.jog.sent.delete(ev.seq);
         renderJog();
         return;
       }
@@ -239,7 +238,7 @@ export function createJogEventHandler({ state, documentRef, performanceRef, call
         state.jog.tapFeedback = tapMoveArmFailureText(action, ev.message || jogErrorText(ev.code));
         state.jog.tapFeedbackKind = "error";
       }
-      if (!ev.seq && terminalSessionError && state.jog.armQueuedAction) {
+      if (!ev.seq && state.jog.armQueuedAction) {
         const action = state.jog.armQueuedAction;
         state.jog.armQueuedAction = "";
         state.jog.tapFeedback = tapMoveArmFailureText(action, ev.message || jogErrorText(ev.code));
@@ -270,7 +269,7 @@ export function createJogEventHandler({ state, documentRef, performanceRef, call
         clearOriginVerification();
         setOriginFeedback("Set " + label + " failed: " + (ev.message || jogErrorText(ev.code)), "error");
       }
-      if (!ev.seq && terminalSessionError && (state.jog.targetPending || state.jog.targetMotionPending)) {
+      if (!ev.seq && (state.jog.targetPending || state.jog.targetMotionPending)) {
         state.jog.targetPending = 0;
         state.jog.targetMotionPending = 0;
         cancelWorkCoordinateMove();
@@ -278,24 +277,24 @@ export function createJogEventHandler({ state, documentRef, performanceRef, call
         state.jog.tapFeedback = "Move failed: " + (ev.message || jogErrorText(ev.code));
         state.jog.tapFeedbackKind = "error";
       }
-      if (!ev.seq && terminalSessionError && state.jog.zStepPending) {
+      if (!ev.seq && state.jog.zStepPending) {
         state.jog.zStepPending = 0;
         state.jog.tapFeedback = "Z move failed: " + (ev.message || jogErrorText(ev.code));
         state.jog.tapFeedbackKind = "error";
       }
-      if (!ev.seq && terminalSessionError && state.jog.surfaceStepPending) {
+      if (!ev.seq && state.jog.surfaceStepPending) {
         const source = state.jog.surfaceStepSource;
         state.jog.surfaceStepPending = 0;
         state.jog.surfaceStepSource = "";
         if (source === "mpg") state.jog.surfaceWheel.blocked = true;
         setStatusMessage("surface-jog", "Jog failed: " + (ev.message || jogErrorText(ev.code)), "error", { force: true });
       }
-      if (!ev.seq && terminalSessionError && state.jog.originPendingMode === "jog" && hasPendingOriginOperation()) {
+      if (!ev.seq && state.jog.originPendingMode === "jog" && hasPendingOriginOperation()) {
         const label = originTargetLabel(state.jog.originPendingLabel, state.jog.originPendingTargets);
         clearOriginVerification();
         setOriginFeedback("Set " + label + " failed: " + (ev.message || jogErrorText(ev.code)), "error");
       }
-      if (!ev.seq && terminalSessionError && state.jog.armPending) {
+      if (!ev.seq && state.jog.armPending) {
         const action = state.jog.armPendingAction;
         state.jog.armPending = 0;
         state.jog.armPendingAction = "";

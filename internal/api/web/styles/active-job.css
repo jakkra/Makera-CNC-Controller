@@ -148,3 +148,5 @@
   #run-history-detail-events { max-height: min(480px, calc(100dvh - 240px)); display: grid; align-content: start; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
   .run-history-event { display: grid; grid-template-columns: 150px minmax(0,1fr); gap: 8px; padding: 8px 10px; font-size: 12px; }
   .run-history-event + .run-history-event { border-top: 1px solid var(--border); }
+
+  .next-tool-stat { grid-column: 1 / -1; }

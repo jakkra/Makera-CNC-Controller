@@ -1,3 +1,4 @@
+import { bedPlateDrawing, bedPlatePlacement } from "./bed-plate.js";
 // Mechanical work-area/outline extraction. Bodies preserve current app.js behavior.
 import * as geometry from "./outline-geometry.js";
 export { geometry };
@@ -176,9 +177,27 @@ export function mountWorkareaOutline({ stateFacade, documentRef, constants = {},
     };
   }
 
+  let bedGeometry = "";
+  function renderWorkAreaBed() {
+    const bed = document.getElementById("workarea-bed-plate");
+    if (!bed) return;
+    const placement = bedPlatePlacement(normalizeMachineSettings(state.ui.machine).learned);
+    const point = machineToWorkAreaPoint({ x: 0, y: 0 });
+    const work = workAreaBounds();
+    const rect = workAreaRect();
+    const xScale = rect.width / (work.x_max - work.x_min);
+    const yScale = rect.height / (work.y_max - work.y_min);
+    const geometry = JSON.stringify([placement, point, xScale, yScale]);
+    if (geometry === bedGeometry) return;
+    bedGeometry = geometry;
+    bed.innerHTML = bedPlateDrawing(placement);
+    bed.setAttribute("transform", `translate(${point.x} ${point.y}) scale(${xScale} ${yScale})`);
+  }
+
   function renderWorkArea() {
     applyWorkAreaViewport();
     renderWorkAreaBoundary();
+    renderWorkAreaBed();
     renderWorkAreaGrid();
     renderWorkAreaOrigin();
     renderWorkAreaOutline();

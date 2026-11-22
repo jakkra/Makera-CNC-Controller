@@ -24,6 +24,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -409,11 +410,13 @@ type JobControlState struct {
 // firmware's P: status field. RemainingMs uses the same percentage-based
 // estimate as the official controller.
 type MachineJobProgress struct {
-	Path        string `json:"path,omitempty"`
-	PlayedLines int64  `json:"played_lines"`
-	Percent     int    `json:"percent"`
-	ElapsedMs   int64  `json:"elapsed_ms"`
-	RemainingMs *int64 `json:"remaining_ms,omitempty"`
+	Path         string      `json:"path,omitempty"`
+	PlayedLines  int64       `json:"played_lines"`
+	Percent      int         `json:"percent"`
+	ElapsedMs    int64       `json:"elapsed_ms"`
+	RemainingMs  *int64      `json:"remaining_ms,omitempty"`
+	NextTool     *GcodeEvent `json:"next_tool,omitempty"`
+	ToolChangeMs *int64      `json:"tool_change_ms,omitempty"`
 }
 
 // ProbeZRequest describes one serialized Z probe at the current XY or at a
@@ -857,7 +860,8 @@ func (s *Service) machineJobProgress(st machine.Status) *MachineJobProgress {
 	s.activeMu.Lock()
 	active := s.activeGcode
 	s.activeMu.Unlock()
-	if active.Path != path {
+	entry, exists := s.store.GetEntry(path)
+	if active.Path != path || !exists || active.MD5 != entry.MD5 {
 		return progress
 	}
 	override := 100.0
@@ -866,6 +870,25 @@ func (s *Service) machineJobProgress(st machine.Status) *MachineJobProgress {
 	}
 	if remaining := active.Preview.estimatedRemainingMs(progress.PlayedLines, override); remaining != nil {
 		progress.RemainingMs = remaining
+	}
+	if entry.Sync != store.Synced && entry.Sync != store.RemoteOnly {
+		return progress
+	}
+	events := active.Preview.Events
+	start := sort.Search(len(events), func(i int) bool { return int64(events[i].Line) > progress.PlayedLines })
+	for _, event := range events[start:] {
+		if event.Kind != "tool_change" {
+			continue
+		}
+		progress.NextTool = &event
+		if current := progress.RemainingMs; current != nil && active.Preview.EstimatedDurationMs > 0 {
+			atChange := active.Preview.estimatedRemainingMs(int64(event.Line-1), override)
+			if atChange != nil {
+				delta := max(int64(0), *current-*atChange)
+				progress.ToolChangeMs = &delta
+			}
+		}
+		break
 	}
 	return progress
 }
@@ -2153,6 +2176,10 @@ func (r *cacheReplacement) Rollback() {
 // job. The returned entry is available at once (Sync = pending_upload) — the
 // Google-Drive behavior. The machine transfer happens later via the engine.
 func (s *Service) Upload(remotePath string, r io.Reader) (store.Entry, error) {
+	return s.UploadOrdered(remotePath, r, 0)
+}
+
+func (s *Service) UploadOrdered(remotePath string, r io.Reader, order int) (store.Entry, error) {
 	remote, err := normalizeRemote(remotePath)
 	if err != nil {
 		return store.Entry{}, err
@@ -2203,16 +2230,17 @@ func (s *Service) Upload(remotePath string, r io.Reader) (store.Entry, error) {
 		Sync:       store.PendingUpload,
 	}
 	if err := s.store.Batch(func(b *store.Batch) error {
-		b.PutEntry(entry)
 		b.DiscardJobs(remote, store.JobDelete)
 		b.SupersedeQueuedUploads(remote)
-		b.Enqueue(store.Job{
+		job := b.Enqueue(store.Job{
 			Kind:      store.JobUpload,
 			Path:      remote,
 			CachePath: cachePath,
 			MD5:       md5hex,
 			Size:      size,
 		})
+		entry.Upcoming = upcomingProgram(job, order)
+		b.PutEntry(entry)
 		return nil
 	}); err != nil {
 		return store.Entry{}, err
@@ -2356,18 +2384,19 @@ func (s *Service) mergeUploadRange(remote, cachePath, partPath string, start, en
 		entry.Sync = store.PendingUpload
 	}
 	if err := s.store.Batch(func(b *store.Batch) error {
-		b.PutEntry(entry)
 		b.DiscardJobs(remote, store.JobDelete)
 		b.SupersedeQueuedUploads(remote)
 		if complete {
-			b.Enqueue(store.Job{
+			job := b.Enqueue(store.Job{
 				Kind:      store.JobUpload,
 				Path:      remote,
 				CachePath: cachePath,
 				MD5:       entry.MD5,
 				Size:      total,
 			})
+			entry.Upcoming = upcomingProgram(job, 0)
 		}
+		b.PutEntry(entry)
 		return nil
 	}); err != nil {
 		return store.Entry{}, false, err
@@ -3979,15 +4008,20 @@ func (s *Service) renameLocalUpload(from, to string, entry store.Entry) error {
 	if err := s.store.Batch(func(b *store.Batch) error {
 		b.DiscardJobs(from, store.JobUpload, store.JobMkdir)
 		b.DeleteEntry(from)
-		b.PutEntry(entry)
 		b.SupersedeQueuedUploads(to)
-		b.Enqueue(store.Job{
+		job := b.Enqueue(store.Job{
 			Kind:      store.JobUpload,
 			Path:      to,
 			CachePath: cachePath,
 			MD5:       entry.MD5,
 			Size:      entry.Size,
 		})
+		order := 0
+		if entry.Upcoming.ID != 0 {
+			order = entry.Upcoming.Order
+		}
+		entry.Upcoming = upcomingProgram(job, order)
+		b.PutEntry(entry)
 		return nil
 	}); err != nil {
 		return err

@@ -1,3 +1,4 @@
+import { mountUpNext } from "./modules/up-next.js";
 import { createDashboardProfiles, defaultDashboardSettings, normalizeDashboardSettings } from "./modules/dashboard-profiles.js";
 import { createLiveUpdates } from "./modules/live-updates.js";
 import { pointInPolygonOrBoundary, effectiveOutlineGeometry, normalizedClosedPolygon, buildFieldProbePreview as computeFieldProbePreview, DEFAULT_FIELD_SPOT_GAP_MM } from "./modules/outline-geometry.js";
@@ -38,7 +39,7 @@ import { createOutlineCaptureOperations } from "./modules/outline-capture-operat
 import { createOutlineCoordination } from "./modules/outline-coordination.js";
 import { createJogEventHandler } from "./modules/jog-events.js";
 import { mobileJogAxisForResponse as computeMobileJogAxisForResponse, mobileWorkAreaJogAxes as computeMobileWorkAreaJogAxes, mobileWorkAreaJogEnabled as isMobileWorkAreaJogEnabled, mobileWorkAreaJogRadius as computeMobileWorkAreaJogRadius } from "./modules/workarea-jog.js";
-import { createSurfaceJogFeature, loadSurfaceViewPreferences, saveSurfaceViewPreferences as persistSurfaceViewPreferences, isSurfaceKiosk } from "./modules/surface-jog.js";
+import { createSurfaceJogFeature, surfaceZStepFeed, loadSurfaceViewPreferences, saveSurfaceViewPreferences as persistSurfaceViewPreferences, isSurfaceKiosk } from "./modules/surface-jog.js";
 import { createSurfaceRouting } from "./modules/surface-routing.js";
 import { createSurfaceShell } from "./modules/surface-shell.js";
 import { createMachineReconciliation } from "./modules/machine-reconciliation.js";
@@ -391,6 +392,7 @@ const toolActions = createToolActions({
   getMachine: () => state.machine,
   getPending: () => state.toolPending,
   setPending: (value) => { state.toolPending = value; },
+  getReadOnly: () => state.readOnly,
   setSoftDisabled,
   setElementBusy,
   setStatusMessage,
@@ -459,6 +461,7 @@ const surfaceActions = createSurfaceActions({
   surfaceJogBaseReady,
   surfaceJogReady,
   surfaceStepDistance,
+  getZStepFeed: () => surfaceZStepFeed(state.surface, state.jog.caps),
   surfaceStepUnit,
   sendJog: (...args) => sendJog(...args),
   connectJog: (...args) => connectJog(...args),
@@ -503,6 +506,7 @@ const workMoveInteractions = createWorkMoveInteractions({
   getDefaultMachineSettings: () => defaultMachineSettings(),
   normalizeMachineSettings,
   getJogCaps: () => state.jog.caps,
+  getZStepFeed: () => surfaceZStepFeed(state.surface, state.jog.caps),
   getJogLink: () => state.jog.link,
   getJogArmed: () => state.jog.armed,
   getJogTargetPending: () => state.jog.targetPending,
@@ -598,7 +602,20 @@ const {
 
 const surfaceSavedPositions = createSurfaceSavedPositions({
   documentRef: document,
-  getMachinePosition: () => currentAxisValues().mpos,
+  getMachinePosition: () => {
+    if (!["Idle", "Pause"].includes(machineActionState()) || state.jog.deadman || jogEstimateActive() ||
+        tapMoveTargetBusy() || state.jog.surfaceStepPending || state.jog.zStepPending) return null;
+    return state.jog.armed ? state.jog.observed : state.machine.mpos;
+  },
+  getRecallOptions: () => ({
+    includeZ: state.surface.saved_position_include_z,
+    retractMM: state.surface.saved_position_retract_y ? state.surface.saved_position_retract_mm : 0,
+  }),
+  getActiveTool: () => {
+    const m = state.machine;
+    if (!m?.connected || m.stale || Number(m.age_ms) > 10000) return null;
+    return Number.isFinite(m.tool?.active) ? m.tool.active : null;
+  },
   sendTapMove: (...args) => sendTapMove(...args),
   setStatusMessage: (...args) => setStatusMessage(...args),
   renderJog: () => renderJog(),
@@ -615,6 +632,7 @@ const surfaceControls = createSurfaceControls({
     renderSurfaceJog,
     selectSurfaceStep,
     selectSurfaceMotion,
+    renderRecallSettings: () => { surfaceSavedPositions.render(); renderJog(); },
     selectSurfaceMPGAxis,
     bindSurfaceMPGWheel,
     beginSurfaceHoldJog,
@@ -624,6 +642,32 @@ const surfaceControls = createSurfaceControls({
     clampNumber,
     applySurfaceAutomaticView,
     goToSurfaceDestination,
+    movementArmLabel,
+    xyMapMovement: () => {
+      const jog = state.jog;
+      const busy = tapMoveTargetBusy() || !!jog.surfaceStepPending || !!jog.zStepPending ||
+        !!jog.zProbePending || !!jog.probe3DPending || !!state.outline.fieldProbePending || hasPendingOriginOperation();
+      return {
+        armed: jog.armed, armAvailable: !state.readOnly && movementArmAvailable(), armPending: jog.armPending,
+        ready: !state.readOnly && !busy && !jog.inputSuspended && !jog.deadman && surfaceJogReady() &&
+          ["Idle", "Pause"].includes(machineActionState()),
+        busy,
+      };
+    },
+    reportXYMapError: (message) => setTapFeedback(message, "error"),
+    sendXYMapTarget: (target) => {
+      const { soft_endstop: limits } = normalizeMachineSettings(state.ui.machine).learned;
+      if (!limits || !["x", "y", "z"].every((axis) => Number.isFinite(limits[axis + "_min"] ?? 0) &&
+          Number.isFinite(limits[axis + "_max"] ?? 0) && (limits[axis + "_min"] ?? 0) < (limits[axis + "_max"] ?? 0))) {
+        setTapFeedback("Learn machine travel limits before moving from the XY map.", "error");
+        return;
+      }
+      if (target.x < (limits.x_min ?? 0) || target.x > (limits.x_max ?? 0) || target.y < (limits.y_min ?? 0) || target.y > (limits.y_max ?? 0)) {
+        setTapFeedback("Selected point is outside machine XY travel.", "error");
+        return;
+      }
+      sendTapMove(target, "", { requireSafeZ: true });
+    },
   },
 });
 const originProbing = createOriginProbing({
@@ -1355,7 +1399,9 @@ function movementOwnedElsewhere(j = state.jog) {
 }
 
 function renderJog() {
-  return jogView?.renderJog();
+  const result = jogView?.renderJog();
+  surfaceControls.renderXYMapControls();
+  return result;
 }
 
 function movementArmAvailable() {
@@ -2332,6 +2378,7 @@ function applySnapshot(snap) {
   if (snap.machine) {
     applyMachineStatus(snap.machine, false);
   }
+  upcomingUI?.apply(snap.up_next);
   filesFeature.applySnapshot(snap);
   renderMachine();
   renderFiles();
@@ -2345,6 +2392,7 @@ function applySnapshot(snap) {
 function applyMachineStatus(next, render = true) {
   if (!next) return;
   state.machine = reconcileObservedMachineStatus(next);
+  upcomingUI?.render();
   if (externalJobState(state.machine.state) && !state.activeGcode?.path) {
     if (!state.externalJobObservedAt) state.externalJobObservedAt = Date.now();
   } else {
@@ -2360,6 +2408,8 @@ function externalJobState(...args) { return surfaceRouting.externalJobState?.(..
 function externalJobInfo(...args) { return surfaceRouting.externalJobInfo(...args); }
 
 function applyChange(ev) {
+  if (ev.kind === "transfer") { upcomingUI?.showTransfer(ev.data); return; }
+  if (ev.kind === "up_next") { upcomingUI?.apply(ev.data); return; }
   if (ev.kind === "reset") {
     setNotice("Local state changed; reloading.", "info", "local-state");
     setTimeout(() => location.reload(), 400);
@@ -2391,7 +2441,10 @@ function mergeMachineStatusForDisplay(...args) { return machineReconciliation.me
 function shouldPreserveJogPrediction(...args) { return machineReconciliation.shouldPreserveJogPrediction(...args); }
 function reconcileObservedMachineStatus(...args) { return machineReconciliation.reconcileObservedMachineStatus(...args); }
 
+let upcomingUI;
+
 function init() {
+  upcomingUI = mountUpNext({ document, request, setStatusMessage, relPath, readOnly: () => state.readOnly, canStart: () => machineActionState() === "Idle" });
   maintenance.mount();
   mountMachineReadouts();
   initializeResponsiveControlSections({ documentRef: document, windowRef: window });

@@ -128,7 +128,7 @@ test('control stream updates the tool prompt without opening Files', async () =>
  completeFirst({path});
  await first;
  assert.equal(streams.length,1,'no Files stream needed');
- assert.equal(streams[0].url,'/api/events?scope=control');
+ assert.equal(streams[0].url,'/api/events?scope=control&up_next=1');
  assert.equal(requests,2);
  assert.equal(nodes.get('attention-tool-number').textContent,'T5');
  assert.equal(nodes.get('attention-tool-name').hidden,false);

@@ -308,7 +308,7 @@
     .surface-jog-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .surface-jog-actions button { min-height: 48px; }
     .surface-jog-actions button:last-child:nth-child(odd) { grid-column: auto; }
-    #surface-map-open { display: none; }
+    #surface-map-open { min-height: 44px; }
   }
   @media (hover: hover) and (pointer: fine), (min-width: 1180px) {
     :root { --surface-header-h: 72px; --surface-rail-w: 188px; --surface-footer-h: 76px; }

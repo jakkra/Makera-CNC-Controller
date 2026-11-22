@@ -31,6 +31,16 @@ export function createActiveJobView({
     const progress = document.getElementById("active-gcode-progress");
     const elapsed = document.getElementById("active-gcode-elapsed");
     const remaining = document.getElementById("active-gcode-remaining");
+    const next = document.getElementById("active-gcode-next-tool");
+    if (next) {
+      const machine = getMachine();
+      const job = live && !machine?.stale && machine?.active_job;
+      const event = job?.next_tool;
+      const tool = event?.tool ?? 0;
+      const name = preview.tool_metadata?.find((item) => item.number === tool)?.name;
+      next.textContent = event ? [`T${tool}`, Number.isFinite(job.tool_change_ms) ? `in ~${fmtDuration(job.tool_change_ms)}` : "", name].filter(Boolean).join(" · ") : "–";
+      next.title = next.textContent;
+    }
     if (!progress || !elapsed || !remaining) return;
     if (!live) {
       progress.textContent = external ? external.progressText : "-";

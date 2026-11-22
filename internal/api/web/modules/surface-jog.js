@@ -11,6 +11,10 @@ export function defaultSurfaceViewPreferences() {
     method: "directional",
     motion: "step",
     step_mm: 1,
+    z_step_feed_mm_min: 0,
+    saved_position_include_z: false,
+    saved_position_retract_y: false,
+    saved_position_retract_mm: 200,
     mpg_axis: "x",
     mpg_feedback: "confirmed",
     position_space: "work",
@@ -30,6 +34,11 @@ export function loadSurfaceViewPreferences({ storage, key = SURFACE_VIEW_PREFERE
       method: saved?.method === "mpg" ? "mpg" : "directional",
       motion: saved?.motion === "hold" ? "hold" : "step",
       step_mm: [10, 1, 0.1, 0.01].includes(Number(saved?.step_mm)) ? Number(saved.step_mm) : fallback.step_mm,
+      z_step_feed_mm_min: surfaceZStepFeed(saved),
+      saved_position_include_z: saved?.saved_position_include_z === true,
+      saved_position_retract_y: saved?.saved_position_retract_y === true,
+      saved_position_retract_mm: Number(saved?.saved_position_retract_mm) > 0 &&
+        Number.isFinite(Number(saved.saved_position_retract_mm)) ? Number(saved.saved_position_retract_mm) : fallback.saved_position_retract_mm,
       mpg_axis: ["x", "y", "z", "a"].includes(saved?.mpg_axis) ? saved.mpg_axis : fallback.mpg_axis,
       mpg_feedback: saved?.mpg_feedback === "detent" ? "detent" : fallback.mpg_feedback,
       position_space: saved?.position_space === "machine" ? "machine" : fallback.position_space,
@@ -57,6 +66,14 @@ export function isSurfaceKiosk(windowRef = globalThis.window) {
 
 export function surfaceStepDistance(surface = {}) {
   return [10, 1, 0.1, 0.01].includes(Number(surface.step_mm)) ? Number(surface.step_mm) : 1;
+}
+
+export function surfaceZStepFeed(surface, caps) {
+  const feed = Number(surface?.z_step_feed_mm_min);
+  if (!Number.isFinite(feed) || feed < 1) return 0;
+  if (!caps) return feed;
+  const max = Number(caps.max_z_step_mm_min);
+  return max > 0 && feed <= max ? feed : 0;
 }
 
 export function surfaceStepUnit(axis) {
@@ -218,6 +235,23 @@ export function createSurfaceJogFeature({
       const property = id === "surface-auto-switch" ? "checked" : "value";
       if (el[property] !== value) el[property] = value;
       surfaceControlValues.set(el, value);
+    }
+    const includeZ = document?.getElementById("surface-recall-include-z");
+    const retract = document?.getElementById("surface-recall-retract-y");
+    const retractDistance = document?.getElementById("surface-recall-retract-mm");
+    if (includeZ) includeZ.disabled = busy;
+    if (retract) retract.disabled = busy;
+    if (retractDistance) retractDistance.disabled = busy || !surface.saved_position_retract_y;
+    const zSpeed = document?.getElementById("surface-z-step-feed");
+    if (zSpeed?.options) {
+      const limit = Number(j.caps?.max_z_step_mm_min) || 0;
+      zSpeed.disabled = busy || limit <= 0;
+      for (const option of zSpeed.options) option.disabled = Number(option.value) > limit;
+      const effectiveFeed = String(surfaceZStepFeed(surface, j.caps || {}));
+      if (zSpeed !== document.activeElement && surfaceControlValues.get(zSpeed) !== effectiveFeed) {
+        zSpeed.value = effectiveFeed;
+        surfaceControlValues.set(zSpeed, effectiveFeed);
+      }
     }
     document?.getElementById("surface-directional-panel")?.toggleAttribute("hidden", surface.method !== "directional");
     document?.getElementById("surface-mpg-panel")?.toggleAttribute("hidden", surface.method !== "mpg");

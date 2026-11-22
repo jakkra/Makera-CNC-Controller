@@ -1,6 +1,6 @@
 import { bedMapExtent, bedPlatePlacement, bedPlateSVG, describeBedTarget } from "./bed-plate.js";
 
-export function createSurfaceControls({ state, documentRef = document, callbacks = {} }) {
+export function createSurfaceControls({ state, documentRef = document, performanceRef = globalThis.performance, callbacks = {} }) {
   const {
     bindButtonAction,
     toggleSurfaceMovementArm,
@@ -64,16 +64,33 @@ export function createSurfaceControls({ state, documentRef = document, callbacks
     button.addEventListener("click", (e) => e.preventDefault());
   }
 
+  let renderXYMapControls = () => {};
+
   function bindSurfaceXYMap() {
     const modal = documentRef.getElementById("surface-xy-map-modal");
     const plot = documentRef.getElementById("surface-xy-map-plot");
     const target = documentRef.getElementById("surface-xy-map-target");
+    const move = documentRef.getElementById("surface-map-move");
+    const arm = documentRef.getElementById("surface-map-arm");
+    const inputs = ["x", "y"].map((axis) => documentRef.getElementById("surface-map-" + axis));
     let selected = null;
+    let press = null;
     const mapModel = () => {
       const machine = normalizeMachineSettings(state.ui.machine);
       const work = machine.work_area;
       const placement = bedPlatePlacement(machine.learned);
       return { work, placement, extent: bedMapExtent(work, placement) };
+    };
+    renderXYMapControls = () => {
+      if (!modal?.open || !move || !arm) return;
+      const { armed, armAvailable, armPending, ready, busy } = callbacks.xyMapMovement();
+      arm.textContent = callbacks.movementArmLabel();
+      arm.disabled = armPending || busy || !armAvailable;
+      arm.setAttribute("aria-pressed", String(armed));
+      move.disabled = !selected || !ready;
+      move.setAttribute("aria-busy", String(busy));
+      for (const input of inputs) input.disabled = busy;
+      if (move.disabled && press) cancelPress();
     };
     const render = () => {
       if (!plot) return;
@@ -81,25 +98,117 @@ export function createSurfaceControls({ state, documentRef = document, callbacks
       const ratio = (extent.x_max - extent.x_min) / Math.max(1e-6, extent.y_max - extent.y_min);
       if (plot.style) {
         plot.style.aspectRatio = String(ratio);
-        plot.style.width = `min(100%, calc(60dvh * ${ratio.toFixed(4)}))`;
+        plot.style.width = `min(100%, calc(48dvh * ${ratio.toFixed(4)}))`;
       }
       plot.innerHTML = bedPlateSVG({ work, placement, target: selected });
+      renderXYMapControls();
     };
-    const close = () => modal?.close();
-    documentRef.getElementById("surface-map-open")?.addEventListener("click", () => { render(); modal?.showModal(); });
+    function select(x, y) {
+      const { work, placement } = mapModel();
+      if (!Number.isFinite(x) || !Number.isFinite(y) || x < work.x_min || x > work.x_max || y < work.y_min || y > work.y_max) {
+        selected = null;
+        target.textContent = "No target selected";
+        callbacks.reportXYMapError?.("Select a point within XY travel.");
+      } else {
+        const text = describeBedTarget(placement, x, y);
+        selected = { x, y, feature: text.feature || null };
+        target.textContent = text.detail ? text.primary + "\n" + text.detail : text.primary;
+      }
+      render();
+    }
+    const open = () => {
+      selected = null;
+      target.textContent = "No target selected";
+      for (const input of inputs) if (input) input.value = "";
+      modal?.showModal();
+      render();
+    };
+    const close = () => { cancelPress(); modal?.close(); };
+    for (const id of ["surface-map-open", "workarea-map-open"]) {
+      documentRef.getElementById(id)?.addEventListener("click", open);
+    }
     documentRef.getElementById("surface-map-close")?.addEventListener("click", close);
     documentRef.getElementById("surface-map-close-bottom")?.addEventListener("click", close);
     modal?.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
+    bindButtonAction?.(arm, toggleSurfaceMovementArm);
     plot?.addEventListener("pointerdown", (e) => {
+      if ((e.button ?? 0) !== 0 || callbacks.xyMapMovement?.().busy) return;
       const rect = plot.getBoundingClientRect();
-      const { placement, extent } = mapModel();
-      const x = extent.x_min + clampNumber((e.clientX - rect.left) / Math.max(1, rect.width), 0, 1) * (extent.x_max - extent.x_min);
-      const y = extent.y_max - clampNumber((e.clientY - rect.top) / Math.max(1, rect.height), 0, 1) * (extent.y_max - extent.y_min);
-      const text = describeBedTarget(placement, x, y);
-      selected = { x, y, feature: text.feature || null };
-      target.textContent = text.detail ? `${text.primary}
-${text.detail}` : text.primary;
-      render();
+      const { extent } = mapModel();
+      const x = extent.x_min + clampNumber((e.clientX - rect.left - (plot.clientLeft || 0)) / Math.max(1, plot.clientWidth || rect.width), 0, 1) * (extent.x_max - extent.x_min);
+      const y = extent.y_max - clampNumber((e.clientY - rect.top - (plot.clientTop || 0)) / Math.max(1, plot.clientHeight || rect.height), 0, 1) * (extent.y_max - extent.y_min);
+      if (inputs.every(Boolean)) {
+        inputs[0].value = x.toFixed(3);
+        inputs[1].value = y.toFixed(3);
+        select(Number(inputs[0].value), Number(inputs[1].value));
+      } else select(x, y);
+    });
+    for (const input of inputs) input?.addEventListener("input", () => {
+      if (inputs.some((field) => !field.value.trim() || field.validity?.badInput)) {
+        selected = null;
+        target.textContent = "No target selected";
+        render();
+        return;
+      }
+      select(...inputs.map((field) => Number(field.value)));
+    });
+
+    function cancelPress() {
+      press = null;
+      move?.classList?.remove("is-confirming");
+    }
+    function beginPress(id) {
+      if (move.disabled || !selected || press) return;
+      press = { id, target: selected, started: performanceRef.now() };
+      move.classList.add("is-confirming");
+    }
+    function finishPress(id, inside) {
+      if (!press || press.id !== id) return;
+      const held = press;
+      cancelPress();
+      if (!inside || move.disabled || held.target !== selected) return;
+      if (performanceRef.now() - held.started < 600) {
+        callbacks.reportXYMapError("Hold the button until it fills; the move starts when you release.");
+        return;
+      }
+      sendTarget();
+    }
+    function sendTarget() {
+      if (!selected || !callbacks.xyMapMovement().ready) return;
+      const { x, y } = selected;
+      const { work } = mapModel();
+      if (x < work.x_min || x > work.x_max || y < work.y_min || y > work.y_max) {
+        callbacks.reportXYMapError("Selected point is outside current XY travel.");
+        return;
+      }
+      callbacks.sendXYMapTarget({ x, y });
+    }
+    move?.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      move.setPointerCapture?.(event.pointerId);
+      beginPress(event.pointerId);
+    });
+    move?.addEventListener("pointerup", (event) => {
+      const rect = move.getBoundingClientRect();
+      finishPress(event.pointerId, event.clientX >= rect.left && event.clientX <= rect.right &&
+        event.clientY >= rect.top && event.clientY <= rect.bottom);
+    });
+    for (const event of ["pointercancel", "lostpointercapture", "blur"]) move?.addEventListener(event, cancelPress);
+    const activationKey = (key) => key === "Enter" || key === " ";
+    move?.addEventListener("keydown", (event) => {
+      if (!activationKey(event.key)) return;
+      event.preventDefault();
+      if (!event.repeat) beginPress(event.key);
+    });
+    move?.addEventListener("keyup", (event) => {
+      if (!activationKey(event.key)) return;
+      event.preventDefault();
+      finishPress(event.key, true);
+    });
+    move?.addEventListener("click", (event) => {
+      if (event.detail === 0 && !move.disabled && selected &&
+          globalThis.confirm("Move to " + target.textContent.split("\n")[0] + " with Safe Z?")) sendTarget();
     });
   }
 
@@ -180,6 +289,36 @@ ${text.detail}` : text.primary;
     }
     bindSurfaceMPGWheel();
     bindSurfaceXYMap();
+    const includeZ = documentRef.getElementById("surface-recall-include-z");
+    const retract = documentRef.getElementById("surface-recall-retract-y");
+    const distance = documentRef.getElementById("surface-recall-retract-mm");
+    if (includeZ && retract && distance) {
+      includeZ.checked = state.surface.saved_position_include_z === true;
+      retract.checked = state.surface.saved_position_retract_y === true;
+      distance.value = String(state.surface.saved_position_retract_mm || 200);
+      const save = () => {
+        state.surface.saved_position_include_z = includeZ.checked;
+        state.surface.saved_position_retract_y = retract.checked;
+        saveSurfaceViewPreferences();
+        callbacks.renderRecallSettings();
+      };
+      includeZ.onchange = retract.onchange = save;
+      distance.onchange = () => {
+        if (!distance.reportValidity()) {
+          distance.value = String(state.surface.saved_position_retract_mm);
+          return;
+        }
+        state.surface.saved_position_retract_mm = distance.valueAsNumber;
+        save();
+      };
+    }
+    const zFeed = documentRef.getElementById("surface-z-step-feed");
+    if (zFeed) {
+      zFeed.onchange = () => {
+        state.surface.z_step_feed_mm_min = Number(zFeed.value);
+        saveSurfaceViewPreferences();
+      };
+    }
     for (const button of documentRef.querySelectorAll("[data-surface-goto]")) {
       bindButtonAction(button, () => goToSurfaceDestination?.(button.dataset.surfaceGoto));
     }
@@ -187,5 +326,5 @@ ${text.detail}` : text.primary;
     documentRef.getElementById("surface-settings-close").onclick = () => documentRef.getElementById("surface-settings-modal")?.close();
   }
 
-  return { init, bindFooterInteractions, bindSurfaceStepButton, bindSurfaceHoldButton, bindSurfaceXYMap };
+  return { init, bindFooterInteractions, bindSurfaceStepButton, bindSurfaceHoldButton, bindSurfaceXYMap, renderXYMapControls: () => renderXYMapControls() };
 }

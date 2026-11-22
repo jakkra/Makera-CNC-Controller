@@ -23,13 +23,15 @@ export function createLiveUpdates({
 
   function connectControlSSE() {
     if (state.controlES) return;
-    const es = new EventSource("/api/events?scope=control");
+    const es = new EventSource("/api/events?scope=control&up_next=1");
     state.controlES = es;
     es.onopen = () => clearConnectivityIssue("control-sse");
     es.addEventListener("snapshot", (e) => {
       clearConnectivityIssue("control-sse");
       applySnapshot(JSON.parse(e.data));
     });
+    es.addEventListener("transfer", (e) => applyChange({ kind: "transfer", data: JSON.parse(e.data) }));
+    es.addEventListener("up_next", (e) => applyChange({ kind: "up_next", data: JSON.parse(e.data) }));
     es.addEventListener("machine", (e) => applyMachineStatus(JSON.parse(e.data)));
     es.addEventListener("gcode", (e) => appendGcodeLine(JSON.parse(e.data)));
     es.addEventListener("change", (e) => applyChange(JSON.parse(e.data)));

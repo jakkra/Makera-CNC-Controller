@@ -32,6 +32,7 @@ import (
 	"github.com/uwin/cnc-proxy/internal/service"
 	"github.com/uwin/cnc-proxy/internal/session"
 	"github.com/uwin/cnc-proxy/internal/store"
+	"github.com/uwin/cnc-proxy/internal/synceng"
 )
 
 // do performs a request and fails the test on transport error, returning the
@@ -1994,7 +1995,7 @@ func serverWithJog(t *testing.T, auth bool) (*httptest.Server, *carveratest.Fake
 	return srv, m, tr
 }
 
-func serverWithJogState(t *testing.T, auth bool) (*httptest.Server, *carveratest.FakeMachine, *machine.Tracker, *service.Service) {
+func serverWithJogState(t *testing.T, auth bool, configure ...func(*jog.Config)) (*httptest.Server, *carveratest.FakeMachine, *machine.Tracker, *service.Service) {
 	t.Helper()
 	m, err := carveratest.New()
 	if err != nil {
@@ -2024,6 +2025,9 @@ func serverWithJogState(t *testing.T, auth bool) (*httptest.Server, *carveratest
 	cfg.Tick = 20 * time.Millisecond
 	cfg.StatusInterval = 40 * time.Millisecond
 	cfg.DeadmanTimeout = 120 * time.Millisecond
+	for _, apply := range configure {
+		apply(&cfg)
+	}
 	h := NewWithOptions(svc, Options{Jog: jog.New(arb, cfg)}).Handler()
 	if auth {
 		h = httpauth.Middleware(httpauth.Config{User: "operator", Token: "secret", SuppressAPIChallenge: true}, h)
@@ -2662,6 +2666,65 @@ func TestAutoZProbeEndpointStartsAtCurrentMachineZ(t *testing.T) {
 	want := []string{"G53 G0 Z-5.0000", "G38.2 Z-20.0000 F50.0000", "G10 L20 P0 Z0", "G53 G0 Z-5.0000"}
 	if got := m.Gcodes(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("auto z probe gcodes = %v, want %v", got, want)
+	}
+}
+
+func Test3DProbeToolExchangeEnablesAutoZProbe(t *testing.T) {
+	srv, m, tr := serverWithMachine(t)
+	status := "<Idle|MPos:20,30,-5|WPos:12.5,-3.25,1|T:2,0>"
+	m.SetStatus(status)
+	if !tr.ObserveStatusPayload(status) {
+		t.Fatal("failed to seed tracker status")
+	}
+	post := func(path string, body any, wantStatus int) {
+		t.Helper()
+		resp := postJSON(t, srv.URL+path, body)
+		defer resp.Body.Close()
+		if resp.StatusCode != wantStatus {
+			data, _ := io.ReadAll(resp.Body)
+			t.Fatalf("%s status = %d, want %d: %s", path, resp.StatusCode, wantStatus, data)
+		}
+	}
+	machineStatus := func() service.MachineStatus {
+		t.Helper()
+		resp := get(t, srv.URL+"/api/machine/status")
+		defer resp.Body.Close()
+		var status service.MachineStatus
+		if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+			t.Fatal(err)
+		}
+		return status
+	}
+	post("/api/probe/auto-z", map[string]any{}, http.StatusConflict)
+	post("/api/tool/change", map[string]int{"tool_id": 9999}, http.StatusAccepted)
+	wait := machineStatus()
+	if wait.State != machine.Tool || wait.Tool == nil || wait.Tool.Active != 2 || wait.Tool.Target == nil || *wait.Tool.Target != 9999 {
+		t.Fatalf("before physical change: %+v, tool %+v", wait, wait.Tool)
+	}
+	post("/api/tool/continue?tool_id=0", nil, http.StatusConflict)
+	post("/api/tool/continue?tool_id=9999", nil, http.StatusAccepted)
+	ready := machineStatus()
+	if ready.State != machine.Idle || ready.Tool == nil || ready.Tool.Active != 9999 {
+		t.Fatalf("after physical change: %+v, tool %+v", ready, ready.Tool)
+	}
+
+	m.SetGcodeReply("G38.2 Z-20.0000 F50.0000", "[PRB:20.0000,30.0000,-12.0000:1]")
+	resp := postJSON(t, srv.URL+"/api/probe/auto-z", map[string]any{})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp.Body)
+		t.Fatalf("probe Z with the 3D Probe: %d: %s", resp.StatusCode, data)
+	}
+	var result service.MachineActionResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Verified || result.Machine["z"] != -12 {
+		t.Fatalf("unverified work zero: %+v", result)
+	}
+	want := []string{"M6T9999", "M490.2", "G53 G0 Z-5.0000", "G38.2 Z-20.0000 F50.0000", "G10 L20 P0 Z0", "G53 G0 Z-5.0000"}
+	if got := m.Gcodes(); !slices.Equal(got, want) {
+		t.Fatalf("firmware commands = %v, want %v", got, want)
 	}
 }
 
@@ -3578,5 +3641,259 @@ func TestSpindleFanExplicitCommandsDuringRun(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatal(resp.StatusCode)
+	}
+}
+
+func TestUpcomingUploadToSharedStart(t *testing.T) {
+	m, err := carveratest.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(m.Close)
+	st, err := store.Open(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	arb := session.New(session.Config{Dial: func() (*client.Conn, error) {
+		return client.Dial(m.Addr(), 2*time.Second, client.WithUploadStartDelay(0))
+	}})
+	arb.Tracker().Observe(machine.Idle)
+	svc, err := service.New(st, arb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
+	srv := httptest.NewServer(New(svc).Handler())
+	t.Cleanup(srv.Close)
+	upload := func(name string, order string, content string) service.UpcomingAction {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/files?path="+name+"&order="+order, strings.NewReader(content))
+		resp := do(t, req)
+		defer resp.Body.Close()
+		var entry store.Entry
+		if resp.StatusCode != 201 || json.NewDecoder(resp.Body).Decode(&entry) != nil || entry.Upcoming.ID == 0 {
+			t.Fatalf("upload response %d", resp.StatusCode)
+		}
+		return service.UpcomingAction{Path: entry.Path, ID: entry.Upcoming.ID, MD5: entry.MD5, FromOffer: true}
+	}
+	stale := upload("second.nc", "2", "G1 X1")
+	second := upload("second.nc", "2", "G1 X2")
+	first := upload("first.nc", "1", "G1 X3")
+	state := svc.Upcoming()
+	if len(state.Items) != 2 || state.Items[0].ID != first.ID || state.OfferID != 0 {
+		t.Fatalf("queued: %+v", state)
+	}
+	streamCtx, closeStream := context.WithTimeout(context.Background(), 10*time.Second)
+	defer closeStream()
+	streamReq, _ := http.NewRequestWithContext(streamCtx, "GET", srv.URL+"/api/events?scope=control&up_next=1", nil)
+	stream := do(t, streamReq)
+	defer stream.Body.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		synceng.New(synceng.Config{Store: st, Arbiter: arb}).Run(ctx, time.Millisecond)
+	}()
+	defer func() { cancel(); <-done }()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		state = svc.Upcoming()
+		if state.OfferID == first.ID && state.OfferMs > 0 && state.Items[1].Sync == store.Synced {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if state.OfferID != first.ID || state.Items[1].Sync != store.Synced {
+		t.Fatalf("ready: %+v", state)
+	}
+	scanner := bufio.NewScanner(stream.Body)
+	eventKind := ""
+	receivedProgress, receivedOffer := false, false
+	for scanner.Scan() {
+		line := scanner.Text()
+		if kind, ok := strings.CutPrefix(line, "event: "); ok {
+			eventKind = kind
+		}
+		data, ok := strings.CutPrefix(line, "data: ")
+		if !ok {
+			continue
+		}
+		switch eventKind {
+		case "transfer":
+			var transfer store.Transfer
+			if json.Unmarshal([]byte(data), &transfer) == nil && transfer.ID == first.ID && transfer.Percent > 0 {
+				receivedProgress = true
+			}
+		case "up_next":
+			var shared service.UpcomingState
+			if json.Unmarshal([]byte(data), &shared) == nil && shared.OfferID == first.ID {
+				receivedOffer = true
+			}
+		}
+		if receivedOffer && receivedProgress {
+			break
+		}
+	}
+	if !receivedOffer || !receivedProgress {
+		t.Fatalf("controller stream progress=%v offer=%v error=%v", receivedProgress, receivedOffer, scanner.Err())
+	}
+	resp := postJSON(t, srv.URL+"/api/up-next/start", stale)
+	resp.Body.Close()
+	if resp.StatusCode != 409 {
+		t.Fatalf("superseded revision: %d", resp.StatusCode)
+	}
+	// Two tabs click the same prompt while another program is globally selected.
+	if _, err := svc.SelectActiveGcode(second.Path); err != nil {
+		t.Fatal(err)
+	}
+	statuses := make(chan int, 2)
+	for range 2 {
+		go func() {
+			payload, _ := json.Marshal(first)
+			response, err := http.Post(srv.URL+"/api/up-next/start", "application/json", bytes.NewReader(payload))
+			if err != nil {
+				statuses <- 0
+				return
+			}
+			response.Body.Close()
+			statuses <- response.StatusCode
+		}()
+	}
+	a, b := <-statuses, <-statuses
+	if (a == 200) == (b == 200) {
+		t.Fatalf("simultaneous responses: %d, %d", a, b)
+	}
+	var plays []string
+	for _, line := range m.Gcodes() {
+		if strings.HasPrefix(line, "play ") {
+			plays = append(plays, line)
+		}
+	}
+	if !slices.Equal(plays, []string{"play " + first.Path}) {
+		t.Fatalf("machine received %v", plays)
+	}
+	if state = svc.Upcoming(); len(state.Items) != 1 || state.Items[0].ID != second.ID {
+		t.Fatalf("after start: %+v", state)
+	}
+}
+
+func TestJogWebSocketExplicitZStepFeed(t *testing.T) {
+	srv, m, _ := serverWithJog(t, false)
+	c := dialWS(t, srv.URL)
+	defer c.Close(websocket.StatusNormalClosure, "")
+	hello := readWSEvent(t, c, "hello")
+	if hello.Capabilities == nil || hello.Capabilities.MaxZStepMMMin != 900 {
+		t.Fatalf("Z step capabilities = %+v", hello.Capabilities)
+	}
+	writeWS(t, c, map[string]any{"type": "arm", "seq": 1})
+	readWSEvent(t, c, "ack")
+	writeWS(t, c, map[string]any{"type": "step", "seq": 2, "axis": "z", "distance": 1, "feed_mm_min": 901})
+	if event := readWSEvent(t, c, "error"); event.Seq != 2 || event.Code != jog.CodeBadInput {
+		t.Fatalf("out of range = %+v", event)
+	}
+
+	writeWS(t, c, map[string]any{"type": "step", "seq": 3, "axis": "z", "distance": 1, "feed_mm_min": 900})
+	if event := readWSEvent(t, c, "ack"); event.Seq != 3 {
+		t.Fatalf("step ack = %+v", event)
+	}
+	deadline := time.Now().Add(time.Second)
+	for len(m.Gcodes()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := m.Gcodes(); !slices.Equal(got, []string{"$J Z1.0000 F0.4500"}) {
+		t.Fatalf("firmware frames = %v", got)
+	}
+}
+
+func TestProbeEdgeEndpointMeasuresAndRetractsInMachineCoordinates(t *testing.T) {
+	srv, m, tr, svc, _ := serverWithMachineState(t)
+	settings := svc.UISettings()
+	settings.Machine.Learned.LearnedAt = time.Now()
+	settings.Machine.Learned.SoftEndstop = store.MachineSoftEndstopProfile{
+		XMin: -100, XMax: 100, YMin: -100, YMax: 100, ZMin: -120, ZMax: 0,
+	}
+	if _, err := svc.SetUISettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	status := "<Idle|MPos:0,0,-20|WPos:0,0,7|T:9999,0>"
+	m.SetStatus(status)
+	tr.ObserveStatusPayload(status)
+	m.SetGcodeReply("G38.2 Y-10.0000 F50", "[PRB:0.000,-10.000,-20.000:1]")
+	resp := postJSON(t, srv.URL+"/api/probe/edge", service.ProbeEdgeRequest{Axis: "y", Direction: -1, TravelMM: 10, TipDiameterMM: 2})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp.Body)
+		t.Fatalf("edge probe status = %d: %s", resp.StatusCode, data)
+	}
+	var result service.ProbeEdgeResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Axis != "y" || result.MachineEdgeMM != -11 {
+		t.Fatalf("edge probe = %+v", result)
+	}
+	machineStatus := svc.Status()
+	if machineStatus.MPos["y"] != 0 || machineStatus.WPos["z"] != 7 {
+		t.Fatalf("retract status = %+v", machineStatus)
+	}
+	if got := m.Gcodes(); !slices.Equal(got, []string{"G38.2 Y-10.0000 F50", "G53 G0 Y0.0000"}) {
+		t.Fatalf("edge probing frames = %v", got)
+	}
+}
+
+func TestJogWebSocketRecallWithFastLiftBoundedYRetreatAndOptionalZ(t *testing.T) {
+	srv, m, tr, _ := serverWithJogState(t, false, func(cfg *jog.Config) {
+		cfg.SoftLimits = func() jog.SoftLimits {
+			return jog.SoftLimits{Enabled: true, XMin: -300, XMax: 0, YMin: -210, YMax: -2, ZMin: -120, ZMax: -1}
+		}
+	})
+	status := "<Idle|MPos:-10,-5,-5|WPos:0,0,0>"
+	m.SetStatus(status)
+	if !tr.ObserveStatusPayload(status) {
+		t.Fatal("invalid fixture status")
+	}
+	c := dialWS(t, srv.URL)
+	defer c.Close(websocket.StatusNormalClosure, "")
+	readWSEvent(t, c, "hello")
+	writeWS(t, c, map[string]any{"type": "arm", "seq": 1})
+	readWSEvent(t, c, "ack")
+	writeWS(t, c, map[string]any{
+		"type": "target", "seq": 2, "target": map[string]float64{"x": -8, "y": -6},
+		"feed_mm_min": 1200, "safe_z_mm": -4, "safe_z_enabled": true, "fast_safe_z": true, "y_retract_mm": 200,
+	})
+	ack := readWSEvent(t, c, "ack")
+	if ack.Seq != 2 || ack.Target["x"] != -8 || ack.Target["y"] != -6 || ack.Target["z"] != -4 {
+		t.Fatalf("recall acknowledged wrong destination: %+v", ack)
+	}
+	event := readWSEvent(t, c, "target_complete")
+	if event.Seq != 2 || event.Target["x"] != -8 || event.Target["y"] != -6 || event.Target["z"] != -4 {
+		t.Fatalf("recall completion = %+v", event)
+	}
+	lines := m.Gcodes()
+	expected := []string{"$J Z1.0000 F0.4500", "$J Y3.0000 ", "$J X2.0000 ", "$J Y-4.0000 "}
+	if len(lines) != len(expected) {
+		t.Fatalf("recall frames = %q", lines)
+	}
+	for i, prefix := range expected {
+		if !strings.HasPrefix(lines[i], prefix) {
+			t.Fatalf("recall frame %d = %q, want %q", i, lines[i], prefix)
+		}
+	}
+
+	writeWS(t, c, map[string]any{
+		"type": "target", "seq": 3, "target": map[string]float64{"x": -6, "y": -7, "z": -5},
+		"feed_mm_min": 1200, "safe_z_mm": -3, "safe_z_enabled": true, "fast_safe_z": true, "y_retract_mm": 200,
+	})
+	if event := readWSEvent(t, c, "target_complete"); event.Seq != 3 || event.Target["x"] != -6 || event.Target["y"] != -7 || event.Target["z"] != -5 {
+		t.Fatalf("XYZ recall completion = %+v", event)
+	}
+	lines = m.Gcodes()[len(expected):]
+	expected = []string{"$J Z1.0000 F0.4500", "$J Y4.0000 ", "$J X2.0000 ", "$J Y-5.0000 ", "$J Z-2.0000 "}
+	if len(lines) != len(expected) {
+		t.Fatalf("XYZ recall frames = %q", lines)
+	}
+	for i, prefix := range expected {
+		if !strings.HasPrefix(lines[i], prefix) {
+			t.Fatalf("XYZ recall frame %d = %q, want %q", i, lines[i], prefix)
+		}
 	}
 }

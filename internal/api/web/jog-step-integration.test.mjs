@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createSurfaceJogFeature, defaultSurfaceViewPreferences} from './modules/surface-jog.js';
+import {createSurfaceJogFeature, defaultSurfaceViewPreferences, surfaceZStepFeed} from './modules/surface-jog.js';
 import {createSurfaceControls} from './modules/surface-controls.js';
 import {createSurfaceActions} from './modules/surface-actions.js';
 import {createJogFeature} from './modules/jog.js';
@@ -11,13 +11,14 @@ function fixture() {
  const node=(dataset={})=>({dataset,value:'',handlers:{},classList:{toggle(){}},style:{setProperty(){}},
   addEventListener(name,fn){this.handlers[name]=fn},contains(target){return target===this},setAttribute(name,v){this[name]=v},toggleAttribute(){},setPointerCapture(){}});
  const ids=new Map(); const chips=[10,1,0.1,0.01].map(step=>node({surfaceStep:String(step)}));
+ const zButton=node({surfaceZSign:"1"});
  const axis=node({surfaceAxis:'x',surfaceSign:'1'});
  let releaseTarget=null;
  const documentRef={activeElement:null,elementFromPoint:()=>releaseTarget,getElementById(id){if(!ids.has(id))ids.set(id,node());return ids.get(id)},
-  querySelectorAll(q){if(q==='[data-surface-step]')return chips;if(q.includes('[data-surface-axis]'))return [axis];return []}};
+  querySelectorAll(q){if(q==='[data-surface-step]')return chips;if(q==='[data-surface-z-sign]')return [zButton];if(q.includes('[data-surface-axis]'))return [axis];return []}};
  const wire=[];const saved=[];
  const state={surface:{...defaultSurfaceViewPreferences(),step_mm:10},machine:{state:'Idle',connected:true},
-  jog:{caps:{enabled:true},link:'online',armed:true,seq:1,sent:new Map(),surfaceStepPending:0,
+  jog:{caps:{enabled:true,max_z_step_mm_min:900},link:'online',armed:true,seq:1,sent:new Map(),surfaceStepPending:0,
    surfaceWheel:{pointerId:null,value:0,angle:0},ws:{readyState:1,send:raw=>wire.push(JSON.parse(raw))}}};
  const ports=createFeatureStatePorts(state);
  const feature=createSurfaceJogFeature({stateFacade:ports.surfaceJog,documentRef,windowRef:{matchMedia:()=>({matches:false})},
@@ -25,7 +26,7 @@ function fixture() {
  const jog=createJogFeature({jogState:state.jog,surfaceState:state.surface,documentRef,windowRef:{},WebSocketCtor:{OPEN:1},performanceRef:{now:()=>0}});
  const actions=createSurfaceActions({request:async()=>{},getJog:()=>state.jog,
   surfaceJogBaseReady:feature.surfaceJogBaseReady,surfaceStepDistance:feature.surfaceStepDistance,
-  sendJog:jog.sendJog,renderJog:feature.renderSurfaceJog});
+  getZStepFeed:()=>surfaceZStepFeed(state.surface,state.jog.caps),sendJog:jog.sendJog,renderJog:feature.renderSurfaceJog});
  const controls=createSurfaceControls({state:ports.surfaceControls,documentRef,callbacks:{
   ...feature,...actions,bindButtonAction:(button,fn)=>bindButtonAction(button,fn,{documentRef,performanceRef:{now:()=>1000}}),bindSurfaceMPGWheel:()=>{},
   applySurfaceAutomaticView:()=>{},saveSurfaceViewPreferences:()=>{},normalizeMachineSettings:v=>v,clampNumber:v=>v}});
@@ -37,7 +38,7 @@ function fixture() {
   button.handlers.pointerdown?.(event);button.handlers.pointerup?.(event);
  };
  const click=(button)=>{const e={preventDefault(){},stopPropagation(){}};button.onclick?.(e);button.handlers.click?.(e)};
- return {state,feature,ids,chips,wire,saved,clickStep,touch,click};
+ return {state,feature,ids,chips,wire,saved,clickStep,touch,click,zButton};
 }
 
 test('native increment selection survives live updates and changes the next jog frame',()=>{
@@ -80,4 +81,17 @@ test('touch followed by synthesized click commits the selection only once',()=>{
  f.touch(chip);f.click(chip);
  assert.equal(f.saved.length,1);
  assert.equal(f.state.surface.step_mm,0.1);
+});
+
+test("Z step speed selection reaches the Z button's WebSocket payload", () => {
+  const f = fixture();
+  const select = f.ids.get("surface-z-step-feed");
+  select.value = "900";
+  select.onchange();
+  f.touch(f.zButton);
+  const { type, axis, distance, feed_mm_min } = f.wire.at(-1);
+  assert.deepEqual({ type, axis, distance, feed_mm_min }, { type: "step", axis: "z", distance: 10, feed_mm_min: 900 });
+  f.state.jog.surfaceStepPending = 0;
+  f.clickStep();
+  assert.equal(f.wire.at(-1).feed_mm_min, undefined);
 });

@@ -27,7 +27,7 @@ test("scoped SSE starts once, preserves dispatch order, and resets only its owne
   const { live, streams, calls } = setup();
   assert.equal(streams.length, 0);
   live.connectControlSSE(); live.connectControlSSE(); live.connectFilesSSE(); live.connectFilesSSE();
-  assert.deepEqual(streams.map(s => s.url), ["/api/events?scope=control", "/api/events?scope=files"]);
+  assert.deepEqual(streams.map(s => s.url), ["/api/events?scope=control&up_next=1", "/api/events?scope=files"]);
   streams[0].events.snapshot({ data: '{"machine":{"state":"Idle"}}' });
   streams[0].events.machine({ data: '{"state":"Run"}' });
   streams[0].events.gcode({ data: '{"seq":3}' });
@@ -59,6 +59,6 @@ test("control stream delivers active preview invalidations without opening Files
   const event={kind:"active_gcode",active_gcode_path:"/sd/gcodes/current.nc"};
   streams[0].events.change({data:JSON.stringify(event)});
   assert.equal(streams.length,1);
-  assert.equal(streams[0].url,"/api/events?scope=control");
+  assert.equal(streams[0].url,"/api/events?scope=control&up_next=1");
   assert.deepEqual(calls,[["change",event]]);
 });

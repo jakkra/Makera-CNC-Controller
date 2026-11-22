@@ -255,7 +255,8 @@ password; default user `cnc`) or explicitly pass `-allow-insecure-http`.
 | `-api-max-backup-mb` | 64 | maximum backup import request body size |
 | `-jog-enabled` | true | enable low-latency gamepad jogging API/UI |
 | `-jog-max-xy-mm-min` | 1200 | maximum XY jog speed in mm/min |
-| `-jog-max-z-mm-min` | 300 | maximum Z jog speed in mm/min |
+| `-jog-max-z-mm-min` | 300 | maximum continuous Z jog speed and default Z step speed in mm/min |
+| `-jog-max-z-step-mm-min` | 900 | maximum feed for explicit Z steps using instant jog, in mm/min |
 | `-jog-tick` | 50ms | gamepad jog motion tick interval |
 | `-jog-status-interval` | 100ms | status polling interval while a jog lease is armed |
 | `-jog-deadman-timeout` | 150ms | maximum age of held-deadman input before motion stops |
@@ -565,3 +566,22 @@ comes from NetworkManager (`nmcli`); no scan or connection change is performed.
 Normalized percentages are never converted to dBm. Makera's SSID is
 shown as not reported when it is absent from the available machine telemetry;
 the host's SSID is never assumed to describe the CNC.
+
+### Starting uploaded programs
+
+Uploads from the API, browser, and WebDAV share the **Up next** list in Files.
+Nonempty `.nc`, `.cnc`, `.gcode`, `.ngc`, and `.tap` uploads enter the
+list when queued. Upload requests can supply a positive operation number,
+for example `POST /api/files?path=fixture/face.nc&order=1`. Numbered
+operations sort first, then uploads with equal or unspecified order follow
+arrival order. Replacing a file replaces its list entry. Remove takes it
+off the list and leaves the file on the machine.
+
+Controller tabs show machine-transfer progress in the bottom bar. After a
+program transfers, a fresh Idle machine can offer **Start job** for 30
+seconds. Dismiss closes the prompt in that tab. Expiry leaves the program
+in Files. Starting claims that upload revision across tabs before sending
+the play command. For a job with a cached preview and reported playback
+line, Active Job also shows the next programmed tool change and its estimated
+remaining motion time at the current feed override. Pauses and manual setup
+time are outside the estimate.

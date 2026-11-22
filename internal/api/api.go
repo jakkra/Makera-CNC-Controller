@@ -108,6 +108,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/files/", s.deleteFile)     // DELETE /api/files/{path...}
 	mux.HandleFunc("POST /api/files/rename", s.renameFile) // body: {from,to}
 	mux.HandleFunc("POST /api/dirs", s.postDir)            // body: {path}
+	mux.HandleFunc("POST /api/up-next/start", s.upcomingAction)
+	mux.HandleFunc("POST /api/up-next/remove", s.upcomingAction)
+	mux.HandleFunc("GET /api/up-next", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, s.svc.Upcoming()) })
 	mux.HandleFunc("GET /api/jobs", s.getJobs)
 	mux.HandleFunc("GET /api/runs", s.getRuns)
 	mux.HandleFunc("DELETE /api/runs", s.clearRuns)
@@ -124,17 +127,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/gcode/active/paused-command", s.runPausedJobCommand)
 	mux.HandleFunc("POST /api/tool/current", s.setCurrentTool)         // body: {tool_id}
 	mux.HandleFunc("POST /api/tool/change", s.changeTool)              // body: {tool_id}
-	mux.HandleFunc("POST /api/tool/continue", s.continueToolChange)    // runs M490.2
+	mux.HandleFunc("POST /api/tool/continue", s.continueToolChange)    // optional tool_id query
 	mux.HandleFunc("POST /api/tool/drop", s.dropCurrentTool)           // runs M6T-1
 	mux.HandleFunc("POST /api/tool/calibrate", s.calibrateCurrentTool) // starts M491
-	mux.HandleFunc("POST /api/probe/z", s.probeZ)                      // one serialized Z probe
-	mux.HandleFunc("POST /api/probe/auto-z", s.autoZProbe)             // controller-style M495 auto Z probe
-	mux.HandleFunc("POST /api/probe/floor", s.floorZProbe)             // verified floor Z zero + safe retract
-	mux.HandleFunc("POST /api/probe/3d", s.probe3D)                    // controller-style wired M480 3D probe
-	mux.HandleFunc("POST /api/outline/trace", s.traceOutline)          // serialized probe-laser outline trace
-	mux.HandleFunc("GET /api/gcode/log", s.getGcodeLog)                // recent gcode I/O lines
-	mux.HandleFunc("POST /api/control", s.postControl)                 // realtime, job-player, or recovery action
-	mux.HandleFunc("POST /api/feed-override", s.postFeedOverride)      // body: {percent}; valid while running
+	mux.HandleFunc("POST /api/probe/edge", s.probeEdge)
+	mux.HandleFunc("POST /api/probe/z", s.probeZ)                 // one serialized Z probe
+	mux.HandleFunc("POST /api/probe/auto-z", s.autoZProbe)        // controller-style M495 auto Z probe
+	mux.HandleFunc("POST /api/probe/floor", s.floorZProbe)        // verified floor Z zero + safe retract
+	mux.HandleFunc("POST /api/probe/3d", s.probe3D)               // controller-style wired M480 3D probe
+	mux.HandleFunc("POST /api/outline/trace", s.traceOutline)     // serialized probe-laser outline trace
+	mux.HandleFunc("GET /api/gcode/log", s.getGcodeLog)           // recent gcode I/O lines
+	mux.HandleFunc("POST /api/control", s.postControl)            // realtime, job-player, or recovery action
+	mux.HandleFunc("POST /api/feed-override", s.postFeedOverride) // body: {percent}; valid while running
 	mux.HandleFunc("POST /api/outputs/spindle-fan", s.postSpindleFan)
 	mux.HandleFunc("POST /api/outputs/auto-vacuum", s.postAutoVacuum) // body: {enabled}; valid while running
 	mux.HandleFunc("GET /api/ui/settings", s.getUISettings)
@@ -263,7 +267,7 @@ func (s *Server) postFile(w http.ResponseWriter, r *http.Request) {
 		if remote == "" {
 			remote = hdr.Filename
 		}
-		s.doUpload(w, remote, f)
+		s.doUpload(w, r, remote, f)
 		return
 	}
 	remote := r.URL.Query().Get("path")
@@ -275,11 +279,20 @@ func (s *Server) postFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
-	s.doUpload(w, remote, r.Body)
+	s.doUpload(w, r, remote, r.Body)
 }
 
-func (s *Server) doUpload(w http.ResponseWriter, remote string, r io.Reader) {
-	entry, err := s.svc.Upload(remote, r)
+func (s *Server) doUpload(w http.ResponseWriter, req *http.Request, remote string, r io.Reader) {
+	order := 0
+	if raw := req.URL.Query().Get("order"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			writeErr(w, http.StatusBadRequest, "order must be a positive integer")
+			return
+		}
+		order = n
+	}
+	entry, err := s.svc.UploadOrdered(remote, r, order)
 	if err != nil {
 		if requestBodyTooLarge(err) {
 			writeErr(w, http.StatusRequestEntityTooLarge, "upload too large")
@@ -448,6 +461,19 @@ func (s *Server) setMachineOrigin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := s.svc.SetMachineOrigin(body)
+	if err != nil {
+		s.mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) probeEdge(w http.ResponseWriter, r *http.Request) {
+	var body service.ProbeEdgeRequest
+	if !s.decodeJSON(w, r, &body) {
+		return
+	}
+	result, err := s.svc.ProbeEdge(body)
 	if err != nil {
 		s.mapError(w, err)
 		return
@@ -671,7 +697,16 @@ func (s *Server) changeTool(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) continueToolChange(w http.ResponseWriter, r *http.Request) {
-	res, err := s.svc.ContinueToolChange()
+	var expectedTool *int
+	if raw := r.URL.Query().Get("tool_id"); raw != "" {
+		tool, err := strconv.Atoi(raw)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid tool_id")
+			return
+		}
+		expectedTool = &tool
+	}
+	res, err := s.svc.ContinueToolChange(expectedTool)
 	if err != nil {
 		s.mapError(w, err)
 		return
@@ -909,6 +944,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	includeMachine := scope == "" || scope == "all" || scope == "control" || scope == "files"
 	includeAttention := scope == "" || scope == "all" || scope == "control"
 
+	includeUpcoming := includeGcode && r.URL.Query().Get("up_next") == "1"
+
 	var ch <-chan store.Event
 	var unsub func()
 	if includeFiles || scope == "control" {
@@ -940,6 +977,11 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	snap := map[string]any{
 		"machine": s.machineStatus(),
 	}
+	var upcoming service.UpcomingState
+	if includeUpcoming {
+		upcoming = s.svc.Upcoming()
+		snap["up_next"] = upcoming
+	}
 	if includeFiles {
 		snap["files"] = s.svc.Files()
 		snap["jobs"] = s.svc.Jobs()
@@ -961,6 +1003,18 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		case ev, ok := <-ch:
 			if !ok {
 				return
+			}
+			if includeUpcoming && (ev.Kind == "entry" || ev.Kind == "reset") {
+				upcoming = s.svc.Upcoming()
+				sendEvent(w, "up_next", upcoming)
+				flusher.Flush()
+			}
+			if ev.Kind == "transfer" {
+				if includeUpcoming {
+					sendEvent(w, "transfer", ev.Transfer)
+					flusher.Flush()
+				}
+				continue
 			}
 			if !includeFiles {
 				// Tool metadata can finish caching while the Files surface has never
@@ -985,6 +1039,13 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			sendEvent(w, "machine", s.machineStatus())
+			if includeUpcoming {
+				previous := upcoming.OfferID
+				s.svc.RefreshUpcomingOffer(&upcoming)
+				if previous != upcoming.OfferID {
+					sendEvent(w, "up_next", upcoming)
+				}
+			}
 			flusher.Flush()
 		case change, ok := <-ach:
 			if !ok {
@@ -1073,6 +1134,27 @@ func (s *Server) postSpindleFan(w http.ResponseWriter, r *http.Request) {
 	}
 	defer finish()
 	result, err := s.svc.SetSpindleFan(*body.Enabled)
+	if err != nil {
+		s.mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) upcomingAction(w http.ResponseWriter, r *http.Request) {
+	var a service.UpcomingAction
+	if !s.decodeJSON(w, r, &a) {
+		return
+	}
+	if r.URL.Path == "/api/up-next/remove" {
+		if err := s.svc.RemoveUpcoming(a); err != nil {
+			s.mapError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, s.svc.Upcoming())
+		return
+	}
+	result, err := s.svc.StartUpcoming(a)
 	if err != nil {
 		s.mapError(w, err)
 		return

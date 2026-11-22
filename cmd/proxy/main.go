@@ -91,7 +91,8 @@ func main() {
 		apiReadOnly             = flag.Bool("api-read-only", false, "disable all mutating API/UI actions; keep observer views available")
 		jogEnabled              = flag.Bool("jog-enabled", jogDefaults.Enabled, "enable low-latency gamepad jogging API/UI")
 		jogMaxXY                = flag.Float64("jog-max-xy-mm-min", jogDefaults.MaxXYMMMin, "maximum XY jog speed in mm/min")
-		jogMaxZ                 = flag.Float64("jog-max-z-mm-min", jogDefaults.MaxZMMMin, "maximum Z jog speed in mm/min")
+		jogMaxZ                 = flag.Float64("jog-max-z-mm-min", jogDefaults.MaxZMMMin, "maximum continuous Z jog speed in mm/min")
+		jogMaxZStep             = flag.Float64("jog-max-z-step-mm-min", jogDefaults.MaxZStepMMMin, "maximum selectable Z step speed in mm/min")
 		jogMaxA                 = flag.Float64("jog-max-a-deg-min", jogDefaults.MaxADegMin, "maximum A-axis jog speed in degrees/min")
 		jogTick                 = flag.Duration("jog-tick", jogDefaults.Tick, "gamepad jog motion tick interval")
 		jogStatus               = flag.Duration("jog-status-interval", jogDefaults.StatusInterval, "status polling interval while a jog lease is armed")
@@ -311,6 +312,7 @@ func main() {
 		Enabled:         *jogEnabled,
 		MaxXYMMMin:      *jogMaxXY,
 		MaxZMMMin:       *jogMaxZ,
+		MaxZStepMMMin:   *jogMaxZStep,
 		MaxADegMin:      *jogMaxA,
 		Tick:            *jogTick,
 		StatusInterval:  *jogStatus,

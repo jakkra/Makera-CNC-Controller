@@ -328,6 +328,7 @@ func (e *Engine) execute(c *client.Conn, job store.Job) error {
 		} else if !ok {
 			return nil
 		}
+		defer e.store.SetTransfer(nil)
 		if err := e.doUpload(c, job); err != nil {
 			return err
 		}
@@ -377,16 +378,28 @@ func hasLocalIntent(state store.SyncState) bool {
 }
 
 func (e *Engine) setUploadJobSync(job store.Job, state store.SyncState, errMsg string) (bool, error) {
-	_, ok, err := e.store.SetEntrySyncIfMatch(job.Path, state, errMsg, func(entry store.Entry) bool {
-		if entry.IsDir {
-			return false
+	var updated bool
+	err := e.store.Batch(func(b *store.Batch) error {
+		entry, exists := b.GetEntry(job.Path)
+		if !exists || entry.IsDir || entry.CachePath != job.CachePath || entry.MD5 != job.MD5 || entry.Size != job.Size {
+			return nil
 		}
-		if entry.CachePath != job.CachePath || entry.MD5 != job.MD5 || entry.Size != job.Size {
-			return false
+		if entry.Upcoming.ID != 0 && entry.Upcoming.ID != job.ID {
+			return nil
 		}
-		return entry.Sync == store.PendingUpload || entry.Sync == store.Uploading || entry.Sync == state
+		if entry.Sync != store.PendingUpload && entry.Sync != store.Uploading && entry.Sync != state {
+			return nil
+		}
+		entry.Sync = state
+		entry.Error = errMsg
+		if state == store.Synced && entry.Upcoming.ID != 0 {
+			entry.Upcoming.ReadyAt = e.now()
+		}
+		b.PutEntry(entry)
+		updated = true
+		return nil
 	})
-	return ok, err
+	return updated, err
 }
 
 // doUpload transfers a job's file, compressing it with QuickLZ first when the
@@ -406,7 +419,7 @@ func (e *Engine) doUpload(c *client.Conn, job store.Job) error {
 		return err
 	}
 	defer f.Close()
-	return c.Upload(job.Path, f, job.Size, job.MD5, e.opTimeout, nil)
+	return c.Upload(job.Path, f, job.Size, job.MD5, e.opTimeout, e.reportTransfer(job))
 }
 
 // uploadCompressed compresses the cache file into a temporary .lz container and
@@ -437,7 +450,7 @@ func (e *Engine) uploadCompressed(c *client.Conn, job store.Job) error {
 		return err
 	}
 	// Upload under the .lz name; MD5 is of the uncompressed original.
-	return c.Upload(job.Path+".lz", tmp, size, job.MD5, e.opTimeout, nil)
+	return c.Upload(job.Path+".lz", tmp, size, job.MD5, e.opTimeout, e.reportTransfer(job))
 }
 
 // lzSupported reports whether the firmware advertises ".lz" upload support,
@@ -545,5 +558,22 @@ func failedEntrySyncState(kind store.JobKind, terminal bool) store.SyncState {
 		return store.PendingRename
 	default:
 		return store.Error
+	}
+}
+
+func (e *Engine) reportTransfer(job store.Job) func(uint32, uint32) {
+	lastPercent := -1
+	var last time.Time
+	return func(sent, total uint32) {
+		if total == 0 {
+			return
+		}
+		percent := int(uint64(sent) * 100 / uint64(total))
+		now := e.now()
+		if percent == lastPercent || (percent < 100 && now.Sub(last) < 250*time.Millisecond) {
+			return
+		}
+		lastPercent, last = percent, now
+		e.store.SetTransfer(&store.Transfer{ID: job.ID, Path: job.Path, Percent: percent})
 	}
 }

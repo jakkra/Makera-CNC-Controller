@@ -1879,7 +1879,7 @@ func TestToolActionsSendControllerCommands(t *testing.T) {
 	if res, err := svc.ChangeTool(4); err != nil || res.Command != "M6T4" {
 		t.Fatalf("ChangeTool result=%+v err=%v", res, err)
 	}
-	if res, err := svc.ContinueToolChange(); err != nil || res.Command != "M490.2" {
+	if res, err := svc.ContinueToolChange(nil); err != nil || res.Command != "M490.2" {
 		t.Fatalf("ContinueToolChange result=%+v err=%v", res, err)
 	}
 	if res, err := svc.DropCurrentTool(); err != nil || res.Command != "M6T-1" {
@@ -2079,7 +2079,7 @@ func TestContinueToolChangeRunsWhileAwaitingToolAndRefreshesTLO(t *testing.T) {
 		t.Fatalf("fake status after physical insert = %+v, want target preserved", snap.Status.Tool)
 	}
 
-	if res, err := svc.ContinueToolChange(); err != nil || res.Command != "M490.2" {
+	if res, err := svc.ContinueToolChange(nil); err != nil || res.Command != "M490.2" {
 		t.Fatalf("ContinueToolChange result=%+v err=%v", res, err)
 	}
 	st, _ = tr.Current()
@@ -2099,7 +2099,7 @@ func TestContinueToolChangeRejectsNonToolState(t *testing.T) {
 		t.Fatal("failed to seed tracker status")
 	}
 
-	if _, err := svc.ContinueToolChange(); !errors.Is(err, ErrToolChangeUnavailable) {
+	if _, err := svc.ContinueToolChange(nil); !errors.Is(err, ErrToolChangeUnavailable) {
 		t.Fatalf("ContinueToolChange err = %v, want ErrToolChangeUnavailable", err)
 	}
 	if g := m.Gcodes(); len(g) != 0 {
@@ -3480,4 +3480,67 @@ func TestStoppedSpindleRetainsTargetAndExternalStartIsObserved(t *testing.T) {
 	check("<Pause|S:0,12000,100>", now.Add(2*time.Millisecond), true)
 	check("<Pause|S:0,12000,100>", now.Add(3*time.Millisecond), true) // retained target must not undo M5
 	check("<Pause|S:12000,12000,100>", now.Add(4*time.Millisecond), false)
+}
+
+func TestNextToolEstimateFollowsPlayedLineAndOverride(t *testing.T) {
+	svc, _ := newService(t)
+	const source = "G21 G90\nG92 X0 Y0 Z0\nT1 M6\nG1 X30 F60\nT2 M6\nT2 M6\nG1 X60\nT0 M6\n"
+	putCachedEntry(t, svc, "part.nc", []byte(source), store.Synced)
+	if _, err := svc.SelectActiveGcode("part.nc"); err != nil {
+		t.Fatal(err)
+	}
+	st := machine.Status{State: machine.Run, Progress: []float64{3, 20, 5}, Feed: &machine.Triple{Override: 50}}
+	p := svc.machineJobProgress(st)
+	if p.NextTool == nil || p.NextTool.Tool != 2 || p.ToolChangeMs == nil || *p.ToolChangeMs != 60000 {
+		t.Fatalf("estimate: %+v", p)
+	}
+	st.Progress[0] = 5
+	p = svc.machineJobProgress(st)
+	if p.NextTool == nil || p.NextTool.Tool != 0 || p.NextTool.Line != 8 {
+		t.Fatalf("repeat tool: %+v", p)
+	}
+	st.Progress[0] = 8
+	if p = svc.machineJobProgress(st); p.NextTool != nil || p.ToolChangeMs != nil {
+		t.Fatalf("last tool: %+v", p)
+	}
+}
+
+func TestUpcomingOfferExpiresAcrossTabsButListSurvivesRestart(t *testing.T) {
+	svc, st, filename := newServiceWithStatePath(t)
+	svc.arb.Tracker().Observe(machine.Idle)
+	entry, err := svc.Upload("file.nc", strings.NewReader("M30"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry.Sync = store.Synced
+	entry.Upcoming.ReadyAt = time.Now().Add(-31 * time.Second)
+	if err := st.PutEntry(entry); err != nil {
+		t.Fatal(err)
+	}
+	a := UpcomingAction{Path: entry.Path, ID: entry.Upcoming.ID, MD5: entry.MD5, FromOffer: true}
+	if err := svc.consumeUpcoming(a, true); !errors.Is(err, ErrActiveGcodeUnavailable) {
+		t.Fatalf("expired start: %v", err)
+	}
+	reopened, err := store.Open(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := New(reopened, svc.arb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	state := restored.Upcoming()
+	if len(state.Items) != 1 || !state.Items[0].Ready || state.OfferID != 0 {
+		t.Fatalf("restored: %+v", state)
+	}
+	entry.Upcoming.ReadyAt = time.Now()
+	if err := st.PutEntry(entry); err != nil {
+		t.Fatal(err)
+	}
+	svc.arb.Tracker().Observe(machine.Run)
+	svc.arb.Tracker().Observe(machine.Idle)
+	if state = svc.Upcoming(); state.OfferID != 0 || len(state.Items) != 1 {
+		t.Fatalf("returned to idle: %+v", state)
+	}
 }

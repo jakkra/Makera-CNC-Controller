@@ -481,11 +481,12 @@ func parseNumberList(s string) []float64 {
 // It is safe for concurrent use: the relay observer and the sync engine both
 // read it, and observers from either mode write it.
 type Tracker struct {
-	mu      sync.RWMutex
-	status  Status
-	now     func() time.Time // injectable for tests
-	subs    map[int]chan Status
-	nextSub int
+	lastNonIdle time.Time
+	mu          sync.RWMutex
+	status      Status
+	now         func() time.Time // injectable for tests
+	subs        map[int]chan Status
+	nextSub     int
 }
 
 // NewTracker returns a Tracker using wall-clock time.
@@ -497,6 +498,9 @@ func NewTracker() *Tracker {
 func (t *Tracker) Observe(s State) {
 	t.mu.Lock()
 	t.status = Status{State: s, ObservedAt: t.nowTime()}
+	if s != Idle {
+		t.lastNonIdle = t.status.ObservedAt
+	}
 	t.publishLocked(t.status)
 	t.mu.Unlock()
 }
@@ -511,6 +515,9 @@ func (t *Tracker) ObserveStatusPayload(payload string) bool {
 	t.mu.Lock()
 	st.ObservedAt = t.nowTime()
 	t.status = st
+	if st.State != Idle {
+		t.lastNonIdle = st.ObservedAt
+	}
 	t.publishLocked(st)
 	t.mu.Unlock()
 	return true
@@ -605,4 +612,10 @@ func copyStringMap(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+func (t *Tracker) LastNonIdle() time.Time {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.lastNonIdle
 }

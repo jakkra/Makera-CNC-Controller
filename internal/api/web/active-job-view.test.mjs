@@ -84,3 +84,18 @@ test("active job view keeps feed controls busy and preserves pending value", () 
   assert.equal(dom.nodes.get("active-gcode-run").disabled, true);
   assert.equal(dom.actions.attrs.get("data-machine-state"), "Run");
 });
+
+test("next tool displays the duration and clears after the last change", () => {
+  const dom = fakeDOM();
+  const next = {};
+  dom.nodes.set("active-gcode-next-tool", next);
+  const machine = { active_job: { next_tool: { tool: 4 }, tool_change_ms: 60000 } };
+  const view = createActiveJobView({ documentRef: dom.documentRef, getMachine: () => machine,
+    getActiveGcode: () => ({ path: "/part.nc", preview: { tool_metadata: [{ number: 4, name: "Ball nose" }] } }),
+    activeJobPreviewState: () => ({ playedLines: 3 }), fmtDuration: () => "1m" });
+  view.renderActiveGcode();
+  assert.equal(next.textContent, "T4 · in ~1m · Ball nose");
+  delete machine.active_job.next_tool;
+  view.renderActiveGcode();
+  assert.equal(next.textContent, "–");
+});

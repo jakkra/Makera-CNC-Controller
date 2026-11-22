@@ -1,8 +1,8 @@
-// Quick saved XY positions (A-D) for the Surface jog view. They are a
+// Quick saved machine positions (A-D) for the Surface jog view. They are a
 // per-device scratchpad for moving back and forth between a few spots, for
 // example probing Z on both ends of a stock to check that it is level. Saving
 // only reads the current machine position; going to a slot uses the ordinary
-// tap move (safe Z first, then XY). Z is not stored or restored.
+// tap move with a clearance lift, optional Y retract and optional final Z.
 
 export const SAVED_POSITION_SLOTS = Object.freeze(["A", "B", "C", "D"]);
 export const SAVED_POSITIONS_KEY = "cnc-proxy.surface-saved-positions.v1";
@@ -18,7 +18,11 @@ export function normalizeSavedPositions(raw) {
   for (const slot of SAVED_POSITION_SLOTS) {
     const x = finite(raw?.[slot]?.x);
     const y = finite(raw?.[slot]?.y);
-    out[slot] = x === null || y === null ? null : { x, y };
+    const z = finite(raw?.[slot]?.z);
+    const tool = finite(raw?.[slot]?.tool);
+    out[slot] = x === null ? null : {
+      x, ...(y === null ? {} : { y }), ...(z === null ? {} : { z }), ...(tool === null ? {} : { tool }),
+    };
   }
   return out;
 }
@@ -41,14 +45,22 @@ export function storeSavedPositions(positions, storage = globalThis.localStorage
   }
 }
 
-export function savedPositionLabel(position) {
-  return position ? `X ${position.x.toFixed(1)} Y ${position.y.toFixed(1)}` : "Empty";
+export function savedPositionLabel(position, includeZ = true) {
+  if (!position) return "Empty";
+  const coordinates = [`X ${position.x.toFixed(1)}`];
+  if (Number.isFinite(position.y)) coordinates.push(`Y ${position.y.toFixed(1)}`);
+  if (includeZ && Number.isFinite(position.z)) coordinates.push(`Z ${position.z.toFixed(1)}`);
+  return coordinates.join(" ");
 }
 
 export function createSurfaceSavedPositions({
   documentRef = globalThis.document,
   storage = globalThis.localStorage,
   getMachinePosition = () => null,
+  getRecallOptions = () => ({ includeZ: false, retractMM: 0 }),
+  // Active tool number from fresh machine status, or null when unknown. Saved Z
+  // is a machine coordinate, so it is only replayed with the same tool fitted.
+  getActiveTool = () => null,
   sendTapMove = () => {},
   setStatusMessage = () => {},
   renderJog = () => {},
@@ -68,16 +80,17 @@ export function createSurfaceSavedPositions({
       toggle.setAttribute("aria-pressed", String(saving));
       toggle.textContent = saving ? "Cancel" : "Save current…";
     }
+    const { includeZ } = getRecallOptions();
     for (const button of documentRef?.querySelectorAll?.("[data-surface-position]") || []) {
       const slot = button.dataset.surfacePosition;
       const position = positions[slot] || null;
       const detail = button.querySelector?.("small");
-      if (detail) detail.textContent = saving ? "Save here" : (position ? `X ${position.x.toFixed(1)}
-Y ${position.y.toFixed(1)}` : "Empty");
+      const label = savedPositionLabel(position, includeZ);
+      if (detail) detail.textContent = saving ? "Save here" : label.replace(/ ([YZ]) /g, "\n$1 ");
       button.classList?.toggle("is-empty", !position);
       button.setAttribute("aria-label", saving
         ? `Save current position as ${slot}`
-        : (position ? `Go to position ${slot}, ${savedPositionLabel(position)}` : `Position ${slot} is empty`));
+        : (position ? `Go to position ${slot}, ${label}` : `Position ${slot} is empty`));
       if (saving) {
         button.disabled = false;
         button.removeAttribute("aria-disabled");
@@ -95,11 +108,13 @@ Y ${position.y.toFixed(1)}` : "Empty");
     const mpos = getMachinePosition();
     const x = finite(mpos?.x);
     const y = finite(mpos?.y);
+    const z = finite(mpos?.z);
+    const tool = finite(getActiveTool());
     saving = false;
-    if (x === null || y === null) {
+    if (x === null || y === null || z === null) {
       setStatusMessage("surface-positions", "Current machine position is unavailable.", "error", { force: true });
     } else {
-      positions = { ...positions, [slot]: { x, y } };
+      positions = { ...positions, [slot]: { x, y, z, ...(tool === null ? {} : { tool }) } };
       const stored = storeSavedPositions(positions, storage);
       setStatusMessage("surface-positions", stored
         ? `Saved position ${slot} at ${savedPositionLabel(positions[slot])}.`
@@ -115,7 +130,29 @@ Y ${position.y.toFixed(1)}` : "Empty");
       setStatusMessage("surface-positions", `Position ${slot} is empty. Use Save current… first.`, "error", { force: true });
       return false;
     }
-    sendTapMove({ x: position.x, y: position.y }, `position ${slot}`);
+    const { includeZ, retractMM } = getRecallOptions();
+    const missingAxis = !Number.isFinite(position.y) ? "Y" : (includeZ && !Number.isFinite(position.z) ? "Z" : "");
+    if (missingAxis) {
+      setStatusMessage("surface-positions", `Position ${slot} has no saved ${missingAxis}. Save the position again to record it.`, "error", { force: true });
+      return false;
+    }
+    if (includeZ) {
+      const tool = finite(getActiveTool());
+      if (!Number.isFinite(position.tool) || tool === null || tool !== position.tool) {
+        const saved = Number.isFinite(position.tool) ? `T${position.tool}` : "an unrecorded tool";
+        const current = tool === null ? "an unknown tool" : `T${tool}`;
+        setStatusMessage("surface-positions", `Position ${slot} Z was saved with ${saved}, but the machine reports ${current}. ` +
+          "Re-save the position or turn off Move to saved Z.", "error", { force: true });
+        return false;
+      }
+    }
+    const target = { x: position.x, y: position.y };
+    if (includeZ) target.z = position.z;
+    sendTapMove(target, `position ${slot}`, {
+      requireSafeZ: true,
+      fastSafeZ: true,
+      yRetractMM: retractMM,
+    });
     return true;
   }
 

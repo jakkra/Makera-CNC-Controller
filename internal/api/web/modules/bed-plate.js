@@ -51,6 +51,8 @@ function positive(value, fallback) {
 // Returns where the plate sits in machine coordinates, or null when the
 // machine has not reported its anchors yet.
 export function bedPlatePlacement(learned) {
+  const model = learned?.identity?.model;
+  if (model && !/z1/i.test(model)) return null;
   const anchors = learned?.anchors;
   const ax = finite(anchors?.anchor1?.x);
   const ay = finite(anchors?.anchor1?.y);
@@ -144,6 +146,43 @@ function n(v) {
   return Number(v.toFixed(2));
 }
 
+// Draw in machine millimeters with Y inverted for the SVG plane.
+export function bedPlateDrawing(placement) {
+  if (!placement) return "";
+  const X = n;
+  const Y = (y) => n(-y);
+  let out = "";
+  const { x0, y0 } = placement;
+  const c = BED_PLATE.chamfer;
+  const W = BED_PLATE.width;
+  const D = BED_PLATE.depth;
+  const pts = [[c, 0], [W - c, 0], [W, c], [W, D - c], [W - c, D], [c, D], [0, D - c], [0, c]]
+    .map(([px, py]) => `${X(x0 + px)},${Y(y0 + py)}`).join(" ");
+  out += `<polygon class="bed-plate" points="${pts}"/>`;
+  // Anchor block footprint: an L along the front and left edges.
+  const aw = placement.anchorWidth;
+  const al = Math.min(placement.anchorLength + aw, W);
+  const l = [[0, 0], [al, 0], [al, aw], [aw, aw], [aw, al], [0, al]]
+    .map(([px, py]) => `${X(x0 + px)},${Y(y0 + py)}`).join(" ");
+  out += `<polygon class="bed-anchor" points="${l}"/>`;
+  for (const g of GRID) {
+    out += `<text class="bed-grid-label" x="${X(x0 + g)}" y="${Y(y0 + D + 2.5)}" text-anchor="middle">${"ABCD"[GRID.indexOf(g)]}</text>`;
+    out += `<text class="bed-grid-label" x="${X(x0 + W + 2.5)}" y="${n(Y(y0 + g) + 1.9)}" text-anchor="start">${GRID.indexOf(g) + 1}</text>`;
+  }
+  for (const f of FEATURES) {
+    const cls = f.r === 5 ? "bed-counterbore" : "bed-hole";
+    out += `<circle class="${cls}" cx="${X(x0 + f.x)}" cy="${Y(y0 + f.y)}" r="${f.r}"/>`;
+    if (f.r === 5) out += `<circle class="bed-hole" cx="${X(x0 + f.x)}" cy="${Y(y0 + f.y)}" r="2.75"/>`;
+  }
+  const a1 = placement.anchor1;
+  out += `<g class="bed-anchor-point"><circle cx="${X(a1.x)}" cy="${Y(a1.y)}" r="2.2"/><text x="${X(a1.x) + 4}" y="${Y(a1.y) - 4}">Anchor 1</text></g>`;
+  if (placement.anchor2) {
+    const a2 = placement.anchor2;
+    out += `<g class="bed-anchor-point"><circle cx="${X(a2.x)}" cy="${Y(a2.y)}" r="2.2"/><text x="${X(a2.x) + 4}" y="${Y(a2.y) - 4}">Anchor 2</text></g>`;
+  }
+  return out;
+}
+
 // SVG for the map. Machine Y grows towards the back of the machine, which is
 // up on screen, so SVG y is the negated machine Y.
 export function bedPlateSVG({ work, placement, target = null }) {
@@ -153,36 +192,7 @@ export function bedPlateSVG({ work, placement, target = null }) {
   const X = (x) => n(x);
   const Y = (y) => n(-y);
   let out = `<svg xmlns="http://www.w3.org/2000/svg" class="bed-map-svg" viewBox="${n(ext.x_min)} ${n(-ext.y_max)} ${n(w)} ${n(h)}" preserveAspectRatio="none" aria-hidden="true">`;
-  if (placement) {
-    const { x0, y0 } = placement;
-    const c = BED_PLATE.chamfer;
-    const W = BED_PLATE.width;
-    const D = BED_PLATE.depth;
-    const pts = [[c, 0], [W - c, 0], [W, c], [W, D - c], [W - c, D], [c, D], [0, D - c], [0, c]]
-      .map(([px, py]) => `${X(x0 + px)},${Y(y0 + py)}`).join(" ");
-    out += `<polygon class="bed-plate" points="${pts}"/>`;
-    // Anchor block footprint: an L along the front and left edges.
-    const aw = placement.anchorWidth;
-    const al = Math.min(placement.anchorLength + aw, W);
-    const l = [[0, 0], [al, 0], [al, aw], [aw, aw], [aw, al], [0, al]]
-      .map(([px, py]) => `${X(x0 + px)},${Y(y0 + py)}`).join(" ");
-    out += `<polygon class="bed-anchor" points="${l}"/>`;
-    for (const g of GRID) {
-      out += `<text class="bed-grid-label" x="${X(x0 + g)}" y="${Y(y0 + D + 2.5)}" text-anchor="middle">${"ABCD"[GRID.indexOf(g)]}</text>`;
-      out += `<text class="bed-grid-label" x="${X(x0 + W + 2.5)}" y="${n(Y(y0 + g) + 1.9)}" text-anchor="start">${GRID.indexOf(g) + 1}</text>`;
-    }
-    for (const f of FEATURES) {
-      const cls = f.r === 5 ? "bed-counterbore" : "bed-hole";
-      out += `<circle class="${cls}" cx="${X(x0 + f.x)}" cy="${Y(y0 + f.y)}" r="${f.r}"/>`;
-      if (f.r === 5) out += `<circle class="bed-hole" cx="${X(x0 + f.x)}" cy="${Y(y0 + f.y)}" r="2.75"/>`;
-    }
-    const a1 = placement.anchor1;
-    out += `<g class="bed-anchor-point"><circle cx="${X(a1.x)}" cy="${Y(a1.y)}" r="2.2"/><text x="${X(a1.x) + 4}" y="${Y(a1.y) - 4}">Anchor 1</text></g>`;
-    if (placement.anchor2) {
-      const a2 = placement.anchor2;
-      out += `<g class="bed-anchor-point"><circle cx="${X(a2.x)}" cy="${Y(a2.y)}" r="2.2"/><text x="${X(a2.x) + 4}" y="${Y(a2.y) - 4}">Anchor 2</text></g>`;
-    }
-  }
+  out += bedPlateDrawing(placement);
   out += `<rect class="bed-travel" x="${X(work.x_min)}" y="${Y(work.y_max)}" width="${n(work.x_max - work.x_min)}" height="${n(work.y_max - work.y_min)}"/>`;
   if (target) {
     const tx = X(target.x);
