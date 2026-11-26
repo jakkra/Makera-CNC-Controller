@@ -106,6 +106,19 @@ function raster(plan) {
   })];
 }
 
+export function facingTracePoints({ bounds, parameters }, limits) {
+  // Trace the bounding rectangle of the cutter sweep over the stock raster.
+  const radius = parameters.diameter / 2;
+  const left = bounds.left - radius;
+  const right = bounds.right + radius;
+  const front = bounds.front - radius;
+  const back = bounds.back + radius;
+  if (left < limits.x_min || right > limits.x_max || front < limits.y_min || back > limits.y_max) {
+    throw new Error("The cutter footprint extends beyond machine travel.");
+  }
+  return [{ x: left, y: front }, { x: right, y: front }, { x: right, y: back }, { x: left, y: back }];
+}
+
 export function facingGcode(plan) {
   const { origin, safeZ, levels, parameters: p } = plan;
   const number = (value) => value.toFixed(4);
@@ -160,12 +173,12 @@ function surfaceMap(outline, surface, plan) {
 
 export function createSurfaceFacing({
   document, getOutline, getMachine, getOrigin, getLimits, getSafeZ, getReadOnly,
-  request, setStatusMessage, confirm,
+  getTraceBlocker, getTraceFeed, request, setStatusMessage, confirm,
 }) {
   const node = (name) => document.getElementById("surface-facing-" + name);
   const dialog = () => node("modal");
   const getInputs = () => Array.from(dialog().querySelectorAll("[data-facing-param]"));
-  let pending = false;
+  let pending = "";
   let plan;
   let lastMap;
 
@@ -192,11 +205,14 @@ export function createSurfaceFacing({
     setTextIfChanged(node("high"), surface ? `High ${surface.high.toFixed(3)} mm` : "");
     setTextIfChanged(node("deviation"), surface?.planeDeviation != null ? `${surface.planeDeviation.toFixed(3)} mm peak-to-valley after removing surface tilt` : "");
     setTextIfChanged(node("passes"), plan ? `${plan.levels.length} passes · ${plan.totalDepth.toFixed(3)} mm maximum removal` : "");
-    node("queue").disabled = pending || getReadOnly();
-    node("close").disabled = pending;
-    setElementBusy(node("queue"), pending);
-    setTextIfChanged(node("queue"), pending ? "Queuing…" : "Queue facing program");
-    for (const input of getInputs()) input.disabled = pending;
+    node("queue").disabled = !!pending || getReadOnly();
+    node("trace").disabled = !!pending || getReadOnly();
+    setElementBusy(node("trace"), pending === "trace");
+    setTextIfChanged(node("trace"), pending === "trace" ? "Tracing…" : "Trace facing area with laser");
+    node("close").disabled = !!pending;
+    setElementBusy(node("queue"), pending === "queue");
+    setTextIfChanged(node("queue"), pending === "queue" ? "Queuing…" : "Queue facing program");
+    for (const input of getInputs()) input.disabled = !!pending;
   }
 
   function bind(bindButtonAction) {
@@ -215,6 +231,38 @@ export function createSurfaceFacing({
     bindButtonAction(node("close"), () => { if (!pending) dialog().close(); });
     dialog().addEventListener("cancel", (event) => { if (pending) event.preventDefault(); });
     dialog().addEventListener("input", render);
+    bindButtonAction(node("trace"), async () => {
+      if (pending || getReadOnly()) return;
+      try {
+        const blocker = getTraceBlocker();
+        if (blocker) throw new Error(blocker);
+        render();
+        if (!plan) throw new Error("Complete the facing setup before tracing.");
+        const machinePoints = facingTracePoints(plan, getLimits());
+        if (!confirm("Move the probe laser around the facing area at Safe Z? Check that the probe can clear the stock and clamps.")) return;
+        pending = "trace";
+        render();
+        feedback("Tracing facing area…", "", { timeoutMs: 0 });
+        const response = await request("/api/outline/trace", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            machine_points: machinePoints,
+            safe_z_mm: plan.safeZ,
+            feed_mm_min: getTraceFeed(),
+            closed: true,
+          }),
+        });
+        const result = await response.json();
+        if (!result.verified) throw new Error(result.message || "Trace motion could not be verified.");
+        feedback("Facing area traced with the probe laser.", "ok");
+      } catch (error) {
+        feedback("Facing area could not be traced. " + error.message, "error");
+      } finally {
+        pending = "";
+        render();
+      }
+    });
     bindButtonAction(node("queue"), async () => {
       if (pending || getReadOnly()) return;
       const outline = getOutline();
@@ -223,7 +271,7 @@ export function createSurfaceFacing({
         const generated = facingPlan({ outline, surface: surfaceMeasurements(outline), machine: getMachine(),
           origin: getOrigin(), limits: getLimits(), safeZ: getSafeZ(), parameters });
         if (!confirm(`Queue this facing program? It uses the work zero from this scan. Check the clamps against the shown toolpath and ${(parameters.diameter / 2).toFixed(2)} mm cutter radius.`)) return;
-        pending = true;
+        pending = "queue";
         render();
         feedback("Queuing facing program…", "", { timeoutMs: 0 });
         const suffix = globalThis.crypto.getRandomValues(new Uint32Array(1))[0].toString(16);
@@ -238,7 +286,7 @@ export function createSurfaceFacing({
       } catch (error) {
         feedback(`Facing program could not be queued. ${error.message}`, "error");
       } finally {
-        pending = false;
+        pending = "";
         render();
       }
     });

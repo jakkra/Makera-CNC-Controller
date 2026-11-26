@@ -1341,6 +1341,12 @@ const surfaceFacing = createSurfaceFacing({
   getLimits: () => state.ui.machine?.learned?.soft_endstop,
   getSafeZ: () => safeZForTapMove(normalizeMachineSettings(state.ui.machine)),
   getReadOnly: () => state.readOnly,
+  getTraceBlocker: () => {
+    if (!isProbeToolActive()) return "Select the probe laser tool before tracing.";
+    if (state.jog.armed || tapMoveTargetBusy()) return "Stop and disarm Movement before tracing.";
+    return "";
+  },
+  getTraceFeed: currentTapFeed,
   request, setStatusMessage,
   confirm: (message) => window.confirm(message),
 });
