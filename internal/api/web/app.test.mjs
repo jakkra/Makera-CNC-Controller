@@ -8370,7 +8370,7 @@ test("3D probe popup exposes the warning and disables Probe for a predicted conf
   assert.equal(elements.get("probe-3d-run").disabled, true);
   assert.equal(attrs.get("aria-hidden"), "false");
   assert.ok(toggles.some(([name, active]) => name === "is-visible" && active));
-  assert.deepEqual(JSON.parse(JSON.stringify(pickerRenders)), [{ kind: "boss_block", values: { x: "50", y: "50", z: "2" }, pending: false }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(pickerRenders)), [{ kind: "boss_block", values: { x: "50", y: "50", z: "2" }, community: false, pending: false }]);
 });
 
 test("3D probe action sends the selected controller workflow", async () => {

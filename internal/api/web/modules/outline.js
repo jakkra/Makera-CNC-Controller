@@ -1,3 +1,5 @@
+import { isWiredProbeTool } from "./tooling.js";
+
 // Outline/probe model and editing helpers. DOM and machine actions remain
 // late-bound through named callbacks so this slice can be integrated without a
 // whole-app context.
@@ -122,7 +124,7 @@ export function createOutlineFeature({
   }
 
   function is3DProbeToolActive() {
-    return Number(state.machine?.tool?.active) === 9999;
+    return isWiredProbeTool(Number(state.machine?.tool?.active));
   }
 
   function fieldProbeMoveCandidate(local, workAreaToMachinePoint, workAreaLocalToContentPoint, cloneOutlineOrigin, currentWorkOrigin) {

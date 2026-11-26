@@ -30,6 +30,12 @@ test("the hidden select remains the request source and is not a duplicate tab st
   assert.match(html, /id="probe-3d-variants"[^>]*role="radiogroup"/);
 });
 
+test("the Community compatibility routine places the probe above the top face before the pocket move", () => {
+  const start = probe3DPlacement("inside_top_left", true).start;
+  assert.match(start, /Start a few mm above the top face/);
+  assert.match(start, /sets Z zero at the first contact, then moves diagonally into the pocket/);
+});
+
 test("3D probe diagrams render every operation with the live offset values", () => {
   for (const kind of selectKinds) {
     const svg = probe3DDiagramSVG(kind, { x: 12.5, y: 7, z: 3 });

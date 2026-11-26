@@ -1,4 +1,5 @@
 import { createProbe3DPicker } from "./probe-3d-picker.js";
+import { createEdgeProbing } from "./probe-edge.js";
 
 export function createOriginProbing({
   documentRef = document, getMachine = () => ({}), getUI = () => ({}), getJog = () => ({}),
@@ -7,13 +8,18 @@ export function createOriginProbing({
   queueSaveUISettings, normalizeMachineSettings, defaultMachineSettings, normalizeMachineLearned,
   currentWorkOrigin, currentAxisValues, axisValue, fmtCoord, finiteOr, newID, tapMoveTargetBusy,
   isProbeToolActive, is3DProbeToolActive, controlLocallyOwned, setSoftDisabled, setTextIfChanged,
-  setElementBusy, setStatusMessage, setTapFeedback, clampNumber, refreshMachine = pollMachine,
+  setElementBusy, setStatusMessage, setTapFeedback, clampNumber, refreshMachine = pollMachine, renderWorkArea = () => {},
   setTimeoutRef = setTimeout, clearTimeoutRef = clearTimeout,
 } = {}) {
   const document = documentRef;
   const setTimeout = setTimeoutRef;
   const clearTimeout = clearTimeoutRef;
   const probe3DPicker = createProbe3DPicker({ documentRef: document, onChange: () => renderProbe3DForm() });
+  const edgeProbing = createEdgeProbing({
+    document, getMachine, getJog, machineReady: machineReadyForOriginSet,
+    hasOtherMotion: () => tapMoveTargetBusy() || hasPendingOriginOperation(),
+    request, pollMachine, renderJog, renderWorkArea, setStatusMessage,
+  });
   const state = {
     get machine() { return getMachine(); },
     get ui() { return getUI(); },
@@ -61,11 +67,7 @@ function renderOriginButtons() {
     setSoftDisabled(probe3D, !busy && !probe3DReady);
     setTextIfChanged(probe3D, probe3DPending ? "Probing..." : "3D Probe");
   }
-  const edge = document.getElementById("origin-probe-edge");
-  if (edge) {
-    edge.disabled = busy;
-    setSoftDisabled(edge, !busy && !probe3DReady);
-  }
+  edgeProbing.renderButtons(busy, apiReady);
   for (const id of ["origin-set-xyz-open", "origin-set-open", "origin-presets-open"]) {
     const btn = document.getElementById(id);
     if (btn) btn.disabled = busy;
@@ -585,7 +587,11 @@ function probe3DInitialPositioning(kind, xOffset, yOffset) {
   }
 }
 
-function probe3DTravelPreflight(kind, xOffset, yOffset, mpos, bounds) {
+function probe3DTravelPreflight(kind, xOffset, yOffset, mpos, bounds, fields = {}) {
+  if (String(kind).startsWith("inside_") && fields.G != null &&
+      [fields.G, fields.R].some((value) => value == null || String(value).trim() === "" || Number(value) !== 0)) {
+    return { blocked: true, warning: "Select G54 with zero rotation before probing an inside corner on Community Firmware." };
+  }
   const delta = probe3DInitialPositioning(kind, xOffset, yOffset);
   const issues = [];
   for (const axis of ["x", "y"]) {
@@ -626,7 +632,7 @@ function probe3DPreflightFromControls() {
   const x = Number(document.getElementById("probe-3d-x")?.value);
   const y = Number(document.getElementById("probe-3d-y")?.value);
   if (!Number.isFinite(x) || !Number.isFinite(y)) return { blocked: false, warning: "" };
-  return probe3DTravelPreflight(kind, x, y, state.machine.mpos, probe3DLearnedTravelBounds());
+  return probe3DTravelPreflight(kind, x, y, state.machine.mpos, probe3DLearnedTravelBounds(), state.machine.fields);
 }
 
 function renderProbe3DForm() {
@@ -654,6 +660,7 @@ function renderProbe3DForm() {
       y: document.getElementById("probe-3d-y")?.value,
       z: document.getElementById("probe-3d-z")?.value,
     },
+    community: state.machine?.fields?.G != null,
     pending,
   });
   const preflight = probe3DPreflightFromControls();
@@ -741,7 +748,7 @@ async function runProbe3D() {
     setOriginFeedback(e.message, "error");
     return;
   }
-  const preflight = probe3DTravelPreflight(body.kind, body.x_offset_mm, body.y_offset_mm, state.machine.mpos, probe3DLearnedTravelBounds());
+  const preflight = probe3DTravelPreflight(body.kind, body.x_offset_mm, body.y_offset_mm, state.machine.mpos, probe3DLearnedTravelBounds(), state.machine.fields);
   if (preflight.blocked) {
     setOriginFeedback(preflight.warning, "error");
     renderProbe3DForm();
@@ -779,62 +786,6 @@ async function runProbe3D() {
     renderProbe3DForm();
     renderJog();
   }
-}
-
-function bindEdgeProbe(bindButtonAction) {
-  const dialog = document.getElementById("probe-edge-modal");
-  if (!dialog) return;
-  const direction = document.getElementById("probe-edge-direction");
-  const travel = document.getElementById("probe-edge-travel");
-  const tip = document.getElementById("probe-edge-tip");
-  const run = document.getElementById("probe-edge-run");
-  const close = document.getElementById("probe-edge-close");
-  let pending = false;
-  function ready() {
-    if (state.jog.armed || state.jog.armPending || state.jog.availability?.reason === "busy") {
-      setOriginFeedback("Disarm Movement before measuring an edge.", "error");
-      return false;
-    }
-    if (!machineReadyForOriginSet() || !is3DProbeToolActive()) {
-      setOriginFeedback("Edge probing requires fresh Idle and the wired 3D Probe.", "error");
-      return false;
-    }
-    return !state.jog.zProbePending && !state.jog.zStepPending && !tapMoveTargetBusy() && !hasPendingOriginOperation();
-  }
-  bindButtonAction(document.getElementById("origin-probe-edge"), () => {
-    if (ready()) dialog.showModal();
-  });
-  bindButtonAction(close, () => { if (!pending) dialog.close(); });
-  dialog.addEventListener("cancel", (event) => { if (pending) event.preventDefault(); });
-  bindButtonAction(run, async () => {
-    if (pending || !ready() || !travel.reportValidity() || !tip.reportValidity()) return;
-    const axis = direction.value[0];
-    const sign = direction.value[1] === "+" ? 1 : -1;
-    pending = state.jog.zProbePending = true;
-    for (const control of [direction, travel, tip, close, run]) control.disabled = true;
-    setElementBusy(run, true);
-    setStatusMessage("origin-action", "Measuring " + axis.toUpperCase() + " edge…", "", { force: true, timeoutMs: 0 });
-    renderJog();
-    try {
-      const response = await request("/api/probe/edge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ axis, direction: sign, travel_mm: travel.valueAsNumber, tip_diameter_mm: tip.valueAsNumber }),
-      });
-      const result = await response.json();
-      if (result.axis !== axis || !Number.isFinite(result.machine_edge_mm)) throw new Error("No measured edge was reported");
-      setOriginFeedback("Edge at machine " + axis.toUpperCase() + " " + fmtCoord(result.machine_edge_mm) + " mm", "ok");
-      pollMachine();
-      dialog.close();
-    } catch (error) {
-      setOriginFeedback("Edge probe failed: " + error.message, "error");
-    } finally {
-      pending = state.jog.zProbePending = false;
-      setElementBusy(run, false);
-      for (const control of [direction, travel, tip, close, run]) control.disabled = false;
-      renderJog();
-    }
-  });
 }
 
 function applyXYZOrigin() {
@@ -934,7 +885,7 @@ function recallSelectedOrigin() {
     bindOriginZeroInteractions({ bindButtonAction, setOriginAxis: setOriginAxisHandler });
     bindButtonAction(document.getElementById("origin-probe-z"), runAutoZProbe);
     bindButtonAction(document.getElementById("origin-probe-3d"), openProbe3D);
-    bindEdgeProbe(bindButtonAction);
+    edgeProbing.bind(bindButtonAction);
     bindButtonAction(document.getElementById("probe-3d-close"), closeProbe3D);
     bindButtonAction(document.getElementById("probe-3d-cancel"), closeProbe3D);
     bindButtonAction(document.getElementById("probe-3d-run"), runProbe3D);
@@ -982,5 +933,5 @@ function recallSelectedOrigin() {
     bindButtonAction(document.getElementById("saved-origin-delete"), deleteSelectedOrigin);
   }
 
-  return { bindInteractions, bindOriginZeroInteractions, machineReadyForOriginSet, renderOriginButtons, setOriginFeedback, renderOriginSetSourceLabels, hasPendingOriginOperation, savedOrigins, selectedSavedOrigin, savedOriginLabel, renderSavedOriginSelect, saveCurrentOrigin, deleteSelectedOrigin, originCommandLine, formatOriginValue, originTargetsFromXYZ, originTargetsFromSaved, machineAnchorPoints, originTargetsFromOriginSource, originReferenceRequestFromInputs, renderOriginSetChange, originAxes, originTargetLabel, clearOriginVerification, beginOriginVerification, checkOriginVerification, scheduleOriginVerification, setOriginViaGcode, setReferenceOriginViaAPI, setReferenceOriginViaJog, sendNextJogOriginAxis, handleOriginAck, applyOriginTargets, setOriginAxis, openOriginDialog, closeOriginDialog, probe3DFieldRules, probe3DInitialPositioning, probe3DTravelPreflight, probe3DLearnedTravelBounds, probe3DPreflightFromControls, renderProbe3DForm, probe3DNumber, probe3DRequestFromControls, openProbe3D, closeProbe3D, runProbe3D, applyXYZOrigin, applyOriginSource, runAutoZProbe, recallSelectedOrigin };
+  return { bindInteractions, bindOriginZeroInteractions, renderEdgeAngleMap: edgeProbing.renderMap, machineReadyForOriginSet, renderOriginButtons, setOriginFeedback, renderOriginSetSourceLabels, hasPendingOriginOperation, savedOrigins, selectedSavedOrigin, savedOriginLabel, renderSavedOriginSelect, saveCurrentOrigin, deleteSelectedOrigin, originCommandLine, formatOriginValue, originTargetsFromXYZ, originTargetsFromSaved, machineAnchorPoints, originTargetsFromOriginSource, originReferenceRequestFromInputs, renderOriginSetChange, originAxes, originTargetLabel, clearOriginVerification, beginOriginVerification, checkOriginVerification, scheduleOriginVerification, setOriginViaGcode, setReferenceOriginViaAPI, setReferenceOriginViaJog, sendNextJogOriginAxis, handleOriginAck, applyOriginTargets, setOriginAxis, openOriginDialog, closeOriginDialog, probe3DFieldRules, probe3DInitialPositioning, probe3DTravelPreflight, probe3DLearnedTravelBounds, probe3DPreflightFromControls, renderProbe3DForm, probe3DNumber, probe3DRequestFromControls, openProbe3D, closeProbe3D, runProbe3D, applyXYZOrigin, applyOriginSource, runAutoZProbe, recallSelectedOrigin };
 }

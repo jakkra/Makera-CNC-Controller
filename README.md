@@ -567,6 +567,26 @@ Normalized percentages are never converted to dBm. Makera's SSID is
 shown as not reported when it is absent from the available machine telemetry;
 the host's SSID is never assumed to describe the CNC.
 
+### Measuring stock alignment
+
+With the wired 3D probe active, open **Control → Work Zero → Probing → Measure angle**. Probe the first point, jog to a second point along the same edge at the same height, then disarm Movement and reopen **Measure angle**. Both touches use the same probe direction and settings. The Control map shows the edge and the dialog reports its signed angle and drift. The two touches leave the active work offset intact.
+
+The angle is relative to the positive machine axis along the edge. An edge probed in Y is compared with +X, and an edge probed in X is compared with +Y. This workflow recognizes stock Z1 tool 9999 and Community Firmware 2.3.0c 3D-probe tool numbers (999990 and up). Measure with the active workspace rotation set to zero. After upgrading, you can use the result in the Community Controller's WCS rotation controls.
+
+### Surface measurement and facing
+
+Capture and close a stock outline, then run **Probe Field Z** with the probe
+positioned above the stock. **Control → Work Zero → Probing → Surface & facing**
+shows the measured samples on a color scale, their peak-to-valley Z range, and
+the spread after removing overall tilt when the samples support a plane fit.
+
+For facing, use a four-corner rectangle aligned to machine X/Y. Finish the
+scan and keep its work zero. Enter the cutter, spindle speed, feeds, stepover,
+stepdown, and finish work Z. The preview shows the raster and its outside-stock
+entry. **Queue facing program** adds a separate program to **Up next**. It
+pauses at Safe Z after the tool change for confirmation of work zero, tool
+length, and clamp clearance before starting the spindle.
+
 ### Starting uploaded programs
 
 Uploads from the API, browser, and WebDAV share the **Up next** list in Files.

@@ -61,7 +61,7 @@ export function probe3DVariants(category) {
 }
 
 // Operator-facing placement guidance, phrased from the firmware sequence.
-export function probe3DPlacement(kind) {
+export function probe3DPlacement(kind, community = false) {
   const { category, variant } = probe3DKindParts(kind);
   const corner = (CORNER_LABELS[variant] || "").toLowerCase();
   const axes = variant === "x" ? "X" : (variant === "y" ? "Y" : "X/Y");
@@ -69,7 +69,7 @@ export function probe3DPlacement(kind) {
     case "outside":
       return { start: `Start a few mm above the top face, over the stock, within the X/Y offsets of the ${corner} corner.`, sets: "Sets X, Y and Z" };
     case "inside":
-      return { start: `Start a few mm above the top face, just outside the ${corner} pocket corner. The X/Y offsets move diagonally into the pocket.`, sets: "Sets X, Y and Z" };
+      return { start: `Start a few mm above the top face, just outside the ${corner} pocket corner. ${community ? "The cycle sets Z zero at the first contact, then moves diagonally into the pocket." : "The X/Y offsets move diagonally into the pocket."}`, sets: "Sets X, Y and Z" };
     case "bore_pocket":
       return { start: `Start inside the bore, below the top surface, near its center. The ${axes} offset is the search distance toward each wall.`, sets: `Sets the ${axes} center` };
     default:
@@ -404,7 +404,7 @@ export function createProbe3DPicker({ documentRef = globalThis.document, onChang
     }
   }
 
-  function render({ kind, values = {}, pending = false } = {}) {
+  function render({ kind, values = {}, pending = false, community = false } = {}) {
     build();
     const { category, variant } = probe3DKindParts(kind);
     if (isCornerCategory(category)) memory.corner = variant;
@@ -428,7 +428,7 @@ export function createProbe3DPicker({ documentRef = globalThis.document, onChang
       diagram.innerHTML = svg;
       lastDiagram = svg;
     }
-    const placement = probe3DPlacement(kind);
+    const placement = probe3DPlacement(kind, community);
     const start = document.getElementById("probe-3d-placement");
     const sets = document.getElementById("probe-3d-sets");
     if (start && start.textContent !== placement.start) start.textContent = placement.start;

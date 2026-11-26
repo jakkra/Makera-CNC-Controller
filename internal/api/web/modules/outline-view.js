@@ -3,6 +3,7 @@ export function createOutlineView({
   documentRef,
   outlineCaptureIntentCount = () => 0,
   isProbeToolActive = () => false,
+  isZProbeToolActive = isProbeToolActive,
   machineReadyForOriginSet = () => false,
   tapMoveTargetBusy = () => false,
   controlLocallyOwned = () => false,
@@ -47,6 +48,7 @@ export function createOutlineView({
     const actionBusy = !!outline.addPointPending || !!outline.floorProbePending || !!outline.fieldProbePending || !!outline.fieldProbePointMovePending || !!outline.tracePending || !!outline.filePending || !!state.jog.zProbePending;
     const busy = capturePending || actionBusy;
     const probeActive = isProbeToolActive();
+    const zProbeActive = isZProbeToolActive();
     const fieldReady = outline.active && outline.closed && outline.points.length >= 3;
     if (panel) panel.hidden = !outline.active;
     if (start) {
@@ -91,7 +93,7 @@ export function createOutlineView({
     }
     if (probeFloor) {
       probeFloor.disabled = busy;
-      setSoftDisabled(probeFloor, !busy && (!probeActive || state.jog.armed || !machineReadyForOriginSet()));
+      setSoftDisabled(probeFloor, !busy && (!zProbeActive || state.jog.armed || !machineReadyForOriginSet()));
       setTextIfChanged(probeFloor, outline.floorProbePending ? "Probing Floor..." : "Probe Floor");
     }
     if (exp) {
@@ -109,7 +111,7 @@ export function createOutlineView({
     if (fieldProbe) {
       setTextIfChanged(fieldProbe, outline.fieldProbePending ? "Probing " + Math.min(outline.fieldProbeIndex + 1, outline.fieldProbePreview.length) + "/" + outline.fieldProbePreview.length : "Probe Field Z");
       fieldProbe.disabled = busy;
-      setSoftDisabled(fieldProbe, !busy && (!fieldReady || !probeActive || state.jog.armed || !outline.fieldProbePreview.length || !!outline.fieldProbeTooDense));
+      setSoftDisabled(fieldProbe, !busy && (!fieldReady || !zProbeActive || state.jog.armed || !outline.fieldProbePreview.length || !!outline.fieldProbeTooDense));
     }
     if (resetProbe) {
       const selected = selectedFieldProbePoint(outline);

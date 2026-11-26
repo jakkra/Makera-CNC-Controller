@@ -3,7 +3,7 @@ export function createFieldProbing({ state, constants = {}, callbacks = {} }) {
   const {
     cloneOutlineOrigin, axisValue, currentWorkOrigin, normalizeMachineSettings, finiteOr,
     safeZForTapMove, request, markGcodeContextOverlayDirty, machineReadyForOriginSet,
-    isProbeToolActive, setOutlineFeedback, confirmProbeAction, renderOutlineCapture,
+    isProbeToolActive, isZProbeToolActive = isProbeToolActive, setOutlineFeedback, confirmProbeAction, renderOutlineCapture,
     renderJog, pollMachine, fmtCoord, cancelOutlineFieldSpacingUpdate,
     commitOutlineFieldSpacingDraft, clearControlDrafts,
     unprobedFieldProbePoints, currentOutlineCapturePosition, renderWorkArea,
@@ -87,7 +87,7 @@ export function createFieldProbing({ state, constants = {}, callbacks = {} }) {
       setOutlineFeedback("Machine must be connected and Idle to probe the floor.", "error");
       return;
     }
-    if (!isProbeToolActive()) {
+    if (!isZProbeToolActive()) {
       setOutlineFeedback("Floor probe requires the probe tool to be active.", "error");
       return;
     }
@@ -145,7 +145,7 @@ export function createFieldProbing({ state, constants = {}, callbacks = {} }) {
       setOutlineFeedback("Close an outline with at least three points before probing the field.", "error");
       return;
     }
-    if (!isProbeToolActive()) {
+    if (!isZProbeToolActive()) {
       setOutlineFeedback("Field Z probe requires the probe tool to be active.", "error");
       return;
     }

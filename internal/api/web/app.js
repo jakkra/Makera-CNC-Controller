@@ -35,6 +35,7 @@ import { createSurfaceActions } from "./modules/surface-actions.js";
 import { createWorkAreaInteractions } from "./modules/workarea-interactions.js";
 import { createWorkMoveInteractions } from "./modules/work-move.js";
 import { createFieldProbing } from "./modules/field-probing.js";
+import { createSurfaceFacing } from "./modules/surface-facing.js";
 import { createOutlineCaptureOperations } from "./modules/outline-capture-operations.js";
 import { createOutlineCoordination } from "./modules/outline-coordination.js";
 import { createJogEventHandler } from "./modules/jog-events.js";
@@ -679,6 +680,7 @@ const originProbing = createOriginProbing({
   getOutline: () => state.outline,
   request, pollMachine, sendJog, connectJog, appendGcodeLine, renderJog,
   renderMachineSettings, refreshMachineLearnedSettings,
+  renderWorkArea: () => renderWorkArea(),
   queueSaveUISettings: (...args) => queueSaveUISettings(...args),
   normalizeMachineSettings, defaultMachineSettings, normalizeMachineLearned,
   currentWorkOrigin, currentAxisValues, axisValue, fmtCoord, finiteOr, newID,
@@ -1100,6 +1102,7 @@ workareaOutline = mountWorkareaOutline({
   renderActiveGcode,
   renderWorkAreaOutline: (...args) => workareaRender?.renderWorkAreaOutline(...args),
   renderWorkAreaFieldProbePreview: (...args) => workareaRender?.renderWorkAreaFieldProbePreview(...args),
+  renderEdgeAngleMap: originProbing.renderEdgeAngleMap,
   visualWorkOrigin,
   tapMoveTargetBusy,
   jogEstimateActive,
@@ -1156,7 +1159,10 @@ outlineCoordination = createOutlineCoordination({
   getCurrentAxisValues: currentAxisValues,
   currentWorkOrigin,
   axisValue,
-  renderOutlineCaptureView: () => outlineView?.renderOutlineCapture(),
+  renderOutlineCaptureView: () => {
+    outlineView?.renderOutlineCapture();
+    surfaceFacing.render();
+  },
   clearFieldProbeData,
   updateFieldProbePreview: (...args) => updateFieldProbePreview(...args),
   renderWorkArea,
@@ -1217,6 +1223,7 @@ outlineView = createOutlineView({
   documentRef: document,
   outlineCaptureIntentCount,
   isProbeToolActive,
+  isZProbeToolActive: () => isProbeToolActive() || is3DProbeToolActive(),
   machineReadyForOriginSet,
   tapMoveTargetBusy,
   controlLocallyOwned,
@@ -1326,13 +1333,26 @@ workAreaInteractions = createWorkAreaInteractions({
   },
 });
 
+const surfaceFacing = createSurfaceFacing({
+  document,
+  getOutline: () => state.outline,
+  getMachine: () => state.machine,
+  getOrigin: () => currentWorkOrigin(state.machine),
+  getLimits: () => state.ui.machine?.learned?.soft_endstop,
+  getSafeZ: () => safeZForTapMove(normalizeMachineSettings(state.ui.machine)),
+  getReadOnly: () => state.readOnly,
+  request, setStatusMessage,
+  confirm: (message) => window.confirm(message),
+});
+
 const fieldProbing = createFieldProbing({
   state: featureState.fieldProbing,
   constants: { DEFAULT_PROBE_DEPTH_MM, DEFAULT_PROBE_FEED_MM },
   callbacks: {
     cloneOutlineOrigin, axisValue, currentWorkOrigin, normalizeMachineSettings, finiteOr,
     safeZForTapMove, request, markGcodeContextOverlayDirty, machineReadyForOriginSet,
-    isProbeToolActive, setOutlineFeedback, confirmProbeAction, renderOutlineCapture,
+    isProbeToolActive, isZProbeToolActive: () => isProbeToolActive() || is3DProbeToolActive(),
+    setOutlineFeedback, confirmProbeAction, renderOutlineCapture,
     renderJog, pollMachine, fmtCoord, cancelOutlineFieldSpacingUpdate,
     commitOutlineFieldSpacingDraft, clearControlDrafts,
     unprobedFieldProbePoints, currentOutlineCapturePosition, renderWorkArea,
@@ -1469,8 +1489,8 @@ function goToSurfaceDestination(kind) {
   return true;
 }
 
-function currentWorkOrigin() {
-  const { mpos, wpos } = currentAxisValues();
+function currentWorkOrigin(positions = currentAxisValues()) {
+  const { mpos, wpos } = positions;
   const out = {};
   let have = false;
   for (const axis of ["x", "y", "z"]) {
@@ -2509,6 +2529,7 @@ function init() {
   bindJogArmInteractions({ bindButtonAction, toggleTapMoveArm });
   surfaceControls.init();
   surfaceSavedPositions.bind(bindButtonAction);
+  surfaceFacing.bind(bindButtonAction);
   surfaceShell.bindInteractions({ bindButtonAction });
   for (const button of document.querySelectorAll("[data-spindle-fan]")) {
     button.disabled = state.readOnly || !state.machine?.connected || !!state.machine?.stale;

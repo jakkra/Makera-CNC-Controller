@@ -624,7 +624,9 @@
                         <button type="button" id="origin-probe-z">Probe Z</button>
                         <button type="button" id="origin-probe-3d">3D Probe</button>
                         <button type="button" id="origin-probe-edge">Measure edge</button>
+                        <button type="button" id="origin-probe-angle">Measure angle</button>
                         <button type="button" id="origin-probe-tool" disabled>Fit 3D Probe</button>
+                        <button type="button" id="surface-facing-open">Surface &amp; facing</button>
                       </div>
                     </div>
                   </div>
@@ -732,6 +734,11 @@
                       <g id="workarea-outline-points"></g>
                     </g>
                     <g id="workarea-field-probe-preview" display="none"></g>
+                    <g id="workarea-probed-edge" display="none" aria-hidden="true">
+                      <line></line>
+                      <circle r="1"></circle>
+                      <circle r="1"></circle>
+                    </g>
                     <g id="workarea-target" display="none">
                       <circle id="workarea-target-marker" cx="0" cy="0" r="0.5"></circle>
                       <path id="workarea-target-cross" d="M -4 0 L 4 0 M 0 -4 L 0 4"></path>
@@ -1014,7 +1021,41 @@
       <label class="probe-3d-field"><span>Travel (mm)</span><input id="probe-edge-travel" type="number" min="0.1" max="40" step="0.1" value="10" inputmode="decimal" required></label>
       <label class="probe-3d-field"><span>Tip diameter (mm)</span><input id="probe-edge-tip" type="number" min="0.01" max="20" step="0.01" value="2" inputmode="decimal" required></label>
     </div>
-    <div class="probe-3d-actions"><button type="button" id="probe-edge-run" class="primary" aria-describedby="probe-edge-placement">Probe edge</button></div>
+    <p id="probe-edge-result" class="probe-edge-result" hidden></p>
+    <div class="probe-3d-actions">
+      <button type="button" id="probe-edge-reset" hidden>Reset points</button>
+      <button type="button" id="probe-edge-run" class="primary" aria-describedby="probe-edge-placement">Probe edge</button>
+    </div>
+  </div>
+</dialog>
+<dialog id="surface-facing-modal" aria-labelledby="surface-facing-title">
+  <div class="machine-settings-modal-head">
+    <h2 id="surface-facing-title">Surface &amp; facing</h2>
+    <button type="button" id="surface-facing-close">Close</button>
+  </div>
+  <div class="surface-facing-body">
+    <figure class="surface-facing-figure">
+      <svg id="surface-facing-map" viewBox="0 0 400 232" role="img" aria-label="Top view of measured stock heights and the facing toolpath"></svg>
+      <figcaption>
+        <strong id="surface-facing-measurements"></strong>
+        <div class="surface-facing-scale"><span id="surface-facing-low"></span><i aria-hidden="true"></i><span id="surface-facing-high"></span></div>
+        <span id="surface-facing-deviation"></span>
+      </figcaption>
+    </figure>
+    <div class="surface-facing-plan">
+      <div class="surface-facing-fields">
+        <label>Cutter tool <input data-facing-param="tool" type="number" min="1" max="999" step="1" inputmode="numeric"></label>
+        <label>Diameter (mm) <input data-facing-param="diameter" type="number" min="0.01" step="any" inputmode="decimal"></label>
+        <label>Stepover (mm) <input data-facing-param="stepover" type="number" min="0.001" step="any" inputmode="decimal"></label>
+        <label>Stepdown (mm) <input data-facing-param="stepdown" type="number" min="0.001" step="any" inputmode="decimal"></label>
+        <label>Finish work Z (mm) <input id="surface-facing-target" data-facing-param="targetZ" type="number" step="any" inputmode="decimal"></label>
+        <label>Spindle (rpm) <input data-facing-param="rpm" type="number" min="1" step="1" inputmode="numeric"></label>
+        <label>Cut feed (mm/min) <input data-facing-param="feed" type="number" min="0.1" step="any" inputmode="decimal"></label>
+        <label>Plunge feed (mm/min) <input data-facing-param="plunge" type="number" min="0.1" step="any" inputmode="decimal"></label>
+      </div>
+      <div id="surface-facing-passes"></div>
+      <button type="button" id="surface-facing-queue" class="primary">Queue facing program</button>
+    </div>
   </div>
 </dialog>
 <dialog id="surface-settings-modal" class="surface-settings" aria-labelledby="surface-settings-title">

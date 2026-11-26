@@ -2972,15 +2972,21 @@ func (s *Service) ProbeZ(req ProbeZRequest) (ProbeZResult, error) {
 	if err := validateProbeZRequest(req); err != nil {
 		return ProbeZResult{}, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
 	}
-	if err := s.arb.WithMachine(true, func(*client.Conn) error { return nil }); err != nil {
-		return ProbeZResult{}, err
-	}
-	st, _ := s.arb.Tracker().Current()
-	if st.Tool == nil || st.Tool.Active != 0 {
-		return ProbeZResult{}, fmt.Errorf("%w: active tool is %s", ErrProbeUnavailable, toolStatusLabel(st.Tool))
-	}
 	var res ProbeZResult
 	err := s.arb.WithMachine(true, func(c *client.Conn) error {
+		start, err := s.queryRecoveryStatus(c)
+		if err != nil {
+			return err
+		}
+		if start.State != machine.Idle {
+			return session.ErrNotIdle
+		}
+		if start.Tool == nil || (start.Tool.Active != ToolIDProbe && !isLateralProbeTool(start.Tool.Active)) {
+			return fmt.Errorf("%w: active tool is %s", ErrProbeUnavailable, toolStatusLabel(start.Tool))
+		}
+		if start.Controller != nil && start.Controller.InchMode {
+			return fmt.Errorf("%w: switch the machine to millimeters before probing Z", ErrProbeUnavailable)
+		}
 		if _, err := s.sendProbeLine(c, fmt.Sprintf("G53 G0 Z%.4f", req.SafeZMM), false); err != nil {
 			return err
 		}

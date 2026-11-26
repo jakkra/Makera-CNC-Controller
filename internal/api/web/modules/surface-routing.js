@@ -33,6 +33,7 @@ export function createSurfaceRouting({
     if (!isSurfaceKiosk() || !state.surface.auto_switch || !state.machine?.state) return;
     const machineState = String(state.machine.state);
     if (state.surface.manual_view_state === machineState) return;
+    if (state.activeTab === "control" && state.jog?.zProbePending && (machineState === "Run" || machineState === "Idle")) return;
     // A manual selection applies only to the current machine state. Let the next
     // state transition route the operator to the corresponding Surface view.
     state.surface.manual_view_state = "";

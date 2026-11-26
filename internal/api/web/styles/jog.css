@@ -96,6 +96,27 @@
   .tap-origin-panel { grid-column: 1 / -1; min-width: 0; display: grid; gap: 14px; align-items: stretch; }
   .origin-action-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 6px; }
   .origin-action-grid button { min-height: var(--tap-control-h); white-space: nowrap; }
+  #probe-edge-placement, .probe-edge-result { margin: 0; }
+  .probe-edge-result { font-variant-numeric: tabular-nums; }
+  #probe-edge-modal .probe-3d-actions button { min-height: 44px; }
+  #probe-edge-run { grid-column: -2 / -1; }
+  #surface-facing-modal { width: min(920px, calc(100% - 24px)); margin: auto; }
+  .surface-facing-body { display: grid; gap: 16px; padding: 16px; }
+  .surface-facing-figure, .surface-facing-plan { display: grid; align-content: start; gap: 8px; margin: 0; min-width: 0; }
+  .surface-facing-figure svg { width: 100%; max-height: 34dvh; border-radius: var(--radius); background: var(--bg); }
+  .surface-facing-figure polygon { fill: var(--panel-2); stroke: var(--muted); }
+  .surface-facing-figure polyline { fill: none; stroke: var(--accent); stroke-width: 1; }
+  .surface-facing-figure figcaption { display: grid; gap: 4px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .surface-facing-scale { display: grid; grid-template-columns: auto minmax(24px, 1fr) auto; align-items: center; gap: 8px; font-size: 12px; }
+  .surface-facing-scale i { height: 8px; border-radius: var(--radius); background: linear-gradient(90deg, hsl(220 82% 62%), hsl(170 82% 62%), hsl(100 82% 62%), hsl(26 82% 62%)); }
+  .surface-facing-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .surface-facing-fields label { display: grid; gap: 4px; align-content: end; color: var(--muted); font-size: 12px; }
+  .surface-facing-fields input { min-width: 0; width: 100%; min-height: 40px; }
+  #surface-facing-passes { min-height: 1.5em; color: var(--muted); }
+  #surface-facing-close, #surface-facing-queue { min-height: 44px; }
+  @media (min-width: 700px) {
+    .surface-facing-body { grid-template-columns: minmax(0, 1fr) minmax(280px, .8fr); }
+  }
   .origin-modal { width: min(480px, calc(100vw - 24px)); }
   .origin-modal-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .origin-modal-fields label, .origin-modal-source label { min-width: 0; display: grid; grid-template-rows: var(--tap-label-h) var(--tap-control-h); gap: var(--tap-field-gap); color: var(--muted); font-size: 11px; line-height: 1.2; }
@@ -258,6 +279,7 @@
   #workarea-field-probe-preview circle.selected:hover { cursor: grab; }
   #workarea-field-probe-preview circle:focus-visible { outline: none; stroke: #fff; stroke-width: 1; }
   #workarea-field-probe-preview circle.current { fill: rgba(87,166,214,.52); stroke: var(--accent); stroke-width: .55; }
+  #workarea-probed-edge { pointer-events: none; stroke: var(--warn); stroke-width: .6; fill: var(--panel); }
   #workarea-origin-x, #workarea-origin-y { display: none; }
   #workarea-viewport line, #workarea-viewport path, #workarea-viewport circle, #workarea-boundary { vector-effect: non-scaling-stroke; }
   #workarea-origin-x-axis { fill: none; stroke: #f05b5b; stroke-width: .42; stroke-linecap: round; stroke-linejoin: round; }

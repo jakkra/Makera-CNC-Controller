@@ -886,7 +886,7 @@ func (s *Service) zProbeSetWorkZero(retractSafe bool) (MachineActionResult, erro
 		if st.State != machine.Idle {
 			return fmt.Errorf("%w: machine reports %s", ErrMachineStatusStale, statusSummary(st))
 		}
-		if st.Tool == nil || (st.Tool.Active != ToolIDProbe && st.Tool.Active != ToolID3DProbe) {
+		if st.Tool == nil || (st.Tool.Active != ToolIDProbe && !isLateralProbeTool(st.Tool.Active)) {
 			return fmt.Errorf("%w: active tool is %s; Probe or 3D Probe is required", ErrProbeUnavailable, toolStatusLabel(st.Tool))
 		}
 		startZ, ok := finiteAxisValue(st.MPos, "z")
@@ -992,8 +992,29 @@ func (s *Service) Probe3D(req Probe3DRequest) (MachineActionResult, error) {
 		if st.State != machine.Idle {
 			return fmt.Errorf("%w: machine reports %s", ErrMachineStatusStale, statusSummary(st))
 		}
-		if st.Tool == nil || st.Tool.Active != ToolID3DProbe {
-			return fmt.Errorf("%w: active tool is %s; 3D Probe (9999) is required", ErrProbeUnavailable, toolStatusLabel(st.Tool))
+		if st.Tool == nil || !isLateralProbeTool(st.Tool.Active) {
+			return fmt.Errorf("%w: active tool is %s; the wired 3D Probe is required", ErrProbeUnavailable, toolStatusLabel(st.Tool))
+		}
+		res.ToolID = st.Tool.Active
+		// Community 2.3's compatibility wrapper touches Z first like stock,
+		// but its M480.5/.6 have the opposite X approach. Keep the chosen
+		// corner and its preflight in the operator's machine coordinates.
+		if _, reported := st.Fields["G"]; (reported || st.Tool.Active >= community3DProbeMinToolID) && strings.HasPrefix(strings.ToLower(strings.TrimSpace(req.Kind)), "inside_") {
+			workspace, hasWorkspace := parseMachineNumber(st.Fields["G"])
+			rotation, valid := parseMachineNumber(st.Fields["R"])
+			if !hasWorkspace || workspace != 0 || !valid || rotation != 0 {
+				return fmt.Errorf("%w: select G54 with zero rotation before probing an inside corner on Community Firmware", ErrProbeUnavailable)
+			}
+			communityReq := req
+			switch strings.ToLower(strings.TrimSpace(req.Kind)) {
+			case "inside_top_left":
+				communityReq.Kind = "inside_top_right"
+			case "inside_top_right":
+				communityReq.Kind = "inside_top_left"
+			}
+			line, _, _ = probe3DLine(communityReq)
+			display = strings.TrimSpace(line)
+			res.Command = display
 		}
 		if limitErr := probe3DInitialPositionLimitError(req, st.MPos, s.store.UISettings().Machine.Learned.SoftEndstop); limitErr != nil {
 			return fmt.Errorf("%w: %v", ErrInvalidArgument, limitErr)

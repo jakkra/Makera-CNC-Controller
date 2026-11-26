@@ -1,5 +1,9 @@
 export const TOOL_3D_PROBE = 9999;
 
+export function isWiredProbeTool(id) {
+  return id === TOOL_3D_PROBE || (Number.isInteger(id) && id >= 999990);
+}
+
 export function toolDisplayName(toolID) {
   switch (Number(toolID)) {
   case -1:

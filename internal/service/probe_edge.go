@@ -17,9 +17,12 @@ type ProbeEdgeRequest struct {
 	TipDiameterMM float64 `json:"tip_diameter_mm"`
 }
 
+const community3DProbeMinToolID = 999990
+
 type ProbeEdgeResult struct {
-	Axis          string  `json:"axis"`
-	MachineEdgeMM float64 `json:"machine_edge_mm"`
+	Axis          string             `json:"axis"`
+	MachineEdgeMM float64            `json:"machine_edge_mm"`
+	MachinePoint  machine.AxisValues `json:"machine_point"`
 }
 
 // ProbeEdge takes a single lateral measurement with the probe already at
@@ -44,11 +47,23 @@ func (s *Service) ProbeEdge(req ProbeEdgeRequest) (ProbeEdgeResult, error) {
 		if start.State != machine.Idle {
 			return session.ErrNotIdle
 		}
-		if start.Tool == nil || start.Tool.Active != ToolID3DProbe {
+		if start.Tool == nil || !isLateralProbeTool(start.Tool.Active) {
 			return fmt.Errorf("%w: active tool is %s; select the wired 3D Probe", ErrProbeUnavailable, toolStatusLabel(start.Tool))
 		}
 		if start.Controller != nil && start.Controller.InchMode {
 			return fmt.Errorf("%w: switch the machine to millimeters before measuring an edge", ErrProbeUnavailable)
+		}
+		// Community firmware rotates even relative G38 moves in the active WCS.
+		// Require its freshly reported angle before treating those moves as
+		// machine-axis motion for the travel check and same-axis retract.
+		if raw, reported := start.Fields["R"]; reported || start.Tool.Active >= community3DProbeMinToolID {
+			degrees, valid := parseMachineNumber(raw)
+			if !valid {
+				return fmt.Errorf("%w: current work coordinate rotation is unavailable", ErrProbeUnavailable)
+			}
+			if degrees != 0 {
+				return fmt.Errorf("%w: clear the active work coordinate rotation before probing a machine-axis edge", ErrProbeUnavailable)
+			}
 		}
 		limits := s.store.UISettings().Machine.Learned.SoftEndstop
 		lower, upper := limits.XMin, limits.XMax
@@ -89,8 +104,16 @@ func (s *Service) ProbeEdge(req ProbeEdgeRequest) (ProbeEdgeResult, error) {
 		if _, err := s.waitTraceMotion(c, machine.AxisValues{axis: coordinate}, probeIdleTimeout); err != nil {
 			return fmt.Errorf("%w: probe contacted the edge, but the return to start could not be verified: %v", ErrMachineStatusStale, err)
 		}
-		result = ProbeEdgeResult{Axis: axis, MachineEdgeMM: touch + float64(req.Direction)*req.TipDiameterMM/2}
+		edge := touch + float64(req.Direction)*req.TipDiameterMM/2
+		contact[axis] = edge
+		result = ProbeEdgeResult{Axis: axis, MachineEdgeMM: edge, MachinePoint: contact}
 		return nil
 	})
 	return result, err
+}
+
+// The community firmware recognizes the stock Z1 tool number as well as
+// its own 3D probe range. Both report straight probe contacts in machine axes.
+func isLateralProbeTool(id int) bool {
+	return id == ToolID3DProbe || id >= community3DProbeMinToolID
 }

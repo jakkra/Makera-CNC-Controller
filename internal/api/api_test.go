@@ -2589,7 +2589,7 @@ func TestPostAutoVacuumWorksWhileRunningAndRequiresEnabled(t *testing.T) {
 
 func TestProbeZEndpointSerializesSafeMoveProbeAndLift(t *testing.T) {
 	srv, m, tr := serverWithMachine(t)
-	status := "<Idle|MPos:0,0,0|WPos:0,0,0|T:0,0>"
+	status := "<Idle|MPos:0,0,0|WPos:0,0,0|T:9999,0>"
 	m.SetStatus(status)
 	if !tr.ObserveStatusPayload(status) {
 		t.Fatal("failed to seed tracker status")
@@ -2828,6 +2828,37 @@ func TestProbe3DEndpointRejectsPredictableSoftLimitMove(t *testing.T) {
 	}
 	if got := m.Gcodes(); len(got) != 0 {
 		t.Fatalf("unsafe 3D probe leaked through API: %v", got)
+	}
+}
+
+func TestCommunityInsideCornerProbesSelectedMachineCorner(t *testing.T) {
+	srv, m, tr, svc, _ := serverWithMachineState(t)
+	ui := svc.UISettings()
+	ui.Machine.Learned.SoftEndstop = store.MachineSoftEndstopProfile{XMin: -200, XMax: 0, YMin: -200, YMax: 0, ZMin: -120, ZMax: 0}
+	if _, err := svc.SetUISettings(ui); err != nil {
+		t.Fatal(err)
+	}
+	request := map[string]any{"kind": "inside_top_left", "x_offset_mm": 20, "y_offset_mm": 20, "z_offset_mm": 2, "diameter_mm": 2}
+	for _, fixture := range []struct {
+		fields string
+		want   int
+	}{
+		{"|G:1|R:0", http.StatusConflict},
+		{"|G:0|R:3", http.StatusConflict},
+		{"|G:0|R:0", http.StatusAccepted},
+	} {
+		status := "<Idle|MPos:-198,-120,-20|WPos:0,0,0|T:999990,0" + fixture.fields + ">"
+		m.SetStatus(status)
+		tr.ObserveStatusPayload(status)
+		response := postJSON(t, srv.URL+"/api/probe/3d", request)
+		data, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		if response.StatusCode != fixture.want {
+			t.Fatalf("community probe status for %s = %d, want %d: %s", fixture.fields, response.StatusCode, fixture.want, data)
+		}
+	}
+	if want := []string{"M480.6 X20 Y20 Z2 D2"}; !reflect.DeepEqual(m.Gcodes(), want) {
+		t.Fatalf("community upper-left dispatch = %v, want %v", m.Gcodes(), want)
 	}
 }
 
@@ -3828,7 +3859,7 @@ func TestProbeEdgeEndpointMeasuresAndRetractsInMachineCoordinates(t *testing.T) 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Axis != "y" || result.MachineEdgeMM != -11 {
+	if result.Axis != "y" || result.MachineEdgeMM != -11 || !reflect.DeepEqual(result.MachinePoint, machine.AxisValues{"x": 0, "y": -11, "z": -20}) {
 		t.Fatalf("edge probe = %+v", result)
 	}
 	machineStatus := svc.Status()
@@ -3836,6 +3867,37 @@ func TestProbeEdgeEndpointMeasuresAndRetractsInMachineCoordinates(t *testing.T) 
 		t.Fatalf("retract status = %+v", machineStatus)
 	}
 	if got := m.Gcodes(); !slices.Equal(got, []string{"G38.2 Y-10.0000 F50", "G53 G0 Y0.0000"}) {
+		t.Fatalf("edge probing frames = %v", got)
+	}
+
+	status = "<Idle|MPos:80,.25,-20|WPos:80,0,7|T:999990,0|R:0.0000|G:0>"
+	m.SetStatus(status)
+	tr.ObserveStatusPayload(status)
+	m.SetGcodeReply("G38.2 Y-10.0000 F50", "[PRB:80.000,-9.750,-20.000:1]")
+	resp2 := postJSON(t, srv.URL+"/api/probe/edge", service.ProbeEdgeRequest{Axis: "y", Direction: -1, TravelMM: 10, TipDiameterMM: 2})
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp2.Body)
+		t.Fatalf("edge probe with community tool ID = %d: %s", resp2.StatusCode, data)
+	}
+	if err := json.NewDecoder(resp2.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Axis != "y" || result.MachineEdgeMM != -10.75 || !reflect.DeepEqual(result.MachinePoint, machine.AxisValues{"x": 80, "y": -10.75, "z": -20}) {
+		t.Fatalf("second edge probe = %+v", result)
+	}
+	for _, rotation := range []string{"|R:12.5000|G:0", ""} {
+		status = "<Idle|MPos:80,.25,-20|WPos:80,0,7|T:999990,0" + rotation + ">"
+		m.SetStatus(status)
+		tr.ObserveStatusPayload(status)
+		rejected := postJSON(t, srv.URL+"/api/probe/edge", service.ProbeEdgeRequest{Axis: "y", Direction: -1, TravelMM: 10, TipDiameterMM: 2})
+		data, _ := io.ReadAll(rejected.Body)
+		rejected.Body.Close()
+		if rejected.StatusCode != http.StatusConflict || !strings.Contains(string(data), "rotation") {
+			t.Fatalf("expected rotation preflight failure, got %d: %s", rejected.StatusCode, data)
+		}
+	}
+	if got := m.Gcodes(); !slices.Equal(got, []string{"G38.2 Y-10.0000 F50", "G53 G0 Y0.0000", "G38.2 Y-10.0000 F50", "G53 G0 Y0.2500"}) {
 		t.Fatalf("edge probing frames = %v", got)
 	}
 }
