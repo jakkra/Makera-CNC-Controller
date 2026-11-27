@@ -162,6 +162,12 @@
   .surface-facing-materials button { min-width: 0; min-height: 48px; padding: 4px; }
   .surface-facing-materials button[aria-pressed="true"] { border-color: var(--accent); background: var(--panel-2); }
   .surface-facing-tool-note { grid-column: 1 / -1; }
+  #surface-facing-toolpath { border: 0; margin: 0 0 4px; padding: 0; min-width: 0; display: grid; gap: 6px; }
+  #surface-facing-toolpath legend { padding: 0; margin-bottom: 8px; font-weight: 650; }
+  .surface-facing-options { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .surface-facing-options button { min-height: 48px; }
+  .surface-facing-options button[aria-pressed="true"] { border-color: var(--accent); background: var(--panel-2); color: var(--accent); }
+  .surface-facing-figure .facing-return { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; }
   #surface-facing-passes.error { color: var(--err); }
   .surface-facing-figure .facing-sweep { fill: none; stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; }
   .surface-facing-figure .facing-entry circle { fill: rgba(217,154,58,.22); stroke: var(--warn); stroke-width: 1.5; }

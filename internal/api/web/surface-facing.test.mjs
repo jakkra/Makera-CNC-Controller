@@ -67,19 +67,62 @@ test("facing descends outside the stock and enters from the side", () => {
   assert.deepEqual(lines.slice(-3), ["G53 G0 Z-3.0000", "M5", "M2"]);
 });
 
-test("no move lowers Z with the cutter over the stock", () => {
-  for (const entryCorner of ["auto", "front-left", "front-right", "back-left", "back-right"]) {
-    const plan = facingPlan({ ...args, parameters: { ...args.parameters, entryCorner } });
-    const radius = args.parameters.diameter / 2;
+// Replays the program and returns every rapid XY move with the Z it runs at.
+function rapids(plan) {
+  let z = NaN;
+  const out = [];
+  for (const line of facingGcode(plan).split("\n")) {
+    const zWord = line.match(/ Z(-?[0-9.]+)/);
+    if (zWord) z = line.startsWith("G53") ? Number(zWord[1]) - plan.origin.z : Number(zWord[1]);
+    if (/^G0 X/.test(line)) out.push(z);
+  }
+  return out;
+}
+
+const COMBINATIONS = ["x", "y"].flatMap((direction) => ["zigzag", "oneway"].flatMap((pattern) =>
+  ["auto", "front-left", "front-right", "back-left", "back-right"].map((entryCorner) => ({ direction, pattern, entryCorner }))));
+
+test("no move lowers Z with the cutter over the stock, in every direction and pattern", () => {
+  const radius = args.parameters.diameter / 2;
+  for (const options of COMBINATIONS) {
+    const label = JSON.stringify(options);
+    const plan = facingPlan({ ...args, parameters: { ...args.parameters, ...options } });
     const moves = descents(plan);
-    assert.ok(moves.length >= plan.levels.length);
+    assert.ok(moves.length >= plan.levels.length, label);
     for (const move of moves) {
-      assert.equal(move.xyMove, false, `${entryCorner}: descent combined with XY motion`);
-      const clear = move.x + radius <= plan.bounds.left - ENTRY_CLEARANCE_MM + 1e-9 ||
-        move.x - radius >= plan.bounds.right + ENTRY_CLEARANCE_MM - 1e-9;
-      assert.ok(clear, `${entryCorner}: descent at X ${move.x} is over the stock`);
+      assert.equal(move.xyMove, false, `${label}: descent combined with XY motion`);
+      const { left, right, front, back } = plan.bounds;
+      const clear = move.x + radius <= left - ENTRY_CLEARANCE_MM + 1e-9 || move.x - radius >= right + ENTRY_CLEARANCE_MM - 1e-9 ||
+        move.y + radius <= front - ENTRY_CLEARANCE_MM + 1e-9 || move.y - radius >= back + ENTRY_CLEARANCE_MM - 1e-9;
+      assert.ok(clear, `${label}: descent at X ${move.x} Y ${move.y} is over the stock`);
+    }
+    for (const z of rapids(plan)) {
+      assert.ok(z > args.surface.high, `${label}: rapid XY move at Z ${z} is not above the stock`);
     }
   }
+});
+
+test("cutting along Y enters beyond the front or back edge", () => {
+  const plan = facingPlan({ ...args, parameters: { ...args.parameters, direction: "y", entryCorner: "front-left" } });
+  assert.equal(plan.entry.y, -70 - 6 - ENTRY_CLEARANCE_MM);
+  assert.equal(plan.entry.x, -90);
+  assert.deepEqual(plan.rows, [-90, -82, -74, -66, -58, -50]);
+  assert.match(facingGcode(plan), /G0 X0\.0000 Y-9\.0000\nG1 Z[^\n]+\nG1 X0\.0000 Y0\.0000 F[^\n]+\nG1 X0\.0000 Y30\.0000/);
+  const back = facingPlan({ ...args, parameters: { ...args.parameters, direction: "y", entryCorner: "back-right" } });
+  assert.deepEqual([back.entry.x, back.entry.y], [-50, -40 + 6 + ENTRY_CLEARANCE_MM]);
+  assert.equal(back.rows[0], -50);
+});
+
+test("one-way rows all cut in the same direction and return above the stock", () => {
+  const plan = facingPlan({ ...args, parameters: { ...args.parameters, pattern: "oneway" } });
+  const lines = facingGcode(plan).split("\n");
+  const level = lines.indexOf("G1 Z0.1250 F120.0000");
+  assert.deepEqual(lines.slice(level + 1, level + 8), [
+    "G1 X0.0000 Y0.0000 F480.0000", "G1 X40.0000 Y0.0000 F480.0000",
+    `G0 Z${plan.clearZ.toFixed(4)}`, "G0 X-9.0000 Y7.5000", "G1 Z0.1250 F120.0000",
+    "G1 X0.0000 Y7.5000 F480.0000", "G1 X40.0000 Y7.5000 F480.0000",
+  ]);
+  assert.ok(Math.abs(plan.clearZ - (args.surface.high + 1)) < 1e-9);
 });
 
 test("each entry corner starts on its own row and side", () => {

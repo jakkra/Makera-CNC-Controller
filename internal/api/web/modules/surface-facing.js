@@ -95,48 +95,89 @@ export function facingPlan({ outline, surface, origin, machine, limits, safeZ, p
       safeZ > limits.z_max || targetZ + origin.z < limits.z_min || safeZ <= surface.high + origin.z) {
     throw new Error("The facing area, finish Z, or Safe Z is outside the usable machine travel.");
   }
+  const axis = parameters.direction === "y" ? "y" : "x";
+  const pattern = parameters.pattern === "oneway" ? "oneway" : "zigzag";
   const choice = ENTRY_CORNERS.includes(parameters.entryCorner) ? parameters.entryCorner : "auto";
-  const entry = chooseEntry({ bounds, diameter, limits, choice });
+  const entry = chooseEntry({ bounds, diameter, limits, choice, axis });
+  const A = axis.toUpperCase();
   if (!entry) {
     throw new Error(choice === "auto"
-      ? `The cutter needs ${ENTRY_CLEARANCE_MM} mm plus its radius beyond an X edge of the stock to enter from the side.`
-      : `There is no X travel to enter from the ${choice.replace("-", " ")} corner. Choose another entry corner.`);
+      ? `The cutter needs ${ENTRY_CLEARANCE_MM} mm plus its radius beyond an ${A} edge of the stock to enter from the side.`
+      : `There is no ${A} travel to enter from the ${choice.replace("-", " ")} corner. Choose another entry corner.`);
   }
-  const rowCount = Math.ceil((bounds.back - bounds.front) / stepover) + 1;
+  const frame = cutFrame(bounds, axis);
+  const rowCount = Math.ceil((frame.vMax - frame.vMin) / stepover) + 1;
   const passCount = Math.ceil((surface.high - targetZ) / stepdown);
   if (rowCount * passCount > 5000 || stepover < 0.001 || stepdown < 0.001) {
     throw new Error("Increase the stepover or stepdown to stay within 5,000 cutting rows.");
   }
-  const rows = Array.from({ length: rowCount }, (_, i) => bounds.front + i * (bounds.back - bounds.front) / (rowCount - 1));
-  if (entry.end === "back") rows.reverse();
+  const rows = Array.from({ length: rowCount }, (_, i) => frame.vMin + i * (frame.vMax - frame.vMin) / (rowCount - 1));
+  if (entry.vStart === "max") rows.reverse();
   const levels = Array.from({ length: passCount }, (_, i) => surface.high - (i + 1) * (surface.high - targetZ) / passCount);
-  return { bounds, entry, origin, safeZ, rows, levels, totalDepth: surface.high - targetZ, parameters };
+  // One-way rows return 1 mm above the highest measured point, never above Safe Z.
+  const clearZ = Math.min(surface.high + 1, safeZ - origin.z);
+  return { bounds, entry, axis, pattern, clearZ, origin, safeZ, rows, levels, totalDepth: surface.high - targetZ, parameters };
 }
 
-// The side entry for a corner choice ("auto" picks the first one with X
+// Rows run along the cut axis u; they step over along v.
+export function cutFrame(bounds, axis = "x") {
+  return axis === "y"
+    ? { u: "y", v: "x", uMin: bounds.front, uMax: bounds.back, vMin: bounds.left, vMax: bounds.right }
+    : { u: "x", v: "y", uMin: bounds.left, uMax: bounds.right, vMin: bounds.front, vMax: bounds.back };
+}
+
+// The side entry for a corner choice ("auto" picks the first one with
 // travel), or null when the cutter has no room to go down beside the stock.
-export function chooseEntry({ bounds, diameter, limits, choice = "auto" }) {
+// Cutting along X the cutter goes down beyond the left or right edge;
+// cutting along Y, beyond the front or back edge.
+export function chooseEntry({ bounds, diameter, limits, choice = "auto", axis = "x" }) {
   if (!bounds || !(diameter > 0)) return null;
   const lead = diameter / 2 + ENTRY_CLEARANCE_MM;
-  const xMin = Number.isFinite(limits?.x_min) ? limits.x_min : -Infinity;
-  const xMax = Number.isFinite(limits?.x_max) ? limits.x_max : Infinity;
+  const f = cutFrame(bounds, axis);
+  const lo = Number.isFinite(limits?.[f.u + "_min"]) ? limits[f.u + "_min"] : -Infinity;
+  const hi = Number.isFinite(limits?.[f.u + "_max"]) ? limits[f.u + "_max"] : Infinity;
   for (const corner of ENTRY_CORNERS.includes(choice) ? [choice] : ENTRY_CORNERS) {
     const [end, side] = corner.split("-");
-    const x = side === "left" ? bounds.left - lead : bounds.right + lead;
-    if (x < xMin || x > xMax) continue;
-    return { corner, side, end, x, y: end === "front" ? bounds.front : bounds.back };
+    const uSide = (axis === "x" ? side === "left" : end === "front") ? "min" : "max";
+    const vStart = (axis === "x" ? end === "front" : side === "left") ? "min" : "max";
+    const u = uSide === "min" ? f.uMin - lead : f.uMax + lead;
+    if (u < lo || u > hi) continue;
+    const v = vStart === "min" ? f.vMin : f.vMax;
+    return { corner, side, end, axis, uSide, vStart, [f.u]: u, [f.v]: v };
   }
   return null;
 }
 
-export function raster(plan) {
+// The moves of one depth level after the cutter is down at the entry.
+// "cut" feeds in XY at the level; one-way rows add "retract" (up to the
+// clearance height), "rapid" (back to the entry side outside the stock) and
+// "descend" (down to the level, still outside the stock).
+export function facingMoves(plan) {
   const { bounds, entry, rows } = plan;
-  return [{ x: entry.x, y: entry.y }, ...rows.flatMap((y, i) => {
-    const leftward = (i % 2 === 1) !== (entry.side === "right");
-    const a = leftward ? bounds.right : bounds.left;
-    const b = leftward ? bounds.left : bounds.right;
-    return [{ x: a, y }, { x: b, y }];
-  })];
+  const axis = plan.axis || "x";
+  const f = cutFrame(bounds, axis);
+  const at = (u, v) => ({ [f.u]: u, [f.v]: v });
+  const near = entry.uSide === "min" ? f.uMin : f.uMax;
+  const far = entry.uSide === "min" ? f.uMax : f.uMin;
+  const entryU = entry[f.u];
+  const moves = [];
+  rows.forEach((v, i) => {
+    if (plan.pattern === "oneway") {
+      if (i > 0) {
+        moves.push({ type: "retract" }, { type: "rapid", ...at(entryU, v) }, { type: "descend" });
+      }
+      moves.push({ type: "cut", ...at(near, v) }, { type: "cut", ...at(far, v) });
+    } else {
+      const reversed = i % 2 === 1;
+      moves.push({ type: "cut", ...at(reversed ? far : near, v) }, { type: "cut", ...at(reversed ? near : far, v) });
+    }
+  });
+  return moves;
+}
+
+// Entry point followed by the cutting points, for the preview.
+export function raster(plan) {
+  return [{ x: plan.entry.x, y: plan.entry.y }, ...facingMoves(plan).filter((m) => m.type === "cut").map(({ x, y }) => ({ x, y }))];
 }
 
 // Machine-coordinate box covering everything the cutter sweeps, including the
@@ -146,8 +187,8 @@ export function facingSweepBox({ bounds, entry, parameters }) {
   return {
     left: Math.min(bounds.left, entry.x) - radius,
     right: Math.max(bounds.right, entry.x) + radius,
-    front: bounds.front - radius,
-    back: bounds.back + radius,
+    front: Math.min(bounds.front, entry.y) - radius,
+    back: Math.max(bounds.back, entry.y) + radius,
   };
 }
 
@@ -164,7 +205,7 @@ export function facingGcode(plan) {
   const { origin, safeZ, levels, parameters: p } = plan;
   const number = (value) => value.toFixed(4);
   const xy = ({ x, y }) => `X${number(x - origin.x)} Y${number(y - origin.y)}`;
-  const [entry, ...cut] = raster(plan);
+  const entry = plan.entry;
   const lift = `G53 G0 Z${number(safeZ)}`;
   const lines = [
     "; Sensei surface facing",
@@ -172,13 +213,19 @@ export function facingGcode(plan) {
     `; Scan work XY zero was machine X${number(origin.x)} Y${number(origin.y)}`,
     `; Side entry at the ${plan.entry.corner.replace("-", " ")} corner, machine X${number(entry.x)} Y${number(entry.y)}`,
     `; The cutter descends ${ENTRY_CLEARANCE_MM} mm beyond the stock edge and feeds in from the side; it never plunges into the stock`,
+    `; Rows along ${(plan.axis || "x").toUpperCase()}, ${plan.pattern === "oneway" ? "one way, returning above the stock" : "back and forth"}`,
     "G21", "G90", "G17", "G94", "M5", lift, `M6 T${p.tool}`, "G21", "G90", "G17", "G94", lift,
     "; Confirm work zero, tool length and cutter clearance before resuming", "M600",
     `M3 S${p.rpm}`, "G4 S2",
   ];
   for (const z of levels) {
     lines.push(lift, `G0 ${xy(entry)}`, `G1 Z${number(z)} F${number(p.plunge)}`);
-    for (const point of cut) lines.push(`G1 ${xy(point)} F${number(p.feed)}`);
+    for (const move of facingMoves(plan)) {
+      if (move.type === "cut") lines.push(`G1 ${xy(move)} F${number(p.feed)}`);
+      else if (move.type === "retract") lines.push(`G0 Z${number(plan.clearZ)}`);
+      else if (move.type === "rapid") lines.push(`G0 ${xy(move)}`);
+      else if (move.type === "descend") lines.push(`G1 Z${number(z)} F${number(p.plunge)}`);
+    }
   }
   return [...lines, lift, "M5", "M2", ""].join("\n");
 }
@@ -211,9 +258,28 @@ function surfaceMap(outline, surface, plan, preview = null) {
   const xy = (p) => [(200 + (p.x - left - width / 2) * scale).toFixed(2), (116 - (p.y - front - height / 2) * scale).toFixed(2)];
   const boundary = outlinePoints.length > 2
     ? `<polygon points="${outlinePoints.map((p) => xy(p).join(",")).join(" ")}" />` : "";
-  const path = plan
-    ? `<polyline points="${pathPoints.map((point) => xy(point).join(",")).join(" ")}" />`
-    : "";
+  let path = "";
+  if (plan) {
+    // Cutting moves as solid lines, one-way returns above the stock dashed.
+    let run = [plan.entry];
+    const runs = [];
+    const returns = [];
+    let last = plan.entry;
+    for (const move of facingMoves(plan)) {
+      if (move.type === "cut") {
+        run.push(move);
+        last = move;
+      } else if (move.type === "rapid") {
+        runs.push(run);
+        returns.push([last, move]);
+        run = [move];
+        last = move;
+      }
+    }
+    runs.push(run);
+    path = runs.map((points) => `<polyline points="${points.map((point) => xy(point).join(",")).join(" ")}" />`).join("") +
+      returns.map(([a, b]) => `<line class="facing-return" x1="${xy(a)[0]}" y1="${xy(a)[1]}" x2="${xy(b)[0]}" y2="${xy(b)[1]}" />`).join("");
+  }
   const dots = surface.points.map((p) => {
     const [x, y] = xy(p);
     return `<circle cx="${x}" cy="${y}" r="4" fill="${surfaceColor(p.z, surface)}"><title>Machine X ${p.x.toFixed(3)}, Y ${p.y.toFixed(3)}. Z ${p.z.toFixed(3)} mm</title></circle>`;
@@ -229,7 +295,8 @@ function surfaceMap(outline, surface, plan, preview = null) {
     // Show the full cutter footprint where it descends, and the feed-in
     // direction, so clamps can be checked against it.
     const [ex, ey] = xy(entryPoint);
-    const [fx, fy] = xy({ x: entryPoint.side === "left" ? bounds.left : bounds.right, y: entryPoint.y });
+    const ef = cutFrame(bounds, entryPoint.axis || "x");
+    const [fx, fy] = xy({ ...entryPoint, [ef.u]: entryPoint.uSide === "max" ? ef.uMax : ef.uMin });
     const r = Math.max(4, diameter / 2 * scale).toFixed(2);
     const labelBelow = entryPoint.end === "front";
     const ly = (Number(ey) + (labelBelow ? Number(r) + 13 : -Number(r) - 6)).toFixed(2);
@@ -247,7 +314,7 @@ export function createSurfaceFacing({
   const node = (name) => document.getElementById("surface-facing-" + name);
   const dialog = () => node("modal");
   const getInputs = () => Array.from(dialog().querySelectorAll("[data-facing-param]"));
-  const getEditButtons = () => dialog().querySelectorAll("[data-facing-diameter], [data-facing-step], [data-facing-entry], [data-facing-material]");
+  const getEditButtons = () => dialog().querySelectorAll("[data-facing-diameter], [data-facing-step], [data-facing-entry], [data-facing-material], [data-facing-direction], [data-facing-pattern]");
   const storage = () => { try { return globalThis.localStorage || null; } catch { return null; } };
   const pressed = (attribute) => dialog().querySelector(`[${attribute}][aria-pressed="true"]`);
   const press = (attribute, value) => {
@@ -275,6 +342,8 @@ export function createSurfaceFacing({
       material: pressed("data-facing-material")?.dataset.facingMaterial || DEFAULT_FACING_MATERIAL,
       cutter: pressed("data-facing-diameter")?.dataset.facingDiameter || "",
       entry: pressed("data-facing-entry")?.dataset.facingEntry || "auto",
+      direction: pressed("data-facing-direction")?.dataset.facingDirection || "x",
+      pattern: pressed("data-facing-pattern")?.dataset.facingPattern || "zigzag",
       values,
     };
     try { storage()?.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* best effort */ }
@@ -287,6 +356,8 @@ export function createSurfaceFacing({
     try { saved = JSON.parse(storage()?.getItem(SETTINGS_KEY) || "null"); } catch { saved = null; }
     press("data-facing-material", saved?.material || DEFAULT_FACING_MATERIAL);
     press("data-facing-entry", saved?.entry || "auto");
+    press("data-facing-direction", saved?.direction || "x");
+    press("data-facing-pattern", saved?.pattern || "zigzag");
     const cutter = saved?.cutter || "6";
     press("data-facing-diameter", cutter);
     node("custom-diameter").hidden = cutter !== "custom";
@@ -311,6 +382,8 @@ export function createSurfaceFacing({
       ...values,
       targetZ: Number.isFinite(low) && values.belowLow >= 0 ? low - values.belowLow : NaN,
       entryCorner: dialog().querySelector('[data-facing-entry][aria-pressed="true"]')?.dataset.facingEntry || "auto",
+      direction: pressed("data-facing-direction")?.dataset.facingDirection || "x",
+      pattern: pressed("data-facing-pattern")?.dataset.facingPattern || "zigzag",
     };
   };
   let pending = "";
@@ -335,7 +408,7 @@ export function createSurfaceFacing({
     if (!plan && outline.closed && !outline.curveFit) {
       const bounds = rectangle(outline.points.map((point) => ({ x: point.machine_x, y: point.machine_y })));
       const diameter = parameters.diameter;
-      const entry = chooseEntry({ bounds, diameter, limits: getLimits(), choice: parameters.entryCorner });
+      const entry = chooseEntry({ bounds, diameter, limits: getLimits(), choice: parameters.entryCorner, axis: parameters.direction });
       if (entry) preview = { bounds, entry, diameter };
     }
     const shownEntry = plan?.entry || preview?.entry || null;
@@ -394,8 +467,12 @@ export function createSurfaceFacing({
     for (const button of getEditButtons()) {
       bindButtonAction(button, () => {
         if (pending) return;
-        const { facingDiameter, facingStep, facingDelta, facingEntry, facingMaterial } = button.dataset;
-        if (facingMaterial) {
+        const { facingDiameter, facingStep, facingDelta, facingEntry, facingMaterial, facingDirection, facingPattern } = button.dataset;
+        if (facingDirection) {
+          press("data-facing-direction", facingDirection);
+        } else if (facingPattern) {
+          press("data-facing-pattern", facingPattern);
+        } else if (facingMaterial) {
           press("data-facing-material", facingMaterial);
           applyPreset();
         } else if (facingEntry) {

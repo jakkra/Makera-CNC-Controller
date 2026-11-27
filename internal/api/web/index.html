@@ -1188,6 +1188,18 @@
         <input id="surface-facing-stepdown" data-facing-param="stepdown" type="number" min="0.001" step="any" inputmode="decimal">
         <button type="button" data-facing-step="stepdown" data-facing-delta="0.01" aria-label="Increase maximum depth per pass">+</button>
       </div>
+      <fieldset id="surface-facing-toolpath">
+        <legend>Toolpath</legend>
+        <div class="surface-facing-options" role="group" aria-label="Row direction">
+          <button type="button" data-facing-direction="x" aria-pressed="true">Rows along X ↔</button>
+          <button type="button" data-facing-direction="y" aria-pressed="false">Rows along Y ↕</button>
+        </div>
+        <div class="surface-facing-options" role="group" aria-label="Pattern">
+          <button type="button" data-facing-pattern="zigzag" aria-pressed="true">Back and forth</button>
+          <button type="button" data-facing-pattern="oneway" aria-pressed="false">One way</button>
+        </div>
+        <p class="surface-facing-note">Back and forth cuts every row without lifting. One way cuts every row in the same direction for an even finish; between rows the cutter lifts 1 mm above the stock and goes down beside it again. The map shows the path, with returns dashed.</p>
+      </fieldset>
       <fieldset id="surface-facing-entry">
         <legend>Where the cutter enters</legend>
         <p class="surface-facing-note">The cutter goes down beside the stock at this corner and feeds in from the side. It is drawn in orange on the map. Keep clamps away from it.</p>
