@@ -1378,8 +1378,20 @@ alignmentHoles = createAlignmentHoles({
 machiningView = createMachiningView({
   document,
   getOutline: () => state.outline,
+  getMachine: () => state.machine,
+  getJog: () => state.jog,
+  getReadOnly: () => state.readOnly,
   showTab: (name) => showTab(name),
   bindButtonAction,
+  startOutlineCapture: () => startOutlineCapture(),
+  addOutlinePoint: () => addOutlinePoint(),
+  closeOutline: () => closeOutline(),
+  flushOutlineFieldSpacingUpdate: () => flushOutlineFieldSpacingUpdate(),
+  runFieldProbe: (options) => runFieldProbe(options),
+  toggleArm: () => toggleSurfaceMovementArm(),
+  sendStep: (axis, sign, distance) => sendSurfaceStep(axis, sign, "button", distance),
+  isProbeToolActive: () => isProbeToolActive(),
+  setStatusMessage,
 });
 
 const fieldProbing = createFieldProbing({
@@ -1458,6 +1470,7 @@ function movementOwnedElsewhere(j = state.jog) {
 function renderJog() {
   const result = jogView?.renderJog();
   surfaceControls.renderXYMapControls();
+  machiningView?.render();
   return result;
 }
 
@@ -1633,7 +1646,7 @@ function updateFieldProbePreview() { return fieldProbing.updateFieldProbePreview
 async function probeZAtWorkPoint(workPoint, opts = {}) { return fieldProbing.probeZAtWorkPoint(workPoint, opts); }
 function rebaseOutlineToFloor(machineZ) { return fieldProbing.rebaseOutlineToFloor(machineZ); }
 async function probeFloor() { return fieldProbing.probeFloor(); }
-async function runFieldProbe() { return fieldProbing.runFieldProbe(); }
+async function runFieldProbe(options) { return fieldProbing.runFieldProbe(options); }
 function traceOutlineMachinePoints(origin) { return fieldProbing.traceOutlineMachinePoints(origin); }
 async function traceOutline() { return fieldProbing.traceOutline(); }
 

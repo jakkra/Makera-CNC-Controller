@@ -138,7 +138,8 @@ export function createFieldProbing({ state, constants = {}, callbacks = {} }) {
     }
   }
 
-  async function runFieldProbe() {
+  async function runFieldProbe(options = {}) {
+    const forFacing = options?.purpose === "facing";
     const o = state.outline;
     if (!o.active) return;
     if (!o.closed || o.points.length < 3) {
@@ -194,7 +195,9 @@ export function createFieldProbing({ state, constants = {}, callbacks = {} }) {
     if (!await confirmProbeAction({
       title: "Probe Field Z",
       message: "Run " + remaining.length + " remaining field Z probe" + (remaining.length === 1 ? "" : "s") + " inside the captured outline?",
-      warning: hasFloor
+      warning: forFacing
+        ? "Heights are measured from the current work Z zero at " + referenceText + ". Leave it unchanged until the facing program is queued."
+        : hasFloor
         ? "Z coordinates and exports will be relative to the current Z origin at " + referenceText + ", established by the recorded floor probe."
         : "No floor probe is recorded. Z coordinates and exports will be relative to the current Z origin at " + referenceText + ". Consider probing the floor first.",
       confirmLabel: "Probe Field Z",

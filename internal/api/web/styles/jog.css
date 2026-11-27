@@ -145,16 +145,34 @@
   .machining-panel { display: grid; align-content: start; gap: 12px; }
   .machining-panel h2 { margin: 0; }
   .machining-intro { margin: 0; color: var(--muted); }
-  .machining-steps { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-  .machining-steps li { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); }
-  .machining-steps li > div { display: grid; gap: 2px; min-width: 0; }
-  .machining-steps small, .machining-step-detail { color: var(--muted); font-size: 12px; }
-  .machining-step-state { display: grid; place-items: center; width: 28px; height: 28px; border: 2px solid var(--muted); border-radius: 50%; font-weight: 700; color: var(--muted); }
-  .machining-steps li.done { border-color: var(--accent); }
-  .machining-steps li.done .machining-step-state { border-color: var(--accent); background: var(--accent); color: var(--bg); }
-  .machining-steps li.done .machining-step-detail { color: var(--accent); }
+  .machining-steps { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+  .machining-steps > li { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); }
+  .machining-steps > li > .machining-step-head { display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: 10px; }
+  .machining-steps > li > .machining-step-head > div { display: grid; gap: 2px; min-width: 0; }
+  .machining-step-detail { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .machining-step-number { display: grid; place-items: center; width: 28px; height: 28px; border: 2px solid var(--muted); border-radius: 50%; font-weight: 700; color: var(--muted); }
+  .machining-steps > li.done { border-color: var(--accent); }
+  .machining-steps > li.done .machining-step-number { border-color: var(--accent); background: var(--accent); color: var(--bg); font-size: 0; }
+  .machining-steps > li.done .machining-step-number::after { content: "✓"; font-size: 15px; }
+  .machining-steps > li.done .machining-step-detail { color: var(--accent); }
+  .machining-steps > li.locked { opacity: .5; }
+  .machining-steps > li.locked > :not(.machining-step-head) { display: none; }
+  .machining-help { margin: 0; color: var(--muted); font-size: 13px; }
+  .machining-warning { margin: 0; color: var(--warn); font-weight: 650; }
   .machining-steps button, #alignment-holes-open { min-height: 48px; }
   #alignment-holes-open { justify-self: start; }
+  .facing-jog { display: grid; gap: 8px; }
+  .facing-jog-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .facing-jog-head label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+  .facing-jog-head select { min-height: 48px; }
+  #facing-arm.armed { border-color: var(--warn); color: var(--warn); }
+  .facing-jog-pad { display: grid; grid-template-columns: repeat(3, 64px) 16px 64px; grid-template-rows: repeat(3, 56px) auto; grid-template-areas: ". yp . . zp" "xm . xp . ." ". ym . . zm" "pos pos pos pos pos"; gap: 4px; }
+  .facing-jog-pad button { min-height: 0; padding: 0; font-size: 16px; font-weight: 650; }
+  .facing-jog-yp { grid-area: yp; } .facing-jog-ym { grid-area: ym; } .facing-jog-xp { grid-area: xp; } .facing-jog-xm { grid-area: xm; }
+  .facing-jog-zp { grid-area: zp; } .facing-jog-zm { grid-area: zm; } .facing-jog-pos { grid-area: pos; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .facing-corners { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+  .machining-link { justify-self: start; min-height: 40px; background: transparent; border-color: transparent; color: var(--muted); text-decoration: underline; }
+  .facing-measure-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; color: var(--muted); }
   @media (min-width: 700px) {
     .surface-facing-body { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
     .surface-facing-footer { grid-template-columns: minmax(0, 1fr) auto; }

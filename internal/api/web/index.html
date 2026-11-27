@@ -556,18 +556,40 @@
         <p class="machining-intro">Flatten the top of the stock. The cutter always descends outside the stock and feeds in from the side.</p>
         <ol class="machining-steps">
           <li id="machining-step-outline">
-            <span class="machining-step-state" aria-hidden="true">•</span>
-            <div><strong>Capture the stock outline</strong><span class="machining-step-detail"></span><small>Probing → Capture outline. Mark the four corners and close the outline.</small></div>
-            <button type="button" data-machining-goto="control">Open Probing</button>
+            <div class="machining-step-head"><span class="machining-step-number" aria-hidden="true">1</span><div><strong>Mark the stock</strong><span class="machining-step-detail"></span></div></div>
+            <p class="machining-help">Point the laser at one corner of the stock and set corner 1. Then move to the <em>opposite</em> corner and set corner 2.</p>
+            <p id="facing-tool-warning" class="machining-warning" hidden>Select the probe/laser tool (T0) first.</p>
+            <div class="facing-jog">
+              <div class="facing-jog-head">
+                <button type="button" id="facing-arm">Arm Movement</button>
+                <label>Step <select id="facing-jog-step"><option value="0.1">0.1 mm</option><option value="1" selected>1 mm</option><option value="10">10 mm</option></select></label>
+              </div>
+              <div class="facing-jog-pad">
+                <button type="button" data-facing-jog="y+" class="facing-jog-yp" aria-label="Move Y plus">Y+</button>
+                <button type="button" data-facing-jog="x-" class="facing-jog-xm" aria-label="Move X minus">X−</button>
+                <button type="button" data-facing-jog="x+" class="facing-jog-xp" aria-label="Move X plus">X+</button>
+                <button type="button" data-facing-jog="y-" class="facing-jog-ym" aria-label="Move Y minus">Y−</button>
+                <button type="button" data-facing-jog="z+" class="facing-jog-zp" aria-label="Move Z up">Z+</button>
+                <button type="button" data-facing-jog="z-" class="facing-jog-zm" aria-label="Move Z down">Z−</button>
+                <output id="facing-position" class="facing-jog-pos"></output>
+              </div>
+            </div>
+            <div class="facing-corners">
+              <button type="button" id="facing-corner-1" class="primary">Set corner 1 here</button><span id="facing-corner-1-value"></span>
+              <button type="button" id="facing-corner-2" class="primary">Set corner 2 here</button><span id="facing-corner-2-value"></span>
+            </div>
+            <button type="button" id="facing-corners-reset" class="machining-link" hidden>Start over</button>
           </li>
           <li id="machining-step-probe">
-            <span class="machining-step-state" aria-hidden="true">•</span>
-            <div><strong>Probe the surface</strong><span class="machining-step-detail"></span><small>Probing → Probe Field Z with the probe over the stock.</small></div>
-            <button type="button" data-machining-goto="control">Open Probing</button>
+            <div class="machining-step-head"><span class="machining-step-number" aria-hidden="true">2</span><div><strong>Measure the surface</strong><span class="machining-step-detail"></span></div></div>
+            <p class="machining-help">The probe touches a grid of points inside the rectangle, starting from its current height. Heights are measured from the current work Z zero, so leave it unchanged until the program is queued.</p>
+            <p id="facing-measure-tool" class="machining-warning" hidden>Select the probe tool (T0) first.</p>
+            <button type="button" id="facing-measure-disarm" hidden>Disarm Movement to measure</button>
+            <div class="facing-measure-row"><span id="facing-measure-plan"></span><button type="button" id="facing-measure" class="primary">Measure surface</button></div>
           </li>
           <li id="machining-step-plan">
-            <span class="machining-step-state" aria-hidden="true">3</span>
-            <div><strong>Plan, check entry, and queue</strong><small>Choose the cutter and the side entry corner, trace the area, then queue the program.</small></div>
+            <div class="machining-step-head"><span class="machining-step-number" aria-hidden="true">3</span><div><strong>Plan and queue</strong><span class="machining-step-detail"></span></div></div>
+            <p class="machining-help">Choose the cutter, depth and side entry corner. The map shows where the cutter goes in, so you can check the clamps.</p>
             <button type="button" id="surface-facing-open" class="primary">Plan facing</button>
           </li>
         </ol>
