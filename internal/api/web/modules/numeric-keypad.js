@@ -73,6 +73,8 @@ export function attachNumericKeypad(dialog, { enabled = () => true } = {}) {
     target = input;
     buffer = input.value;
     label.textContent = fieldLabel(input);
+    // Grey out +/− where the field only takes zero or positive values.
+    pad.querySelector('[data-key="sign"]').disabled = !allowsNegative(input);
     input.classList.add("keypad-target");
     pad.hidden = false;
     dialog.classList.add("keypad-open");
