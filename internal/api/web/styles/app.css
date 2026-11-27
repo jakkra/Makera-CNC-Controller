@@ -1364,12 +1364,29 @@
   #up-next-items li span, #upload-offer-title { overflow-wrap: anywhere; }
   #upload-offer { position: fixed; inset: 0; z-index: 400; display: grid; place-items: center; box-sizing: border-box; padding: 16px; background: rgba(0,0,0,.62); backdrop-filter: blur(2px); }
   #upload-offer[hidden] { display: none; }
-  .upload-offer-card { display: grid; gap: 14px; width: min(600px, 100%); box-sizing: border-box; padding: 28px; background: var(--panel); border: 1px solid var(--accent); border-radius: 12px; box-shadow: 0 24px 64px rgba(0,0,0,.55); }
-  .upload-offer-kicker { color: var(--accent); font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-  #upload-offer-title { display: block; font-size: 26px; line-height: 1.25; }
-  .upload-offer-note { margin: 0; color: var(--muted); font-size: 15px; }
-  .upload-offer-actions { display: grid; grid-template-columns: 1fr 1.6fr; gap: 12px; margin-top: 8px; }
-  #upload-offer button { min-height: 72px; font-size: 20px; font-weight: 650; }
+  .upload-offer-card { position: relative; display: grid; gap: 20px; width: min(560px, 100%); box-sizing: border-box; padding: 28px 28px 32px; overflow: hidden; background: linear-gradient(180deg, #1d2427, var(--panel)); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 28px 72px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.03) inset; animation: upload-offer-in .18s ease-out; }
+  .upload-offer-head { display: flex; align-items: center; gap: 16px; }
+  .upload-offer-icon { display: grid; place-items: center; flex: none; width: 52px; height: 52px; border-radius: 50%; background: rgba(68,194,123,.14); border: 1px solid rgba(68,194,123,.45); }
+  .upload-offer-icon svg { width: 28px; height: 28px; fill: none; stroke: var(--ok); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+  .upload-offer-kicker { display: block; margin-bottom: 4px; color: var(--ok); font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+  .upload-offer-heading { display: block; font-size: 24px; font-weight: 700; line-height: 1.2; }
+  .upload-offer-file { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
+  .upload-offer-file svg { flex: none; width: 22px; height: 22px; fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linejoin: round; }
+  #upload-offer-title { display: block; min-width: 0; font: 600 17px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+  .upload-offer-checks { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .upload-offer-checks li { padding: 6px 12px 6px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 13px; }
+  .upload-offer-checks li::before { content: "✓"; margin-right: 6px; color: var(--ok); font-weight: 700; }
+  .upload-offer-actions { display: grid; grid-template-columns: 1fr 1.7fr; gap: 12px; }
+  #upload-offer button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 68px; border-radius: 10px; font-size: 19px; font-weight: 650; }
+  #upload-offer-dismiss { background: transparent; border-color: var(--border); color: var(--muted); }
+  #upload-offer-start { background: var(--ok); border-color: var(--ok); color: #0c1a12; }
+  #upload-offer-start svg { width: 20px; height: 20px; fill: currentColor; }
+  #upload-offer-start:disabled { opacity: .6; }
+  .upload-offer-timer { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.05); }
+  .upload-offer-timer i { display: block; height: 100%; background: var(--ok); transform-origin: left; }
+  @keyframes upload-offer-countdown { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+  @keyframes upload-offer-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+  @media (prefers-reduced-motion: reduce) { .upload-offer-card { animation: none; } }
 
   /* Surface controller shell.  These final rules deliberately override the
      older desktop toolbar without changing the long-lived control DOM. */

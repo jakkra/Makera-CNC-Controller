@@ -1424,13 +1424,27 @@
 </dialog>
 <aside id="upload-offer" role="dialog" aria-modal="true" aria-labelledby="upload-offer-title" hidden>
   <div class="upload-offer-card">
-    <span class="upload-offer-kicker">Upload complete</span>
-    <strong id="upload-offer-title"></strong>
-    <p class="upload-offer-note">Check the stock, clamps and work zero before starting.</p>
+    <div class="upload-offer-head">
+      <span class="upload-offer-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+      <div>
+        <span class="upload-offer-kicker">Upload complete</span>
+        <span class="upload-offer-heading">Ready to start this job?</span>
+      </div>
+    </div>
+    <div class="upload-offer-file">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/></svg>
+      <strong id="upload-offer-title"></strong>
+    </div>
+    <ul class="upload-offer-checks" aria-label="Before starting">
+      <li>Stock clamped</li>
+      <li>Work zero set</li>
+      <li>Cutter fitted</li>
+    </ul>
     <div class="upload-offer-actions">
       <button type="button" id="upload-offer-dismiss">Not now</button>
-      <button type="button" id="upload-offer-start" class="primary">Start job</button>
+      <button type="button" id="upload-offer-start" class="primary"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg>Start job</button>
     </div>
+    <div class="upload-offer-timer" aria-hidden="true"><i id="upload-offer-countdown"></i></div>
   </div>
 </aside>
 <div id="status-bar" role="status" aria-live="polite" hidden>

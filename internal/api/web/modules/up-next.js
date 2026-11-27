@@ -12,6 +12,9 @@ export function mountUpNext({ document, request, setStatusMessage, canStart, rea
   let timer;
   let busy = false;
   let transferText = "";
+  let offerDeadline = 0;
+  let shownOffer = null;
+  const countdown = document.getElementById("upload-offer-countdown");
 
   async function act(item, action, fromOffer = false) {
     if (!item || busy || readOnly()) return;
@@ -78,7 +81,18 @@ export function mountUpNext({ document, request, setStatusMessage, canStart, rea
     });
     document.getElementById("up-next-count").textContent = String(current.items.length);
     popup.hidden = !offered || dismissed.has(offered.id) || !canStart() || readOnly();
-    if (!popup.hidden) title.textContent = "Start " + relPath(offered.path) + "?";
+    if (!popup.hidden) {
+      title.textContent = relPath(offered.path);
+      // Run the countdown bar over the time left on this offer.
+      if (shownOffer !== offered.id && countdown?.style) {
+        shownOffer = offered.id;
+        countdown.style.animation = "none";
+        void countdown.offsetWidth;
+        countdown.style.animation = `upload-offer-countdown ${Math.max(0, offerDeadline - Date.now())}ms linear forwards`;
+      }
+    } else {
+      shownOffer = null;
+    }
     start.disabled = busy;
     start.setAttribute("aria-busy", String(busy));
   }
@@ -89,6 +103,7 @@ export function mountUpNext({ document, request, setStatusMessage, canStart, rea
     clearTimeout(timer);
     offered = current.items.find((item) => item.id === current.offer_id) || null;
     if (offered && current.offer_ms > 0) {
+      offerDeadline = Date.now() + current.offer_ms;
       timer = setTimeout(() => { offered = null; render(); }, current.offer_ms);
     } else offered = null;
     showTransfer(current.transfer);
