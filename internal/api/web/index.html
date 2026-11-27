@@ -1142,11 +1142,12 @@
         </label>
       </fieldset>
       <div class="surface-facing-step">
-        <label for="surface-facing-target">Finish work Z (mm)</label>
-        <button type="button" data-facing-step="targetZ" data-facing-delta="-0.01" aria-label="Decrease finish work Z">−</button>
-        <input id="surface-facing-target" data-facing-param="targetZ" type="number" step="any" inputmode="decimal">
-        <button type="button" data-facing-step="targetZ" data-facing-delta="0.01" aria-label="Increase finish work Z">+</button>
+        <label for="surface-facing-target">Extra depth below lowest point (mm)</label>
+        <button type="button" data-facing-step="belowLow" data-facing-delta="-0.05" aria-label="Decrease extra depth">−</button>
+        <input id="surface-facing-target" data-facing-param="belowLow" type="number" min="0" step="any" inputmode="decimal" value="0">
+        <button type="button" data-facing-step="belowLow" data-facing-delta="0.05" aria-label="Increase extra depth">+</button>
       </div>
+      <p id="surface-facing-finish" class="surface-facing-note"></p>
       <div class="surface-facing-step">
         <label for="surface-facing-stepover">Stepover (mm)</label>
         <button type="button" data-facing-step="stepover" data-facing-delta="-0.1" aria-label="Decrease stepover">−</button>

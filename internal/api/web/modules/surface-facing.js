@@ -86,7 +86,7 @@ export function facingPlan({ outline, surface, origin, machine, limits, safeZ, p
   if (stepover >= diameter) throw new Error("Stepover must be smaller than the cutter diameter.");
   if (plunge > feed) throw new Error("Descent feed must be at or below the cutting feed.");
   if (!Number.isFinite(targetZ) || targetZ > surface.low || surface.high - targetZ < 0.001) {
-    throw new Error("Set the finish Z at or below the lowest measured point, with at least 0.001 mm to remove.");
+    throw new Error("Set the extra depth below the lowest measured point to 0 or more.");
   }
   if (!["x", "y", "z"].every((axis) => Number.isFinite(limits?.[axis + "_min"]) &&
       Number.isFinite(limits?.[axis + "_max"]) && limits[axis + "_min"] < limits[axis + "_max"]) ||
@@ -269,7 +269,7 @@ export function createSurfaceFacing({
   }
 
   function saveSettings() {
-    const values = Object.fromEntries(getInputs().filter((input) => input.dataset.facingParam !== "targetZ")
+    const values = Object.fromEntries(getInputs().filter((input) => input.dataset.facingParam !== "belowLow")
       .map((input) => [input.dataset.facingParam, input.value]));
     const settings = {
       material: pressed("data-facing-material")?.dataset.facingMaterial || DEFAULT_FACING_MATERIAL,
@@ -302,10 +302,17 @@ export function createSurfaceFacing({
     const tool = inputFor("tool");
     if (tool && !(tool.valueAsNumber >= 1)) tool.value = String(DEFAULT_FACING_TOOL);
   }
-  const readParameters = () => ({
-    ...Object.fromEntries(getInputs().map((input) => [input.dataset.facingParam, input.valueAsNumber])),
-    entryCorner: dialog().querySelector('[data-facing-entry][aria-pressed="true"]')?.dataset.facingEntry || "auto",
-  });
+  // The finish height is entered as extra depth below the lowest measured
+  // point: 0 just flattens the whole surface.
+  const readParameters = () => {
+    const values = Object.fromEntries(getInputs().map((input) => [input.dataset.facingParam, input.valueAsNumber]));
+    const low = surfaceMeasurements(getOutline())?.low;
+    return {
+      ...values,
+      targetZ: Number.isFinite(low) && values.belowLow >= 0 ? low - values.belowLow : NaN,
+      entryCorner: dialog().querySelector('[data-facing-entry][aria-pressed="true"]')?.dataset.facingEntry || "auto",
+    };
+  };
   let pending = "";
   let plan;
   let planError = "";
@@ -342,6 +349,9 @@ export function createSurfaceFacing({
     setTextIfChanged(node("low"), surface ? `${zSpace} low ${surface.low.toFixed(3)} mm` : "");
     setTextIfChanged(node("high"), surface ? `High ${surface.high.toFixed(3)} mm` : "");
     setTextIfChanged(node("deviation"), surface?.planeDeviation != null ? `${surface.planeDeviation.toFixed(3)} mm peak-to-valley after removing surface tilt` : "");
+    setTextIfChanged(node("finish"), surface && Number.isFinite(parameters.targetZ)
+      ? `Finishes at work Z ${parameters.targetZ.toFixed(3)} mm. Removes ${(surface.high - parameters.targetZ).toFixed(3)} mm at the highest point and ${parameters.belowLow.toFixed(3)} mm at the lowest.`
+      : surface ? "Enter 0 or more." : "");
     setTextIfChanged(node("passes"), plan ? `${plan.levels.length} passes · ${plan.totalDepth.toFixed(3)} mm maximum removal` : planError);
     node("passes").classList.toggle("error", !plan && !!planError);
     setTextIfChanged(node("entry-summary"), shownEntry
@@ -374,7 +384,7 @@ export function createSurfaceFacing({
         return;
       }
       restoreSettings();
-      node("target").value = (Math.floor(surface.low * 10000) / 10000).toFixed(4);
+      node("target").value = "0";
       dialog().showModal();
       render();
     });
@@ -408,11 +418,7 @@ export function createSurfaceFacing({
           const input = getInputs().find((field) => field.dataset.facingParam === facingStep);
           const current = Number.isFinite(input.valueAsNumber) ? input.valueAsNumber : 0;
           const next = Number((current + Number(facingDelta)).toFixed(4));
-          if (facingStep === "targetZ") {
-            const surface = surfaceMeasurements(getOutline());
-            if (!surface) return;
-            input.value = String(Math.min(next, Math.floor(surface.low * 10000) / 10000));
-          } else {
+          {
             const diameter = node("diameter").valueAsNumber;
             const max = facingStep === "stepover" && diameter >= 0.01
               ? Math.floor((diameter - 0.001) * 10000) / 10000 : Infinity;
