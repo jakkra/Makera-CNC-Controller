@@ -79,11 +79,12 @@ func (s ImageSettings) controls() []string {
 		"power_line_frequency=" + strconv.Itoa(s.PowerLine),
 		"auto_exposure=" + mode,
 		"exposure_dynamic_framerate=" + bool01(s.DynamicFramerate),
-		"gain=" + strconv.Itoa(s.Gain),
 		"brightness=" + strconv.Itoa(s.Brightness),
 	}
+	// In automatic mode the camera drives gain itself; writing it fights the
+	// automatic exposure.
 	if !s.AutoExposure {
-		out = append(out, "exposure_time_absolute="+strconv.Itoa(s.ExposureTime))
+		out = append(out, "gain="+strconv.Itoa(s.Gain), "exposure_time_absolute="+strconv.Itoa(s.ExposureTime))
 	}
 	return out
 }

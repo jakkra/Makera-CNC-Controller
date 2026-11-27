@@ -7,7 +7,7 @@ import (
 
 func TestImageSettingsControlsSetModeBeforeManualExposure(t *testing.T) {
 	manual := ImageSettings{AutoExposure: false, ExposureTime: 156, Gain: 40, Brightness: 128, PowerLine: 1}
-	want := []string{"power_line_frequency=1", "auto_exposure=1", "exposure_dynamic_framerate=0", "gain=40", "brightness=128", "exposure_time_absolute=156"}
+	want := []string{"power_line_frequency=1", "auto_exposure=1", "exposure_dynamic_framerate=0", "brightness=128", "gain=40", "exposure_time_absolute=156"}
 	if got := manual.controls(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("manual controls = %v, want %v", got, want)
 	}
@@ -15,8 +15,8 @@ func TestImageSettingsControlsSetModeBeforeManualExposure(t *testing.T) {
 	auto.AutoExposure = true
 	auto.DynamicFramerate = true
 	for _, control := range auto.controls() {
-		if control == "exposure_time_absolute=156" {
-			t.Fatal("automatic exposure must not write a manual exposure time")
+		if control == "exposure_time_absolute=156" || control == "gain=40" {
+			t.Fatalf("automatic exposure must not write %s", control)
 		}
 	}
 	if auto.controls()[1] != "auto_exposure=3" || auto.controls()[2] != "exposure_dynamic_framerate=1" {

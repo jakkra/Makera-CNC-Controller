@@ -34,10 +34,10 @@ export function createCameraImageControls({ document, request, setStatusMessage,
     for (const [name, key] of [["exposure", "exposure"], ["gain", "gain"], ["brightness", "brightness"]]) {
       const input = node(name);
       if (document.activeElement !== input) input.value = String(form[key]);
-      input.disabled = !available || (name === "exposure" && form.mode === "auto");
-      node(name + "-label").textContent = name === "exposure"
-        ? (form.mode === "auto" ? "automatic" : `${(form[key] / 10).toFixed(1)} ms`)
-        : String(form[key]);
+      const automatic = form.mode === "auto" && name !== "brightness";
+      input.disabled = !available || automatic;
+      node(name + "-label").textContent = automatic ? "automatic"
+        : name === "exposure" ? `${(form[key] / 10).toFixed(1)} ms` : String(form[key]);
     }
     const dynamic = node("dynamic");
     dynamic.checked = !!form.dynamicFramerate;
@@ -114,6 +114,12 @@ export function createCameraImageControls({ document, request, setStatusMessage,
         schedule();
       });
     }
+    node("reset").addEventListener("click", () => {
+      if (!available) return;
+      Object.assign(form, { mode: "auto", gain: 0, brightness: 128, powerLine: 1, dynamicFramerate: false });
+      render();
+      schedule();
+    });
     node("dynamic").addEventListener("change", (event) => {
       form.dynamicFramerate = event.target.checked;
       schedule();
