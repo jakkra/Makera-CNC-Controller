@@ -1298,6 +1298,11 @@
         <label>Spindle speed (rpm)<input type="number" id="alignment-holes-rpm" min="1" step="1" inputmode="numeric"></label>
         <label>Feed (mm/min)<input type="number" id="alignment-holes-feed" min="0.1" step="any" inputmode="decimal"></label>
       </div>
+      <div class="alignment-holes-pair">
+        <label class="alignment-holes-clear"><span>Retract to clear chips</span><span class="tap-safe-z-toggle"><input id="alignment-holes-clear" type="checkbox"><span class="tap-safe-z-switch" aria-hidden="true"></span></span></label>
+        <label>Retract every (mm)<input type="number" id="alignment-holes-retract" min="0.05" step="any" inputmode="decimal"></label>
+      </div>
+      <p class="alignment-holes-note">For an uncoated cutter, such as a wood bit, in aluminium: the cutter leaves the hole after each retract depth so chips cannot weld to it.</p>
     </section>
   </div>
   <footer class="alignment-holes-footer">

@@ -3,7 +3,7 @@ import { setElementBusy, setTextIfChanged } from "./dom.js";
 import { DEFAULT_FACING_MATERIAL, DEFAULT_HOLE_DEPTH_MM, helixPreset } from "./facing-presets.js";
 
 const SETTINGS_KEY = "sensei.alignment-settings.v1";
-const VALUE_FIELDS = ["depth", "stepdown", "rpm", "feed"];
+const VALUE_FIELDS = ["depth", "stepdown", "rpm", "feed", "retract"];
 
 const cutterDiameter = 3.175;
 const nominalDiameter = 4;
@@ -15,6 +15,10 @@ const APPROACH_Z_MM = 2;
 // The helix starts this far above work Z0, so a stock top slightly above the
 // probed zero is still entered by the helix rather than a straight descent.
 const HELIX_START_Z_MM = 1;
+// Chip clearing for uncoated cutters: after each retract depth the cutter
+// leaves the hole, then rapids back to this far above the depth it reached.
+const REENTRY_CLEARANCE_MM = 0.2;
+export const DEFAULT_RETRACT_MM = 0.5;
 const localReferences = bedReferenceHoles({ x0: 0, y0: 0 });
 
 export function alignmentDelta(a, b) {
@@ -56,7 +60,7 @@ export function alignmentCenters(first, delta) {
   return [first, { x: first.x + delta.x, y: first.y + delta.y }];
 }
 
-export function alignmentPlan({ centers, adjustment, depth, stepdown, rpm, feed, machine, limits, safeZ }) {
+export function alignmentPlan({ centers, adjustment, depth, stepdown, rpm, feed, retract = null, machine, limits, safeZ }) {
   if (!centers) throw new Error("Capture the first hole and choose a spacing.");
   if (!alignedMachine(machine)) throw new Error("Wait for a connected, idle machine in millimeter mode.");
   if (!zeroRotation(machine.fields)) throw new Error("Clear work coordinate rotation before preparing the program.");
@@ -72,6 +76,9 @@ export function alignmentPlan({ centers, adjustment, depth, stepdown, rpm, feed,
       !Number.isFinite(feed) || feed <= 0 || feed > 30000) {
     throw new Error("Check hole depth, depth per turn, spindle speed and feed.");
   }
+  if (retract !== null && (!Number.isFinite(retract) || retract < 0.05 || Math.ceil(depth / retract) > 250)) {
+    throw new Error("Enter a retract depth of at least 0.05 mm.");
+  }
   if (!["x", "y", "z"].every((axis) => Number.isFinite(limits?.[axis + "_min"]) &&
       Number.isFinite(limits?.[axis + "_max"]) && limits[axis + "_min"] < limits[axis + "_max"]) ||
       !Number.isFinite(safeZ)) throw new Error("Learn the machine travel limits before preparing the program.");
@@ -84,20 +91,22 @@ export function alignmentPlan({ centers, adjustment, depth, stepdown, rpm, feed,
   if (origin.z - depth < limits.z_min || safeZ > limits.z_max || safeZ <= origin.z) {
     throw new Error("Hole depth or Safe Z is outside usable machine travel.");
   }
-  return { centers, diameter, depth, stepdown, rpm, feed, origin, safeZ, tool: HOLE_TOOL };
+  return { centers, diameter, depth, stepdown, rpm, feed, retract, origin, safeZ, tool: HOLE_TOOL };
 }
 
 export function alignmentGcode(plan) {
   const mm = (value) => value.toFixed(4);
-  const { centers, diameter, depth, stepdown, rpm, feed, origin, safeZ, tool } = plan;
+  const { centers, diameter, depth, stepdown, rpm, feed, retract, origin, safeZ, tool } = plan;
   const radius = (diameter - cutterDiameter) / 2;
   const helixDepth = depth + HELIX_START_Z_MM;
   const turns = Math.ceil(helixDepth / stepdown);
+  const turnsPerRetract = retract ? Math.max(1, Math.floor(retract / (helixDepth / turns) + 1e-9)) : Infinity;
   const lift = "G53 G0 Z" + mm(safeZ);
   const lineXY = (x, y) => `X${mm(x)} Y${mm(y)}`;
   const lines = [
     `; Sensei alignment setup v2 ${mm(origin.x)} ${mm(origin.y)} ${mm(origin.z)}`,
     `; Two ${mm(diameter)} mm holes with a 3.175 mm end mill as T${tool}`,
+    ...(retract ? [`; Retract to clear chips every ${mm(retract)} mm`] : []),
     "G21", "G90", "G17", "G94", "M5", lift, `M6 T${tool}`, "G21", "G90", "G17", "G94", lift,
     "; Fit the 3.175 mm end mill, then confirm the stock-top Z zero and clearance below both holes", "M600",
     `M3 S${rpm}`, "G4 S2",
@@ -111,12 +120,18 @@ export function alignmentGcode(plan) {
     // along the helix. There is no straight plunge below Z0.
     lines.push(lift, "G0 " + lineXY(x + radius, y), `G0 Z${mm(APPROACH_Z_MM)}`, `G1 Z${mm(HELIX_START_Z_MM)} F${mm(feed)}`);
     for (let turn = 0; turn <= turns; turn++) {
+      let z = HELIX_START_Z_MM;
       for (let quarter = 1; quarter < ring.length; quarter++) {
         const [px, py] = ring[quarter - 1];
         const [qx, qy] = ring[quarter];
-        const z = HELIX_START_Z_MM - helixDepth * Math.min(1, (turn + quarter / 4) / turns);
+        z = HELIX_START_Z_MM - helixDepth * Math.min(1, (turn + quarter / 4) / turns);
         const xy = lineXY(x + qx * radius, y + qy * radius);
         lines.push(`G3 ${xy} Z${mm(z)} I${mm(-px * radius)} J${mm(-py * radius)} F${mm(feed)}`);
+      }
+      // Each turn ends where the helix started, so leaving the hole and
+      // coming back only travels through material that is already cut.
+      if ((turn + 1) % turnsPerRetract === 0 && turn + 1 < turns) {
+        lines.push(`G0 Z${mm(APPROACH_Z_MM)}`, `G0 Z${mm(z + REENTRY_CLEARANCE_MM)}`, `G1 Z${mm(z)} F${mm(feed)}`);
       }
     }
   }
@@ -144,6 +159,7 @@ export function createAlignmentHoles({
   const feedback = (message, kind, options = {}) =>
     setStatusMessage("alignment-holes", message, kind, { force: true, ...options });
   const number = (name) => node(name).valueAsNumber;
+  const retractDepth = () => node("clear").checked ? number("retract") : null;
   const direction = () => node("direction").value;
   const spacing = () => node("spacing").value === "custom" ? number("distance") : Number(node("spacing").value);
   const coordinates = ({x, y}) => `X ${x.toFixed(3)} · Y ${y.toFixed(3)}`;
@@ -235,6 +251,7 @@ export function createAlignmentHoles({
     const diameter = nominalDiameter + number("adjustment");
     setTextIfChanged(node("diameter"), Number.isFinite(diameter) ? `Ø ${diameter.toFixed(3)} mm` : "—");
     for (const field of node("modal").querySelectorAll("input, select, [data-alignment-step]")) field.disabled = !!pending;
+    node("retract").disabled = !!pending || !node("clear").checked;
     node("spacing").disabled = !!pending || fromReference;
     node("close").disabled = !!pending;
     node("capture").disabled = !!pending;
@@ -293,7 +310,8 @@ export function createAlignmentHoles({
     };
     const saveSettings = () => {
       const values = Object.fromEntries(VALUE_FIELDS.map((name) => [name, node(name).value]));
-      try { storage()?.setItem(SETTINGS_KEY, JSON.stringify({ material: material(), values })); } catch { /* best effort */ }
+      const settings = { material: material(), clear: node("clear").checked, values };
+      try { storage()?.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* best effort */ }
     };
     // Restore the last material and values, or fill the preset for the
     // default material and the default hole depth.
@@ -301,6 +319,8 @@ export function createAlignmentHoles({
       let saved = null;
       try { saved = JSON.parse(storage()?.getItem(SETTINGS_KEY) || "null"); } catch { saved = null; }
       pressMaterial(saved?.material || DEFAULT_FACING_MATERIAL);
+      node("clear").checked = saved?.clear === true;
+      node("retract").value = String(DEFAULT_RETRACT_MM);
       if (saved?.values) {
         for (const name of VALUE_FIELDS) if (saved.values[name]) node(name).value = saved.values[name];
       } else {
@@ -318,7 +338,7 @@ export function createAlignmentHoles({
       });
     }
     modal.addEventListener("input", (event) => {
-      if (VALUE_FIELDS.some((name) => event.target === node(name))) saveSettings();
+      if ([...VALUE_FIELDS, "clear"].some((name) => event.target === node(name))) saveSettings();
     });
     bindButtonAction(node("open"), () => { restoreSettings(); modal.showModal(); render(); });
     bindButtonAction(node("close"), () => { if (!pending) modal.close(); });
@@ -375,11 +395,12 @@ export function createAlignmentHoles({
         const plan = alignmentPlan({
           centers: holeCenters(),
           adjustment: number("adjustment"), depth: number("depth"), stepdown: number("stepdown"),
-          rpm: number("rpm"), feed: number("feed"), machine: getMachine(),
+          rpm: number("rpm"), feed: number("feed"), retract: retractDepth(), machine: getMachine(),
           limits: getSettings().learned?.soft_endstop, safeZ: getSafeZ(),
         });
         if (queued && !sameSetup(queued, plan)) throw new Error("Restore the work XY zero used for the last hole program.");
-        if (!confirm(`Queue two Ø ${plan.diameter.toFixed(3)} mm holes? The program stops for a tool change so you can fit the 3.175 mm end mill, then pauses to confirm stock-top Z zero and clearance below both holes.`)) return;
+        const clearing = plan.retract ? ` The cutter leaves the hole every ${plan.retract} mm to clear chips.` : "";
+        if (!confirm(`Queue two Ø ${plan.diameter.toFixed(3)} mm holes? The program stops for a tool change so you can fit the 3.175 mm end mill, then pauses to confirm stock-top Z zero and clearance below both holes.${clearing}`)) return;
         pending = "queue";
         render();
         feedback("Queuing alignment hole program…", "", { timeoutMs: 0 });

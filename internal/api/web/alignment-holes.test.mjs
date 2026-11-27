@@ -90,3 +90,39 @@ test("the hole program changes to the end mill itself instead of requiring it fi
   assert.ok(change > 0 && change < pause && pause < spindle, "tool change, then pause, then spindle");
   assert.ok(lines.findIndex((line) => line.startsWith("G3 ")) > spindle);
 });
+
+test("chip clearing leaves the hole after each retract depth and re-enters only cut material", () => {
+  const plan = alignmentPlan({ ...fixture, stepdown: 0.1, retract: 0.5 });
+  const lines = alignmentGcode(plan).split("\n");
+  assert.ok(lines.includes("; Retract to clear chips every 0.5000 mm"));
+  let deepest = 1;
+  let retracts = 0;
+  for (const [index, line] of lines.entries()) {
+    if (line.startsWith("G53 ")) deepest = 1;
+    const z = line.match(/ Z(-?[0-9.]+)/);
+    if (!z || line.startsWith("G53")) continue;
+    const value = Number(z[1]);
+    if (line.startsWith("G3 ")) {
+      deepest = Math.min(deepest, value);
+    } else if (line === "G0 Z2.0000" && lines[index - 1].startsWith("G3 ")) {
+      retracts++;
+      const back = Number(lines[index + 1].match(/^G0 Z(-?[0-9.]+)$/)[1]);
+      assert.ok(Math.abs(back - (deepest + 0.2)) < 1e-4, lines[index + 1]);
+      assert.equal(lines[index + 2], `G1 Z${deepest.toFixed(4)} F120.0000`);
+      assert.equal(lines[index + 3].split(" ")[0], "G3");
+    } else if (value < 1) {
+      assert.ok(value >= deepest - 1e-4, `straight move below cut depth: ${line}`);
+    }
+  }
+  // 7 mm of helix in 0.5 mm rounds per hole; no retract before the last turn.
+  assert.equal(retracts, 2 * 13);
+  assert.ok(lines.some((line) => / Z-6.0000 /.test(line)), "still reaches the full depth");
+});
+
+test("without chip clearing the program has no retracts and a bad retract depth is rejected", () => {
+  const lines = alignmentGcode(alignmentPlan(fixture)).split("\n");
+  assert.ok(!lines.some((line) => line.startsWith("; Retract")));
+  assert.equal(lines.filter((line) => line === "G0 Z2.0000").length, 2);
+  assert.throws(() => alignmentPlan({ ...fixture, retract: 0 }), /retract depth/);
+  assert.throws(() => alignmentPlan({ ...fixture, retract: Number.NaN }), /retract depth/);
+});
