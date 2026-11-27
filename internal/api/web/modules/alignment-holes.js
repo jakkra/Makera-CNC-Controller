@@ -1,5 +1,9 @@
 import { bedReferenceHoles, bedMapExtent, bedPlatePlacement, bedPlateSVG } from "./bed-plate.js";
 import { setElementBusy, setTextIfChanged } from "./dom.js";
+import { DEFAULT_FACING_MATERIAL, DEFAULT_HOLE_DEPTH_MM, helixPreset } from "./facing-presets.js";
+
+const SETTINGS_KEY = "sensei.alignment-settings.v1";
+const VALUE_FIELDS = ["depth", "stepdown", "rpm", "feed"];
 
 const cutterDiameter = 3.175;
 const nominalDiameter = 4;
@@ -272,7 +276,47 @@ export function createAlignmentHoles({
       return option;
     });
     node("spacing").lastElementChild.before(...options);
-    bindButtonAction(node("open"), () => { modal.showModal(); render(); });
+    const storage = () => { try { return globalThis.localStorage || null; } catch { return null; } };
+    const material = () => modal.querySelector('[data-alignment-material][aria-pressed="true"]')?.dataset.alignmentMaterial || DEFAULT_FACING_MATERIAL;
+    const pressMaterial = (value) => {
+      for (const button of modal.querySelectorAll("[data-alignment-material]")) {
+        button.setAttribute("aria-pressed", String(button.dataset.alignmentMaterial === value));
+      }
+    };
+    const applyPreset = () => {
+      const preset = helixPreset(material());
+      for (const name of ["stepdown", "rpm", "feed"]) node(name).value = String(preset[name]);
+    };
+    const saveSettings = () => {
+      const values = Object.fromEntries(VALUE_FIELDS.map((name) => [name, node(name).value]));
+      try { storage()?.setItem(SETTINGS_KEY, JSON.stringify({ material: material(), values })); } catch { /* best effort */ }
+    };
+    // Restore the last material and values, or fill the preset for the
+    // default material and the default hole depth.
+    const restoreSettings = () => {
+      let saved = null;
+      try { saved = JSON.parse(storage()?.getItem(SETTINGS_KEY) || "null"); } catch { saved = null; }
+      pressMaterial(saved?.material || DEFAULT_FACING_MATERIAL);
+      if (saved?.values) {
+        for (const name of VALUE_FIELDS) if (saved.values[name]) node(name).value = saved.values[name];
+      } else {
+        applyPreset();
+        node("depth").value = String(DEFAULT_HOLE_DEPTH_MM);
+      }
+    };
+    for (const button of modal.querySelectorAll("[data-alignment-material]")) {
+      bindButtonAction(button, () => {
+        if (pending) return;
+        pressMaterial(button.dataset.alignmentMaterial);
+        applyPreset();
+        saveSettings();
+        render();
+      });
+    }
+    modal.addEventListener("input", (event) => {
+      if (VALUE_FIELDS.some((name) => event.target === node(name))) saveSettings();
+    });
+    bindButtonAction(node("open"), () => { restoreSettings(); modal.showModal(); render(); });
     bindButtonAction(node("close"), () => { if (!pending) modal.close(); });
     modal.addEventListener("cancel", (event) => { if (pending) event.preventDefault(); });
     modal.addEventListener("input", (event) => {

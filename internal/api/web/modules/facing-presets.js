@@ -39,3 +39,20 @@ export function facingPreset(material, diameter) {
     stepover: Math.round(d * row.stepoverRatio * 100) / 100,
   };
 }
+
+// Helix hole milling with the 3.175 mm end mill: the cutter is almost fully
+// engaged, so feeds sit well below facing. pitch is the depth per turn.
+const HELIX = {
+  softwood: { rpm: 12000, feed: 800, pitch: 0.5 },
+  hardwood: { rpm: 12000, feed: 600, pitch: 0.3 },
+  mdf: { rpm: 12000, feed: 700, pitch: 0.4 },
+  plastic: { rpm: 10000, feed: 500, pitch: 0.3 },
+  aluminium: { rpm: 10000, feed: 200, pitch: 0.1 },
+};
+
+export const DEFAULT_HOLE_DEPTH_MM = 6;
+
+export function helixPreset(material) {
+  const { rpm, feed, pitch } = HELIX[material] || HELIX[DEFAULT_FACING_MATERIAL];
+  return { rpm, feed, stepdown: pitch };
+}

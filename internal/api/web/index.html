@@ -1282,6 +1282,14 @@
         <div class="alignment-holes-diameter"><span>Hole diameter</span><strong id="alignment-holes-diameter"></strong></div>
       </div>
       <button type="button" id="alignment-holes-probe-z">Probe stock Z</button>
+      <div class="alignment-holes-materials" role="group" aria-label="Material">
+        <button type="button" data-alignment-material="softwood" aria-pressed="false">Softwood</button>
+        <button type="button" data-alignment-material="hardwood" aria-pressed="false">Hardwood</button>
+        <button type="button" data-alignment-material="mdf" aria-pressed="false">MDF / plywood</button>
+        <button type="button" data-alignment-material="plastic" aria-pressed="false">Plastic</button>
+        <button type="button" data-alignment-material="aluminium" aria-pressed="false">Aluminium</button>
+      </div>
+      <p class="alignment-holes-note">Choosing a material fills in spindle speed, feed and depth per turn for the 3.175 mm end mill. Small adjustments are fine.</p>
       <div class="alignment-holes-pair">
         <label>Depth below work Z zero (mm)<input type="number" id="alignment-holes-depth" min="0.001" step="any" inputmode="decimal"></label>
         <label>Max depth per turn (mm)<input type="number" id="alignment-holes-stepdown" min="0.001" step="any" inputmode="decimal"></label>
