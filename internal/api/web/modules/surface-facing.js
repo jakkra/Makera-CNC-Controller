@@ -1,4 +1,7 @@
 import { setElementBusy, setTextIfChanged } from "./dom.js";
+import { DEFAULT_FACING_MATERIAL, DEFAULT_FACING_TOOL, facingPreset } from "./facing-presets.js";
+
+const SETTINGS_KEY = "sensei.facing-settings.v1";
 
 const POSITION_TOLERANCE = 0.05;
 
@@ -92,16 +95,8 @@ export function facingPlan({ outline, surface, origin, machine, limits, safeZ, p
       safeZ > limits.z_max || targetZ + origin.z < limits.z_min || safeZ <= surface.high + origin.z) {
     throw new Error("The facing area, finish Z, or Safe Z is outside the usable machine travel.");
   }
-  const lead = diameter / 2 + ENTRY_CLEARANCE_MM;
   const choice = ENTRY_CORNERS.includes(parameters.entryCorner) ? parameters.entryCorner : "auto";
-  let entry = null;
-  for (const corner of choice === "auto" ? ENTRY_CORNERS : [choice]) {
-    const [end, side] = corner.split("-");
-    const x = side === "left" ? bounds.left - lead : bounds.right + lead;
-    if (x < limits.x_min || x > limits.x_max) continue;
-    entry = { corner, side, end, x, y: end === "front" ? bounds.front : bounds.back };
-    break;
-  }
+  const entry = chooseEntry({ bounds, diameter, limits, choice });
   if (!entry) {
     throw new Error(choice === "auto"
       ? `The cutter needs ${ENTRY_CLEARANCE_MM} mm plus its radius beyond an X edge of the stock to enter from the side.`
@@ -116,6 +111,22 @@ export function facingPlan({ outline, surface, origin, machine, limits, safeZ, p
   if (entry.end === "back") rows.reverse();
   const levels = Array.from({ length: passCount }, (_, i) => surface.high - (i + 1) * (surface.high - targetZ) / passCount);
   return { bounds, entry, origin, safeZ, rows, levels, totalDepth: surface.high - targetZ, parameters };
+}
+
+// The side entry for a corner choice ("auto" picks the first one with X
+// travel), or null when the cutter has no room to go down beside the stock.
+export function chooseEntry({ bounds, diameter, limits, choice = "auto" }) {
+  if (!bounds || !(diameter > 0)) return null;
+  const lead = diameter / 2 + ENTRY_CLEARANCE_MM;
+  const xMin = Number.isFinite(limits?.x_min) ? limits.x_min : -Infinity;
+  const xMax = Number.isFinite(limits?.x_max) ? limits.x_max : Infinity;
+  for (const corner of ENTRY_CORNERS.includes(choice) ? [choice] : ENTRY_CORNERS) {
+    const [end, side] = corner.split("-");
+    const x = side === "left" ? bounds.left - lead : bounds.right + lead;
+    if (x < xMin || x > xMax) continue;
+    return { corner, side, end, x, y: end === "front" ? bounds.front : bounds.back };
+  }
+  return null;
 }
 
 export function raster(plan) {
@@ -177,7 +188,7 @@ export function surfaceColor(z, surface) {
   return `hsl(${Math.round(220 - 194 * fraction)} 82% 62%)`;
 }
 
-function surfaceMap(outline, surface, plan) {
+function surfaceMap(outline, surface, plan, preview = null) {
   if (!surface) return "";
   const outlinePoints = outline.points
     .filter((p) => Number.isFinite(p.machine_x) && Number.isFinite(p.machine_y))
@@ -185,12 +196,18 @@ function surfaceMap(outline, surface, plan) {
   const pathPoints = plan ? raster(plan) : [];
   const sweep = plan ? facingSweepBox(plan) : null;
   const sweepCorners = sweep ? [{ x: sweep.left, y: sweep.front }, { x: sweep.right, y: sweep.back }] : [];
-  const extent = [...outlinePoints, ...surface.points, ...pathPoints, ...sweepCorners];
+  // The entry is shown even before the plan is complete, so the corner
+  // choice is visible while feeds are still being set.
+  const entryPoint = plan?.entry || preview?.entry || null;
+  const diameter = plan?.parameters.diameter || preview?.diameter || 0;
+  const bounds = plan?.bounds || preview?.bounds || null;
+  const entryExtent = entryPoint ? [{ x: entryPoint.x - diameter / 2, y: entryPoint.y - diameter / 2 }, { x: entryPoint.x + diameter / 2, y: entryPoint.y + diameter / 2 }] : [];
+  const extent = [...outlinePoints, ...surface.points, ...pathPoints, ...sweepCorners, ...entryExtent];
   const left = Math.min(...extent.map((p) => p.x));
   const front = Math.min(...extent.map((p) => p.y));
   const width = Math.max(1, Math.max(...extent.map((p) => p.x)) - left);
   const height = Math.max(1, Math.max(...extent.map((p) => p.y)) - front);
-  const scale = Math.min(376 / width, 208 / height);
+  const scale = Math.min(376 / width, 196 / height);
   const xy = (p) => [(200 + (p.x - left - width / 2) * scale).toFixed(2), (116 - (p.y - front - height / 2) * scale).toFixed(2)];
   const boundary = outlinePoints.length > 2
     ? `<polygon points="${outlinePoints.map((p) => xy(p).join(",")).join(" ")}" />` : "";
@@ -201,23 +218,26 @@ function surfaceMap(outline, surface, plan) {
     const [x, y] = xy(p);
     return `<circle cx="${x}" cy="${y}" r="4" fill="${surfaceColor(p.z, surface)}"><title>Machine X ${p.x.toFixed(3)}, Y ${p.y.toFixed(3)}. Z ${p.z.toFixed(3)} mm</title></circle>`;
   });
-  let entry = "";
-  if (plan) {
-    // Show the full cutter footprint where it descends, and the feed-in
-    // direction, so clamps can be checked against it.
-    const [ex, ey] = xy(plan.entry);
-    const [fx, fy] = xy(pathPoints[1]);
+  let sweepBox = "";
+  if (sweep) {
     const [sx0, sy0] = xy({ x: sweep.left, y: sweep.back });
     const [sx1, sy1] = xy({ x: sweep.right, y: sweep.front });
-    const r = (plan.parameters.diameter / 2 * scale).toFixed(2);
-    const labelBelow = plan.entry.end === "front";
-    const ly = (Number(ey) + (labelBelow ? Number(r) + 12 : -Number(r) - 6)).toFixed(2);
-    entry = `<rect class="facing-sweep" x="${sx0}" y="${sy0}" width="${(sx1 - sx0).toFixed(2)}" height="${(sy1 - sy0).toFixed(2)}"><title>Area swept by the cutter</title></rect>` +
-      `<g class="facing-entry"><title>Side entry: the cutter descends here, ${ENTRY_CLEARANCE_MM} mm outside the stock, then feeds in. Machine X ${plan.entry.x.toFixed(3)}, Y ${plan.entry.y.toFixed(3)}</title>` +
+    sweepBox = `<rect class="facing-sweep" x="${sx0}" y="${sy0}" width="${(sx1 - sx0).toFixed(2)}" height="${(sy1 - sy0).toFixed(2)}"><title>Area swept by the cutter</title></rect>`;
+  }
+  let entry = "";
+  if (entryPoint && bounds) {
+    // Show the full cutter footprint where it descends, and the feed-in
+    // direction, so clamps can be checked against it.
+    const [ex, ey] = xy(entryPoint);
+    const [fx, fy] = xy({ x: entryPoint.side === "left" ? bounds.left : bounds.right, y: entryPoint.y });
+    const r = Math.max(4, diameter / 2 * scale).toFixed(2);
+    const labelBelow = entryPoint.end === "front";
+    const ly = (Number(ey) + (labelBelow ? Number(r) + 13 : -Number(r) - 6)).toFixed(2);
+    entry = `<g class="facing-entry"><title>Side entry: the cutter descends here, ${ENTRY_CLEARANCE_MM} mm outside the stock, then feeds in. Machine X ${entryPoint.x.toFixed(3)}, Y ${entryPoint.y.toFixed(3)}</title>` +
       `<circle cx="${ex}" cy="${ey}" r="${r}"/><line x1="${ex}" y1="${ey}" x2="${fx}" y2="${fy}"/>` +
       `<text x="${ex}" y="${ly}" text-anchor="middle">Entry</text></g>`;
   }
-  return entry + boundary + path + dots.join("");
+  return sweepBox + boundary + path + dots.join("") + entry;
 }
 
 export function createSurfaceFacing({
@@ -227,7 +247,61 @@ export function createSurfaceFacing({
   const node = (name) => document.getElementById("surface-facing-" + name);
   const dialog = () => node("modal");
   const getInputs = () => Array.from(dialog().querySelectorAll("[data-facing-param]"));
-  const getEditButtons = () => dialog().querySelectorAll("[data-facing-diameter], [data-facing-step], [data-facing-entry]");
+  const getEditButtons = () => dialog().querySelectorAll("[data-facing-diameter], [data-facing-step], [data-facing-entry], [data-facing-material]");
+  const storage = () => { try { return globalThis.localStorage || null; } catch { return null; } };
+  const pressed = (attribute) => dialog().querySelector(`[${attribute}][aria-pressed="true"]`);
+  const press = (attribute, value) => {
+    for (const choice of dialog().querySelectorAll(`[${attribute}]`)) {
+      choice.setAttribute("aria-pressed", String(choice.getAttribute(attribute) === String(value)));
+    }
+  };
+  const inputFor = (name) => getInputs().find((field) => field.dataset.facingParam === name);
+
+  // Fill speeds, feeds and step sizes for the chosen material and cutter.
+  function applyPreset() {
+    const material = pressed("data-facing-material")?.dataset.facingMaterial || DEFAULT_FACING_MATERIAL;
+    const preset = facingPreset(material, node("diameter").valueAsNumber);
+    if (!preset) return;
+    for (const [name, value] of Object.entries(preset)) {
+      const input = inputFor(name);
+      if (input) input.value = String(value);
+    }
+  }
+
+  function saveSettings() {
+    const values = Object.fromEntries(getInputs().filter((input) => input.dataset.facingParam !== "targetZ")
+      .map((input) => [input.dataset.facingParam, input.value]));
+    const settings = {
+      material: pressed("data-facing-material")?.dataset.facingMaterial || DEFAULT_FACING_MATERIAL,
+      cutter: pressed("data-facing-diameter")?.dataset.facingDiameter || "",
+      entry: pressed("data-facing-entry")?.dataset.facingEntry || "auto",
+      values,
+    };
+    try { storage()?.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* best effort */ }
+  }
+
+  // Restore the last material, cutter, entry and values; otherwise start
+  // from the default material with a 6 mm cutter.
+  function restoreSettings() {
+    let saved = null;
+    try { saved = JSON.parse(storage()?.getItem(SETTINGS_KEY) || "null"); } catch { saved = null; }
+    press("data-facing-material", saved?.material || DEFAULT_FACING_MATERIAL);
+    press("data-facing-entry", saved?.entry || "auto");
+    const cutter = saved?.cutter || "6";
+    press("data-facing-diameter", cutter);
+    node("custom-diameter").hidden = cutter !== "custom";
+    if (saved?.values) {
+      for (const [name, value] of Object.entries(saved.values)) {
+        const input = inputFor(name);
+        if (input && value !== "") input.value = value;
+      }
+    } else {
+      if (cutter !== "custom") node("diameter").value = cutter;
+      applyPreset();
+    }
+    const tool = inputFor("tool");
+    if (tool && !(tool.valueAsNumber >= 1)) tool.value = String(DEFAULT_FACING_TOOL);
+  }
   const readParameters = () => ({
     ...Object.fromEntries(getInputs().map((input) => [input.dataset.facingParam, input.valueAsNumber])),
     entryCorner: dialog().querySelector('[data-facing-entry][aria-pressed="true"]')?.dataset.facingEntry || "auto",
@@ -250,7 +324,15 @@ export function createSurfaceFacing({
     } catch (error) {
       planError = error.message;
     }
-    const map = surfaceMap(outline, surface, plan);
+    let preview = null;
+    if (!plan && outline.closed && !outline.curveFit) {
+      const bounds = rectangle(outline.points.map((point) => ({ x: point.machine_x, y: point.machine_y })));
+      const diameter = parameters.diameter;
+      const entry = chooseEntry({ bounds, diameter, limits: getLimits(), choice: parameters.entryCorner });
+      if (entry) preview = { bounds, entry, diameter };
+    }
+    const shownEntry = plan?.entry || preview?.entry || null;
+    const map = surfaceMap(outline, surface, plan, preview);
     if (map !== lastMap) {
       node("map").innerHTML = map;
       lastMap = map;
@@ -262,12 +344,15 @@ export function createSurfaceFacing({
     setTextIfChanged(node("deviation"), surface?.planeDeviation != null ? `${surface.planeDeviation.toFixed(3)} mm peak-to-valley after removing surface tilt` : "");
     setTextIfChanged(node("passes"), plan ? `${plan.levels.length} passes · ${plan.totalDepth.toFixed(3)} mm maximum removal` : planError);
     node("passes").classList.toggle("error", !plan && !!planError);
-    setTextIfChanged(node("entry-summary"), plan
-      ? `Enters from the ${plan.entry.corner.replace("-", " ")} corner${parameters.entryCorner === "auto" ? " (auto)" : ""} at machine X ${plan.entry.x.toFixed(2)} Y ${plan.entry.y.toFixed(2)}. Descends ${ENTRY_CLEARANCE_MM} mm outside the stock, then feeds in.`
+    setTextIfChanged(node("entry-summary"), shownEntry
+      ? `Enters at the ${shownEntry.corner.replace("-", " ")} corner${parameters.entryCorner === "auto" ? " (chosen automatically)" : ""}, ${ENTRY_CLEARANCE_MM} mm outside the stock.`
       : "");
     for (const button of dialog().querySelectorAll("[data-facing-entry]")) {
-      button.classList.toggle("active-entry", !!plan && plan.entry.corner === button.dataset.facingEntry);
+      button.classList.toggle("active-entry", !!shownEntry && shownEntry.corner === button.dataset.facingEntry);
     }
+    const auto = dialog().querySelector('[data-facing-entry="auto"]');
+    setTextIfChanged(auto, parameters.entryCorner === "auto" && shownEntry
+      ? `Automatic (${shownEntry.corner.replace("-", " ")})` : "Automatic");
     node("queue").disabled = !!pending || getReadOnly();
     node("trace").disabled = !!pending || getReadOnly();
     setElementBusy(node("trace"), pending === "trace");
@@ -288,18 +373,22 @@ export function createSurfaceFacing({
         feedback("Facing needs a captured four-corner outline and a probed surface. Follow the steps in Machining.", "error");
         return;
       }
+      restoreSettings();
       node("target").value = (Math.floor(surface.low * 10000) / 10000).toFixed(4);
       dialog().showModal();
       render();
     });
     bindButtonAction(node("close"), () => { if (!pending) dialog().close(); });
     dialog().addEventListener("cancel", (event) => { if (pending) event.preventDefault(); });
-    dialog().addEventListener("input", render);
+    dialog().addEventListener("input", () => { saveSettings(); render(); });
     for (const button of getEditButtons()) {
       bindButtonAction(button, () => {
         if (pending) return;
-        const { facingDiameter, facingStep, facingDelta, facingEntry } = button.dataset;
-        if (facingEntry) {
+        const { facingDiameter, facingStep, facingDelta, facingEntry, facingMaterial } = button.dataset;
+        if (facingMaterial) {
+          press("data-facing-material", facingMaterial);
+          applyPreset();
+        } else if (facingEntry) {
           for (const choice of dialog().querySelectorAll("[data-facing-entry]")) {
             choice.setAttribute("aria-pressed", String(choice === button));
           }
@@ -311,7 +400,10 @@ export function createSurfaceFacing({
             choice.setAttribute("aria-pressed", String(choice === button));
           }
           if (custom) input.focus();
-          else input.value = facingDiameter;
+          else {
+            input.value = facingDiameter;
+            applyPreset();
+          }
         } else {
           const input = getInputs().find((field) => field.dataset.facingParam === facingStep);
           const current = Number.isFinite(input.valueAsNumber) ? input.valueAsNumber : 0;
@@ -327,6 +419,7 @@ export function createSurfaceFacing({
             input.value = String(Math.max(Number(input.min), Math.min(next, max)));
           }
         }
+        saveSettings();
         render();
       });
     }

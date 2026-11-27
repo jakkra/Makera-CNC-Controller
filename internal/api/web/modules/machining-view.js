@@ -54,10 +54,32 @@ export function createMachiningView({
   document, getOutline, getMachine, getJog, getReadOnly = () => false, showTab, bindButtonAction,
   startOutlineCapture, addOutlinePoint, closeOutline, flushOutlineFieldSpacingUpdate, runFieldProbe,
   toggleArm, sendStep, isProbeToolActive, setStatusMessage,
+  saveSession = () => {}, loadSession = () => false,
 }) {
   const node = (id) => document.getElementById(id);
   const feedback = (text, kind = "error") => setStatusMessage("facing-guide", text, kind, { force: true });
   let owned = false;
+  let sessionKey = "";
+
+  // Keep the marked stock and its measurements across reloads and deploys,
+  // so a test does not mean probing everything again.
+  function persist() {
+    const o = getOutline() || {};
+    if (o.fieldProbePending || o.addPointPending) return;
+    const key = [o.active, o.closed, (o.points || []).length, (o.fieldProbeResults || []).length, o.fieldProbeComplete,
+      JSON.stringify(o.fieldProbeGrid || null)].join("|");
+    if (key === sessionKey) return;
+    sessionKey = key;
+    saveSession();
+  }
+
+  function restoreSession() {
+    if (loadSession()) {
+      sessionKey = "";
+      persist();
+      render();
+    }
+  }
 
   function selectedGrid() {
     const size = Number(node("facing-grid")?.value) || DEFAULT_PROBE_GRID.columns;
@@ -105,6 +127,7 @@ export function createMachiningView({
   }
 
   function render() {
+    persist();
     if (node("machining-view")?.hidden !== false) return;
     completeRectangle();
     const outline = getOutline() || {};
@@ -199,5 +222,5 @@ export function createMachiningView({
     });
   }
 
-  return { bind, render };
+  return { bind, render, restoreSession };
 }

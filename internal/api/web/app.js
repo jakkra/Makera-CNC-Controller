@@ -38,6 +38,7 @@ import { createFieldProbing } from "./modules/field-probing.js";
 import { createSurfaceFacing } from "./modules/surface-facing.js";
 import { createAlignmentHoles } from "./modules/alignment-holes.js";
 import { createMachiningView } from "./modules/machining-view.js";
+import { keepFieldsAboveKeyboard } from "./modules/touch-keyboard.js";
 import { createOutlineCaptureOperations } from "./modules/outline-capture-operations.js";
 import { createOutlineCoordination } from "./modules/outline-coordination.js";
 import { createJogEventHandler } from "./modules/jog-events.js";
@@ -1392,7 +1393,44 @@ machiningView = createMachiningView({
   sendStep: (axis, sign, distance) => sendSurfaceStep(axis, sign, "button", distance),
   isProbeToolActive: () => isProbeToolActive(),
   setStatusMessage,
+  saveSession: saveFacingSession,
+  loadSession: restoreFacingSession,
 });
+
+// The Machining guide's marked stock and surface samples, kept in this
+// browser so a reload or deploy does not lose a finished measurement. The
+// facing planner still refuses them if the work zero has changed since.
+const FACING_SESSION_KEY = "sensei.facing-session.v1";
+
+function saveFacingSession() {
+  try {
+    const o = state.outline;
+    if (!o.closed || o.points.length < 3) {
+      localStorage.removeItem(FACING_SESSION_KEY);
+      return;
+    }
+    localStorage.setItem(FACING_SESSION_KEY, JSON.stringify({ doc: outlineJSONDocument(), grid: o.fieldProbeGrid || null }));
+  } catch {
+    // Storage is a convenience only.
+  }
+}
+
+function restoreFacingSession() {
+  try {
+    if (state.outline.active || state.outline.points.length) return false;
+    const saved = JSON.parse(localStorage.getItem(FACING_SESSION_KEY) || "null");
+    if (!saved?.doc) return false;
+    const next = outlineStateFromJSON(saved.doc);
+    if (saved.grid) next.fieldProbeGrid = saved.grid;
+    state.outline = next;
+    updateFieldProbePreview();
+    renderOutlineCapture();
+    renderWorkArea();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const fieldProbing = createFieldProbing({
   state: featureState.fieldProbing,
@@ -2582,6 +2620,8 @@ function init() {
   surfaceFacing.bind(bindButtonAction);
   alignmentHoles.bind(bindButtonAction);
   machiningView.bind();
+  for (const id of ["surface-facing-modal", "alignment-holes-modal"]) keepFieldsAboveKeyboard(document.getElementById(id));
+  machiningView.restoreSession();
   surfaceShell.bindInteractions({ bindButtonAction });
   for (const button of document.querySelectorAll("[data-spindle-fan]")) {
     button.disabled = state.readOnly || !state.machine?.connected || !!state.machine?.stale;

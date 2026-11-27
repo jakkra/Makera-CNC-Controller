@@ -1117,6 +1117,17 @@
       </figcaption>
     </figure>
     <div class="surface-facing-plan">
+      <fieldset id="surface-facing-material">
+        <legend>Material</legend>
+        <div class="surface-facing-materials">
+          <button type="button" data-facing-material="softwood" aria-pressed="false">Softwood</button>
+          <button type="button" data-facing-material="hardwood" aria-pressed="false">Hardwood</button>
+          <button type="button" data-facing-material="mdf" aria-pressed="false">MDF / plywood</button>
+          <button type="button" data-facing-material="plastic" aria-pressed="false">Plastic</button>
+          <button type="button" data-facing-material="aluminium" aria-pressed="false">Aluminium</button>
+        </div>
+        <p class="surface-facing-note">Choosing a material or cutter fills in spindle speed, feeds, stepover and depth per pass for a 2-flute flat end mill. Small adjustments are fine.</p>
+      </fieldset>
       <fieldset id="surface-facing-cutter">
         <legend>Cutter diameter</legend>
         <div class="surface-facing-diameters">
@@ -1149,20 +1160,22 @@
         <button type="button" data-facing-step="stepdown" data-facing-delta="0.01" aria-label="Increase maximum depth per pass">+</button>
       </div>
       <fieldset id="surface-facing-entry">
-        <legend>Side entry corner</legend>
+        <legend>Where the cutter enters</legend>
+        <p class="surface-facing-note">The cutter goes down beside the stock at this corner and feeds in from the side. It is drawn in orange on the map. Keep clamps away from it.</p>
         <div class="surface-facing-entries">
-          <button type="button" data-facing-entry="auto" aria-pressed="true">Auto</button>
-          <button type="button" data-facing-entry="back-left" aria-pressed="false">Back left</button>
-          <button type="button" data-facing-entry="back-right" aria-pressed="false">Back right</button>
-          <button type="button" data-facing-entry="front-left" aria-pressed="false">Front left</button>
-          <button type="button" data-facing-entry="front-right" aria-pressed="false">Front right</button>
+          <button type="button" data-facing-entry="back-left" aria-pressed="false">↖ Back left</button>
+          <button type="button" data-facing-entry="back-right" aria-pressed="false">Back right ↗</button>
+          <button type="button" data-facing-entry="front-left" aria-pressed="false">↙ Front left</button>
+          <button type="button" data-facing-entry="front-right" aria-pressed="false">Front right ↘</button>
+          <button type="button" data-facing-entry="auto" aria-pressed="true">Automatic</button>
         </div>
         <p id="surface-facing-entry-summary" class="surface-facing-entry-summary"></p>
       </fieldset>
       <details class="surface-facing-details">
-        <summary>Tool number, spindle speed and feeds</summary>
+        <summary>Spindle speed, feeds and tool change</summary>
         <div class="surface-facing-fields">
-          <label>Tool number <input data-facing-param="tool" type="number" min="1" max="999" step="1" inputmode="numeric"></label>
+          <p class="surface-facing-note surface-facing-tool-note">Before cutting, the program stops for a tool change so you can fit the cutter. It calls it tool 1; change the number only if you keep a tool table.</p>
+          <label>Tool change to T <input data-facing-param="tool" type="number" min="1" max="999" step="1" inputmode="numeric" value="1"></label>
           <label>Spindle speed (rpm) <input data-facing-param="rpm" type="number" min="1" step="1" inputmode="numeric"></label>
           <label>Cut feed (mm/min) <input data-facing-param="feed" type="number" min="0.1" step="any" inputmode="decimal"></label>
           <label>Descent feed outside stock (mm/min) <input data-facing-param="plunge" type="number" min="0.1" step="any" inputmode="decimal"></label>

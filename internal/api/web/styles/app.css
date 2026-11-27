@@ -690,10 +690,20 @@
   #surface-facing-entry legend { padding: 0; margin-bottom: 8px; font-weight: 650; }
   .surface-facing-entries { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
   .surface-facing-entries button { min-width: 0; min-height: 48px; padding: 4px; }
-  .surface-facing-entries button[data-facing-entry="auto"] { grid-column: 1 / -1; }
+  .surface-facing-entries button[data-facing-entry="auto"] { grid-column: 1 / -1; min-height: 40px; }
   .surface-facing-entries button[aria-pressed="true"] { border-color: var(--accent); background: var(--panel-2); }
   .surface-facing-entries button.active-entry { box-shadow: inset 0 0 0 2px var(--warn); }
   .surface-facing-entry-summary { margin: 8px 0 0; min-height: 1.5em; color: var(--warn); font-size: 13px; font-variant-numeric: tabular-nums; }
+  #surface-facing-modal, #alignment-holes-modal { overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; }
+  #surface-facing-modal.keyboard-open, #alignment-holes-modal.keyboard-open { margin: 8px auto auto; max-height: 46dvh; }
+  #machining-view { overflow-x: hidden; overscroll-behavior: contain; touch-action: pan-y; }
+  .surface-facing-note { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+  #surface-facing-material { border: 0; margin: 0 0 4px; padding: 0; min-width: 0; }
+  #surface-facing-material legend, #surface-facing-entry legend { padding: 0; margin-bottom: 8px; font-weight: 650; }
+  .surface-facing-materials { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin-bottom: 6px; }
+  .surface-facing-materials button { min-width: 0; min-height: 48px; padding: 4px; }
+  .surface-facing-materials button[aria-pressed="true"] { border-color: var(--accent); background: var(--panel-2); }
+  .surface-facing-tool-note { grid-column: 1 / -1; }
   #surface-facing-passes.error { color: var(--err); }
   .surface-facing-figure .facing-sweep { fill: none; stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; }
   .surface-facing-figure .facing-entry circle { fill: rgba(217,154,58,.22); stroke: var(--warn); stroke-width: 1.5; }
