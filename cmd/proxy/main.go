@@ -147,13 +147,14 @@ func main() {
 		builtinMachineAddr = dialAddr
 	}
 	cameraMgr, err := camera.New(camera.Config{
-		BuiltinMachineAddr: builtinMachineAddr,
-		BuiltinWSURL:       builtinCameraURL,
-		BuiltinDerived:     builtinCameraDerived,
-		ExternalURL:        *cameraExternalURL,
-		ExternalStatusURL:  *cameraExternalStatusURL,
-		ExternalMode:       *cameraExternalMode,
-		ExternalDevice:     *cameraExternalDevice,
+		BuiltinMachineAddr:   builtinMachineAddr,
+		BuiltinWSURL:         builtinCameraURL,
+		BuiltinDerived:       builtinCameraDerived,
+		ExternalURL:          *cameraExternalURL,
+		ExternalStatusURL:    *cameraExternalStatusURL,
+		ExternalMode:         *cameraExternalMode,
+		ExternalDevice:       *cameraExternalDevice,
+		ExternalSettingsPath: filepath.Join(*dataDir, "camera-settings.json"),
 	})
 	if err != nil {
 		log.Fatalf("camera configuration: %v", err)
@@ -165,6 +166,7 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	go cameraMgr.WatchExternalDevice(ctx, 3*time.Second)
 
 	_ = *noAdvertise // deprecated flag, kept so old invocations don't error
 

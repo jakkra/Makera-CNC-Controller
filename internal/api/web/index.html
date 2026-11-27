@@ -958,7 +958,7 @@
 </dialog>
 <dialog id="dashboard-camera-focus-modal" class="dashboard-camera-focus-modal" aria-labelledby="dashboard-camera-focus-title">
   <div class="machine-settings-modal-head">
-    <h2 id="dashboard-camera-focus-title">External camera focus</h2>
+    <h2 id="dashboard-camera-focus-title">External camera</h2>
     <button type="button" id="dashboard-camera-focus-close" aria-label="Close camera focus settings">Close</button>
   </div>
   <div class="dashboard-camera-focus-body">
@@ -975,8 +975,35 @@
     </label>
     <div class="dashboard-camera-focus-actions">
       <button type="button" id="dashboard-camera-focus-cancel">Cancel</button>
-      <button type="button" id="dashboard-camera-focus-apply" class="primary">Apply</button>
+      <button type="button" id="dashboard-camera-focus-apply" class="primary">Apply focus</button>
     </div>
+    <fieldset id="camera-image-section" class="camera-image-section">
+      <legend>Exposure</legend>
+      <div class="camera-image-choices" role="group" aria-label="Exposure mode">
+        <button type="button" data-camera-exposure="auto" aria-pressed="true">Automatic</button>
+        <button type="button" data-camera-exposure="manual" aria-pressed="false">Manual</button>
+      </div>
+      <label class="dashboard-camera-focus-field" for="camera-image-exposure">
+        <span>Exposure time <output id="camera-image-exposure-label" class="dashboard-camera-focus-value"></output></span>
+        <input id="camera-image-exposure" type="range" min="3" max="2047" step="1" value="250">
+      </label>
+      <label class="dashboard-camera-focus-field" for="camera-image-gain">
+        <span>Gain <output id="camera-image-gain-label" class="dashboard-camera-focus-value"></output></span>
+        <input id="camera-image-gain" type="range" min="0" max="255" step="1" value="0">
+      </label>
+      <label class="dashboard-camera-focus-field" for="camera-image-brightness">
+        <span>Brightness <output id="camera-image-brightness-label" class="dashboard-camera-focus-value"></output></span>
+        <input id="camera-image-brightness" type="range" min="0" max="255" step="1" value="128">
+      </label>
+      <span class="camera-image-caption">Mains frequency (removes light flicker)</span>
+      <div class="camera-image-choices" role="group" aria-label="Mains frequency">
+        <button type="button" data-camera-power-line="1" aria-pressed="true">50 Hz</button>
+        <button type="button" data-camera-power-line="2" aria-pressed="false">60 Hz</button>
+        <button type="button" data-camera-power-line="0" aria-pressed="false">Off</button>
+      </div>
+      <label class="camera-image-check"><input id="camera-image-dynamic" type="checkbox"> Allow a lower frame rate in dim light</label>
+      <p class="camera-image-note">Exposure changes apply at once. Focus and exposure are restored when the camera is reconnected.</p>
+    </fieldset>
   </div>
 </dialog>
 <dialog id="dashboard-settings-modal" aria-labelledby="dashboard-settings-title">

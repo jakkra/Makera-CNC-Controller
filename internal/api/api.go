@@ -99,6 +99,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/camera/external", s.externalCamera)
 	mux.HandleFunc("GET /api/camera/external/focus", s.externalCameraFocus)
 	mux.HandleFunc("PUT /api/camera/external/focus", s.setExternalCameraFocus)
+	mux.HandleFunc("GET /api/camera/external/image", s.externalCameraImage)
+	mux.HandleFunc("PUT /api/camera/external/image", s.setExternalCameraImage)
 	mux.HandleFunc("GET /api/capabilities", s.getCapabilities)
 	mux.HandleFunc("GET /api/files", s.getFiles)
 	mux.HandleFunc("POST /api/files", s.postFile)

@@ -213,6 +213,48 @@ func (s *Server) setExternalCameraFocus(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, focus)
 }
 
+func (s *Server) externalCameraImage(w http.ResponseWriter, r *http.Request) {
+	if s.camera == nil {
+		writeErr(w, http.StatusServiceUnavailable, "external camera controls are not configured")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	image, err := s.camera.Image(ctx)
+	if errors.Is(err, camera.ErrFocusUnavailable) {
+		writeErr(w, http.StatusServiceUnavailable, "external camera controls are not configured")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, image)
+}
+
+func (s *Server) setExternalCameraImage(w http.ResponseWriter, r *http.Request) {
+	if s.camera == nil {
+		writeErr(w, http.StatusServiceUnavailable, "external camera controls are not configured")
+		return
+	}
+	var body camera.ImageSettings
+	if !s.decodeJSON(w, r, &body) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	image, err := s.camera.SetImage(ctx, body)
+	if errors.Is(err, camera.ErrFocusUnavailable) {
+		writeErr(w, http.StatusServiceUnavailable, "external camera controls are not configured")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, image)
+}
+
 func allowedCameraContentType(raw string) (string, bool) {
 	mediaType, params, err := mime.ParseMediaType(raw)
 	if err != nil {

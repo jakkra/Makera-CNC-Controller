@@ -42,6 +42,9 @@ type Config struct {
 	// MJPEG for backwards-compatible streaming behavior.
 	ExternalMode   string
 	ExternalDevice string
+	// ExternalSettingsPath keeps the operator's focus and exposure choices so
+	// they can be applied again after the camera is reconnected.
+	ExternalSettingsPath string
 	// HTTPClient is primarily useful for tests. Nil selects a client that does
 	// not use environment proxies or follow redirects to another endpoint.
 	HTTPClient *http.Client
@@ -84,6 +87,7 @@ type Manager struct {
 	externalStatus     *url.URL
 	externalMode       string
 	externalDevice     string
+	settingsPath       string
 	httpClient         *http.Client
 	focusMu            sync.Mutex
 }
@@ -124,7 +128,7 @@ func New(cfg Config) (*Manager, error) {
 	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
-	return &Manager{builtinMachineAddr: cfg.BuiltinMachineAddr, builtin: builtin, builtinDerived: builtin != nil && cfg.BuiltinDerived, external: external, externalStatus: externalStatus, externalMode: externalMode, externalDevice: strings.TrimSpace(cfg.ExternalDevice), httpClient: client}, nil
+	return &Manager{builtinMachineAddr: cfg.BuiltinMachineAddr, builtin: builtin, builtinDerived: builtin != nil && cfg.BuiltinDerived, external: external, externalStatus: externalStatus, externalMode: externalMode, externalDevice: strings.TrimSpace(cfg.ExternalDevice), settingsPath: strings.TrimSpace(cfg.ExternalSettingsPath), httpClient: client}, nil
 }
 
 func normalizeExternalMode(raw string) (string, error) {
@@ -258,19 +262,32 @@ func (m *Manager) SetFocus(ctx context.Context, autofocus bool, absolute int) (F
 	}
 	m.focusMu.Lock()
 	defer m.focusMu.Unlock()
+	if err := m.applyFocusLocked(ctx, autofocus, absolute); err != nil {
+		return FocusStatus{}, err
+	}
+	m.updateStoredLocked(func(stored *storedCameraSettings) {
+		stored.Focus = &struct {
+			Autofocus bool `json:"autofocus"`
+			Absolute  int  `json:"absolute"`
+		}{autofocus, absolute}
+	})
+	return m.readFocusLocked(ctx)
+}
+
+func (m *Manager) applyFocusLocked(ctx context.Context, autofocus bool, absolute int) error {
 	auto := "0"
 	if autofocus {
 		auto = "1"
 	}
 	if output, err := exec.CommandContext(ctx, "v4l2-ctl", "-d", m.externalDevice, "--set-ctrl=focus_automatic_continuous="+auto).CombinedOutput(); err != nil {
-		return FocusStatus{}, fmt.Errorf("set camera autofocus: %w: %s", err, strings.TrimSpace(string(output)))
+		return fmt.Errorf("set camera autofocus: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	if !autofocus {
 		if output, err := exec.CommandContext(ctx, "v4l2-ctl", "-d", m.externalDevice, "--set-ctrl=focus_absolute="+strconv.Itoa(absolute)).CombinedOutput(); err != nil {
-			return FocusStatus{}, fmt.Errorf("set camera focus: %w: %s", err, strings.TrimSpace(string(output)))
+			return fmt.Errorf("set camera focus: %w: %s", err, strings.TrimSpace(string(output)))
 		}
 	}
-	return m.readFocusLocked(ctx)
+	return nil
 }
 
 func (m *Manager) readFocusLocked(ctx context.Context) (FocusStatus, error) {
@@ -305,7 +322,12 @@ func parseFocusControlOutput(output []byte) map[string]int {
 		if len(parts) != 2 {
 			continue
 		}
-		value, parseErr := strconv.Atoi(strings.TrimSpace(parts[1]))
+		// Menu controls report "3 (Aperture Priority Mode)"; use the number.
+		fields := strings.Fields(parts[1])
+		if len(fields) == 0 {
+			continue
+		}
+		value, parseErr := strconv.Atoi(fields[0])
 		if parseErr == nil {
 			values[strings.TrimSpace(parts[0])] = value
 		}
