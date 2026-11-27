@@ -62,3 +62,19 @@ test("a hole sweep beyond travel, oversized holes and stale or rotated coordinat
   assert.throws(() => alignmentPlan({ ...fixture, machine: { ...fixture.machine, stale: true } }), /idle machine/);
   assert.throws(() => alignmentPlan({ ...fixture, machine: { ...fixture.machine, fields: { R: "1" } } }), /rotation/);
 });
+
+test("holes are cut by a helix: nothing moves straight down below the stock top", () => {
+  const plan = alignmentPlan(fixture);
+  const lines = alignmentGcode(plan).split("\n");
+  let below = 0;
+  for (const line of lines) {
+    const z = line.match(/ Z(-?[0-9.]+)/);
+    if (!z || line.startsWith("G53") || Number(z[1]) >= 0) continue;
+    below++;
+    assert.match(line, /^G3 X-?[0-9.]+ Y-?[0-9.]+ Z-?[0-9.]+ I-?[0-9.]+ J-?[0-9.]+ F/, `straight move below Z0: ${line}`);
+  }
+  const turns = Math.ceil(fixture.depth / fixture.stepdown);
+  assert.equal(below, 2 * 4 * (turns + 1));
+  const descent = lines.findIndex((line) => line === "G1 Z0 F120.0000");
+  assert.deepEqual(lines.slice(descent - 2, descent + 1), ["G0 X10.4125 Y30.0000", "G0 Z2.0000", "G1 Z0 F120.0000"]);
+});

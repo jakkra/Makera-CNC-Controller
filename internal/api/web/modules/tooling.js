@@ -1,7 +1,8 @@
 export const TOOL_3D_PROBE = 9999;
+export const COMMUNITY_3D_PROBE_MIN_TOOL = 999990;
 
 export function isWiredProbeTool(id) {
-  return id === TOOL_3D_PROBE || (Number.isInteger(id) && id >= 999990);
+  return id === TOOL_3D_PROBE || (Number.isInteger(id) && id >= COMMUNITY_3D_PROBE_MIN_TOOL);
 }
 
 export function toolDisplayName(toolID) {

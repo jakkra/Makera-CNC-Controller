@@ -587,9 +587,12 @@ function probe3DInitialPositioning(kind, xOffset, yOffset) {
   }
 }
 
-function probe3DTravelPreflight(kind, xOffset, yOffset, mpos, bounds, fields = {}) {
-  if (String(kind).startsWith("inside_") && fields.G != null &&
-      [fields.G, fields.R].some((value) => value == null || String(value).trim() === "" || Number(value) !== 0)) {
+function probe3DTravelPreflight(kind, xOffset, yOffset, mpos, bounds, fields = {}, toolID = null) {
+  // Match the server: Community firmware is recognised by its reported
+  // workspace field or by its own 3D probe tool range.
+  const community = fields?.G != null || Number(toolID) >= 999990; // COMMUNITY_3D_PROBE_MIN_TOOL in tooling.js
+  if (String(kind).startsWith("inside_") && community &&
+      [fields?.G, fields?.R].some((value) => value == null || String(value).trim() === "" || Number(value) !== 0)) {
     return { blocked: true, warning: "Select G54 with zero rotation before probing an inside corner on Community Firmware." };
   }
   const delta = probe3DInitialPositioning(kind, xOffset, yOffset);
@@ -632,7 +635,7 @@ function probe3DPreflightFromControls() {
   const x = Number(document.getElementById("probe-3d-x")?.value);
   const y = Number(document.getElementById("probe-3d-y")?.value);
   if (!Number.isFinite(x) || !Number.isFinite(y)) return { blocked: false, warning: "" };
-  return probe3DTravelPreflight(kind, x, y, state.machine.mpos, probe3DLearnedTravelBounds(), state.machine.fields);
+  return probe3DTravelPreflight(kind, x, y, state.machine.mpos, probe3DLearnedTravelBounds(), state.machine.fields, state.machine.tool?.active);
 }
 
 function renderProbe3DForm() {
@@ -660,7 +663,7 @@ function renderProbe3DForm() {
       y: document.getElementById("probe-3d-y")?.value,
       z: document.getElementById("probe-3d-z")?.value,
     },
-    community: state.machine?.fields?.G != null,
+    community: state.machine?.fields?.G != null || Number(state.machine?.tool?.active) >= 999990,
     pending,
   });
   const preflight = probe3DPreflightFromControls();
@@ -748,7 +751,7 @@ async function runProbe3D() {
     setOriginFeedback(e.message, "error");
     return;
   }
-  const preflight = probe3DTravelPreflight(body.kind, body.x_offset_mm, body.y_offset_mm, state.machine.mpos, probe3DLearnedTravelBounds(), state.machine.fields);
+  const preflight = probe3DTravelPreflight(body.kind, body.x_offset_mm, body.y_offset_mm, state.machine.mpos, probe3DLearnedTravelBounds(), state.machine.fields, state.machine.tool?.active);
   if (preflight.blocked) {
     setOriginFeedback(preflight.warning, "error");
     renderProbe3DForm();

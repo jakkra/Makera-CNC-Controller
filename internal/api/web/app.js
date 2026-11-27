@@ -907,6 +907,10 @@ const { reloadPage, recoverForegroundSession, installPullToRefresh, bindBrowserL
 
 let outlineContextRevision = 1;
 let outlineCoordination;
+// Assigned further down; declared here so outline renders before then are no-ops
+// instead of temporal-dead-zone errors.
+let surfaceFacing;
+let alignmentHoles;
 let pageHiddenAt = 0;
 const HALT_REASON = {
   1: "Halt manually",
@@ -1162,8 +1166,8 @@ outlineCoordination = createOutlineCoordination({
   axisValue,
   renderOutlineCaptureView: () => {
     outlineView?.renderOutlineCapture();
-    surfaceFacing.render();
-    alignmentHoles.render();
+    surfaceFacing?.render();
+    alignmentHoles?.render();
   },
   clearFieldProbeData,
   updateFieldProbePreview: (...args) => updateFieldProbePreview(...args),
@@ -1335,7 +1339,7 @@ workAreaInteractions = createWorkAreaInteractions({
   },
 });
 
-const surfaceFacing = createSurfaceFacing({
+surfaceFacing = createSurfaceFacing({
   document,
   getOutline: () => state.outline,
   getMachine: () => state.machine,
@@ -1344,7 +1348,7 @@ const surfaceFacing = createSurfaceFacing({
   getSafeZ: () => safeZForTapMove(normalizeMachineSettings(state.ui.machine)),
   getReadOnly: () => state.readOnly,
   getTraceBlocker: () => {
-    if (!isProbeToolActive()) return "Select the probe laser tool before tracing.";
+    if (!isProbeToolActive()) return "Tracing uses the probe laser. Select the probe tool (T0) to trace; the facing program changes to the cutter itself.";
     if (state.jog.armed || tapMoveTargetBusy()) return "Stop and disarm Movement before tracing.";
     return "";
   },
@@ -1353,7 +1357,7 @@ const surfaceFacing = createSurfaceFacing({
   confirm: (message) => window.confirm(message),
 });
 
-const alignmentHoles = createAlignmentHoles({
+alignmentHoles = createAlignmentHoles({
   document,
   getMachine: () => state.machine,
   getSettings: () => normalizeMachineSettings(state.ui.machine),

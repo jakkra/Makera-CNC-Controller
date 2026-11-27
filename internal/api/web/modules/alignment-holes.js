@@ -4,6 +4,7 @@ import { setElementBusy, setTextIfChanged } from "./dom.js";
 const cutterDiameter = 3.175;
 const nominalDiameter = 4;
 const positionTolerance = 0.01;
+const APPROACH_Z_MM = 2;
 const localReferences = bedReferenceHoles({ x0: 0, y0: 0 });
 
 export function alignmentDelta(a, b) {
@@ -99,7 +100,9 @@ export function alignmentGcode(plan) {
   for (const center of centers) {
     const x = center.x - origin.x;
     const y = center.y - origin.y;
-    lines.push(lift, "G0 " + lineXY(x + radius, y), `G1 Z0 F${mm(feed)}`);
+    // Rapid to just above the stock, feed to the surface, then descend only
+    // along the helix. There is no straight plunge below Z0.
+    lines.push(lift, "G0 " + lineXY(x + radius, y), `G0 Z${mm(APPROACH_Z_MM)}`, `G1 Z0 F${mm(feed)}`);
     for (let turn = 0; turn <= turns; turn++) {
       for (let quarter = 1; quarter < ring.length; quarter++) {
         const [px, py] = ring[quarter - 1];

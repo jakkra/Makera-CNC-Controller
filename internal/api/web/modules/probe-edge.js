@@ -138,7 +138,25 @@ export function createEdgeProbing({
     }
   }
 
+  // Points measured before a disconnect or a tool change may not share a
+  // machine frame with the next touch. Forget them rather than mix them.
+  let session;
+  function invalidateOnSessionChange() {
+    const machine = getMachine() || {};
+    const tool = machine.tool?.active;
+    if (machine.connected && tool == null) return; // tool not reported yet
+    const key = machine.connected ? String(tool) : "disconnected";
+    if (session !== undefined && key !== session && !pending && (first || second)) {
+      first = second = null;
+      angleLabel = "";
+      renderDialog();
+      renderWorkArea();
+    }
+    session = key;
+  }
+
   function renderButtons(busy, apiReady) {
+    invalidateOnSessionChange();
     const wiredProbe = isWiredProbeTool(getMachine()?.tool?.active);
     for (const id of ["origin-probe-edge", "origin-probe-angle"]) {
       const button = node(id);

@@ -1075,13 +1075,24 @@
         <input id="surface-facing-stepdown" data-facing-param="stepdown" type="number" min="0.001" step="any" inputmode="decimal">
         <button type="button" data-facing-step="stepdown" data-facing-delta="0.01" aria-label="Increase maximum depth per pass">+</button>
       </div>
+      <fieldset id="surface-facing-entry">
+        <legend>Side entry corner</legend>
+        <div class="surface-facing-entries">
+          <button type="button" data-facing-entry="auto" aria-pressed="true">Auto</button>
+          <button type="button" data-facing-entry="back-left" aria-pressed="false">Back left</button>
+          <button type="button" data-facing-entry="back-right" aria-pressed="false">Back right</button>
+          <button type="button" data-facing-entry="front-left" aria-pressed="false">Front left</button>
+          <button type="button" data-facing-entry="front-right" aria-pressed="false">Front right</button>
+        </div>
+        <p id="surface-facing-entry-summary" class="surface-facing-entry-summary"></p>
+      </fieldset>
       <details class="surface-facing-details">
         <summary>Tool number, spindle speed and feeds</summary>
         <div class="surface-facing-fields">
           <label>Tool number <input data-facing-param="tool" type="number" min="1" max="999" step="1" inputmode="numeric"></label>
           <label>Spindle speed (rpm) <input data-facing-param="rpm" type="number" min="1" step="1" inputmode="numeric"></label>
           <label>Cut feed (mm/min) <input data-facing-param="feed" type="number" min="0.1" step="any" inputmode="decimal"></label>
-          <label>Plunge feed (mm/min) <input data-facing-param="plunge" type="number" min="0.1" step="any" inputmode="decimal"></label>
+          <label>Descent feed outside stock (mm/min) <input data-facing-param="plunge" type="number" min="0.1" step="any" inputmode="decimal"></label>
         </div>
       </details>
     </div>
