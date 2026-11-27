@@ -178,6 +178,15 @@
   .facing-corners { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
   .machining-link { justify-self: start; min-height: 40px; background: transparent; border-color: transparent; color: var(--muted); text-decoration: underline; }
   .facing-measure-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; color: var(--muted); }
+  .facing-corner-help { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: 12px; }
+  .facing-corner-help svg { width: 84px; height: 56px; }
+  .facing-corner-help rect { fill: var(--panel-2); stroke: var(--muted); }
+  .facing-corner-help line { stroke: var(--accent); stroke-dasharray: 3 2; }
+  .facing-corner-help circle { fill: var(--accent); }
+  .facing-corner-help text { fill: var(--bg); font-size: 8px; font-weight: 700; text-anchor: middle; }
+  .facing-grid-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .facing-grid-fields label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+  .facing-grid-fields select { min-height: 48px; font-size: 16px; }
   @media (min-width: 700px) {
     .surface-facing-body { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
     .surface-facing-footer { grid-template-columns: minmax(0, 1fr) auto; }

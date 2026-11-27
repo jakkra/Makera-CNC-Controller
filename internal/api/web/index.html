@@ -557,7 +557,10 @@
         <ol class="machining-steps">
           <li id="machining-step-outline">
             <div class="machining-step-head"><span class="machining-step-number" aria-hidden="true">1</span><div><strong>Mark the stock</strong><span class="machining-step-detail"></span></div></div>
-            <p class="machining-help">Point the laser at one corner of the stock and set corner 1. Then move to the <em>opposite</em> corner and set corner 2.</p>
+            <div class="facing-corner-help">
+              <svg viewBox="0 0 84 56" aria-hidden="true"><rect x="10" y="8" width="64" height="40" rx="2"/><line x1="10" y1="48" x2="74" y2="8"/><circle cx="10" cy="48" r="5"/><circle cx="74" cy="8" r="5"/><text x="10" y="51.5">1</text><text x="74" y="11.5">2</text></svg>
+              <p class="machining-help">Point the laser at one corner of the stock and set corner 1. Then move to the <strong>diagonally opposite</strong> corner and set corner 2. It is fine to mark slightly outside the stock.</p>
+            </div>
             <div id="facing-tool-warning" class="machining-warning" hidden><span>The probe (T0) with its laser is not fitted.</span><button type="button" data-fit-probe="guide">Fit Probe</button></div>
             <div class="facing-jog">
               <div class="facing-jog-head">
@@ -582,7 +585,11 @@
           </li>
           <li id="machining-step-probe">
             <div class="machining-step-head"><span class="machining-step-number" aria-hidden="true">2</span><div><strong>Measure the surface</strong><span class="machining-step-detail"></span></div></div>
-            <p class="machining-help">The probe touches a grid of points inside the rectangle, starting from its current height. Heights are measured from the current work Z zero, so leave it unchanged until the program is queued.</p>
+            <p class="machining-help">The probe touches a grid of points inside the rectangle, held in from the edges, starting from its current height. Heights are measured from the current work Z zero, so leave it unchanged until the program is queued.</p>
+            <div class="facing-grid-fields">
+              <label>Points <select id="facing-grid"><option value="2">2 × 2</option><option value="3" selected>3 × 3</option><option value="4">4 × 4</option><option value="5">5 × 5</option><option value="6">6 × 6</option></select></label>
+              <label>Edge margin <select id="facing-inset"><option value="5">5 mm</option><option value="10" selected>10 mm</option><option value="15">15 mm</option><option value="20">20 mm</option><option value="30">30 mm</option></select></label>
+            </div>
             <div id="facing-measure-tool" class="machining-warning" hidden><span>The probe (T0) is not fitted.</span><button type="button" data-fit-probe="guide">Fit Probe</button></div>
             <button type="button" id="facing-measure-disarm" hidden>Disarm Movement to measure</button>
             <div class="facing-measure-row"><span id="facing-measure-plan"></span><button type="button" id="facing-measure" class="primary">Measure surface</button></div>

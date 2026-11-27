@@ -1727,3 +1727,39 @@ export function pointInPolygon(point, polygon) {
   }
   return inside;
 }
+
+// A regular columns × rows grid inside the bounding box of the outline, held
+// in from every edge so a probe never lands on or just beyond the stock edge.
+// Used by the Machining facing guide; the general field probe keeps its
+// boundary-following layout.
+export function buildGridFieldProbePreview(outlinePoints, { columns, rows, insetMM }) {
+  const points = (outlinePoints || []).filter((p) => Number.isFinite(p?.x) && Number.isFinite(p?.y));
+  const cols = Math.round(Number(columns));
+  const rws = Math.round(Number(rows));
+  const inset = Number(insetMM);
+  if (points.length < 3 || !(cols >= 1 && cols <= 20) || !(rws >= 1 && rws <= 20) || !(inset >= 0)) {
+    return { points: [], tooDense: false, issue: "the probe grid needs a closed outline and 1–20 points per side" };
+  }
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const axis = (min, max, count) => {
+    const span = max - min;
+    if (span - 2 * inset <= 0) return null;
+    if (count === 1) return [(min + max) / 2];
+    return Array.from({ length: count }, (_, i) => min + inset + i * (span - 2 * inset) / (count - 1));
+  };
+  const gx = axis(Math.min(...xs), Math.max(...xs), cols);
+  const gy = axis(Math.min(...ys), Math.max(...ys), rws);
+  if (!gx || !gy) return { points: [], tooDense: false, issue: `the stock is too small for a ${inset} mm edge margin` };
+  // Serpentine order keeps the travel between touches short.
+  const out = [];
+  gy.forEach((y, row) => {
+    const line = row % 2 ? [...gx].reverse() : gx;
+    for (const x of line) out.push({ x, y });
+  });
+  return {
+    points: out.map((p, i) => ({ id: "field-probe-" + String(i + 1).padStart(4, "0"), x: p.x, y: p.y, probe_kind: "field" })),
+    tooDense: false,
+    issue: "",
+  };
+}

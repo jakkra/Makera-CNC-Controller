@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { automaticProbeGap, facingReadiness, rectangleFromCorners } from "./modules/machining-view.js";
+import { facingReadiness, rectangleFromCorners } from "./modules/machining-view.js";
+import { buildGridFieldProbePreview } from "./modules/outline-geometry.js";
+import { createSurfaceRouting } from "./modules/surface-routing.js";
 
 const corners = [
   { machine_x: -90, machine_y: -70, machine_z: -25 },
@@ -37,8 +39,38 @@ test("two opposite corners become a closed axis-aligned rectangle in either orde
   assert.equal(rectangleFromCorners(a, { ...b, machine_x: -88 }), null, "corners on the same edge are rejected");
 });
 
-test("the automatic probe gap gives about four points per side", () => {
-  assert.equal(automaticProbeGap(40, 30), 8);
-  assert.equal(automaticProbeGap(10, 12), 5);
-  assert.equal(automaticProbeGap(600, 400), 50);
+test("the facing probe grid is held in from every stock edge", () => {
+  const outline = [{ x: 0, y: 0 }, { x: 60, y: 0 }, { x: 60, y: 40 }, { x: 0, y: 40 }];
+  const grid = buildGridFieldProbePreview(outline, { columns: 3, rows: 3, insetMM: 10 });
+  assert.equal(grid.points.length, 9);
+  assert.equal(grid.issue, "");
+  const xs = grid.points.map((p) => p.x);
+  const ys = grid.points.map((p) => p.y);
+  assert.deepEqual([Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)], [10, 50, 10, 30]);
+  assert.deepEqual(grid.points.slice(0, 4).map((p) => [p.x, p.y]), [[10, 10], [30, 10], [50, 10], [50, 20]], "serpentine order");
+  assert.equal(new Set(grid.points.map((p) => p.id)).size, 9);
+  assert.equal(buildGridFieldProbePreview(outline, { columns: 2, rows: 2, insetMM: 25 }).points.length, 0);
+  assert.match(buildGridFieldProbePreview(outline, { columns: 2, rows: 2, insetMM: 25 }).issue, /too small/);
+  assert.deepEqual(buildGridFieldProbePreview(outline, { columns: 1, rows: 1, insetMM: 10 }).points.map((p) => [p.x, p.y]), [[30, 20]]);
+});
+
+test("the Surface kiosk stays on Machining while the guide jogs or probes", () => {
+  const state = {
+    activeTab: "machining", machine: { state: "Run" }, jog: { armed: true }, outline: {},
+    surface: { auto_switch: true, manual_view_state: "Idle", start_view: "jog" },
+  };
+  const shown = [];
+  const routing = createSurfaceRouting({ getState: () => state, isSurfaceKiosk: () => true, showTab: (tab) => shown.push(tab), fmtDuration: String });
+  routing.applySurfaceAutomaticView();
+  state.machine.state = "Idle";
+  routing.applySurfaceAutomaticView();
+  state.jog.armed = false;
+  state.outline.fieldProbePending = true;
+  state.machine.state = "Run";
+  routing.applySurfaceAutomaticView();
+  assert.deepEqual(shown, []);
+  state.outline.fieldProbePending = false;
+  state.machine.state = "Alarm";
+  routing.applySurfaceAutomaticView();
+  assert.deepEqual(shown, ["attention"], "attention states still take over");
 });

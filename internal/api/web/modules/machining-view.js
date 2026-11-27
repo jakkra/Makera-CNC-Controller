@@ -48,10 +48,7 @@ export function rectangleFromCorners(a, b) {
   ];
 }
 
-// A probe gap that gives roughly a 4 × 4 grid, within sensible bounds.
-export function automaticProbeGap(width, height) {
-  return Math.max(5, Math.min(50, Math.round(Math.min(width, height) / 4)));
-}
+export const DEFAULT_PROBE_GRID = Object.freeze({ columns: 3, rows: 3, insetMM: 10 });
 
 export function createMachiningView({
   document, getOutline, getMachine, getJog, getReadOnly = () => false, showTab, bindButtonAction,
@@ -61,6 +58,21 @@ export function createMachiningView({
   const node = (id) => document.getElementById(id);
   const feedback = (text, kind = "error") => setStatusMessage("facing-guide", text, kind, { force: true });
   let owned = false;
+
+  function selectedGrid() {
+    const size = Number(node("facing-grid")?.value) || DEFAULT_PROBE_GRID.columns;
+    const inset = Number(node("facing-inset")?.value);
+    return { columns: size, rows: size, insetMM: Number.isFinite(inset) ? inset : DEFAULT_PROBE_GRID.insetMM };
+  }
+
+  // Re-plan the probe points; this clears any earlier measurement of them.
+  function applyGrid() {
+    const o = getOutline();
+    if (!o?.closed || o.fieldProbePending) return;
+    o.fieldProbeGrid = selectedGrid();
+    flushOutlineFieldSpacingUpdate();
+    render();
+  }
 
   function step(name, { done, detail }, locked = false) {
     const item = node("machining-step-" + name);
@@ -88,13 +100,8 @@ export function createMachiningView({
     }
     o.points = rect;
     owned = false;
+    o.fieldProbeGrid = selectedGrid();
     closeOutline();
-    const gap = node("outline-field-spacing");
-    if (gap) {
-      const box = rectangle(rect.map((p) => ({ x: p.machine_x, y: p.machine_y })));
-      gap.value = String(automaticProbeGap(box.right - box.left, box.back - box.front));
-      flushOutlineFieldSpacingUpdate();
-    }
   }
 
   function render() {
@@ -134,11 +141,14 @@ export function createMachiningView({
     node("facing-measure-disarm").hidden = !disarmNeeded;
     node("facing-measure-tool").hidden = laser;
     const count = (outline.fieldProbePreview || []).length;
-    const gap = Number(outline.fieldSpotGapMM);
-    setTextIfChanged(node("facing-measure-plan"), ready.outline.done && count
-      ? `${count} points, ${Number.isFinite(gap) ? gap.toFixed(0) : "–"} mm apart` : "");
+    const grid = outline.fieldProbeGrid;
+    setTextIfChanged(node("facing-measure-plan"), !ready.outline.done ? ""
+      : outline.fieldProbeIssue ? `Cannot place the points: ${outline.fieldProbeIssue}.`
+      : grid ? `${count} points, ${grid.insetMM} mm in from the edges` : `${count} points (outline from Probing)`);
+    for (const id of ["facing-grid", "facing-inset"]) node(id).disabled = readOnly || !ready.outline.done || !!outline.fieldProbePending;
     const measure = node("facing-measure");
-    measure.disabled = readOnly || !ready.outline.done || !laser || disarmNeeded || !!outline.fieldProbePending || ready.probe.done;
+    measure.disabled = readOnly || !ready.outline.done || !laser || disarmNeeded || !!outline.fieldProbePending || ready.probe.done ||
+      !count || !!outline.fieldProbeIssue;
     setTextIfChanged(measure, outline.fieldProbePending ? "Measuring…" : ready.probe.done ? "Surface measured" : "Measure surface");
 
     // Step 3: plan.
@@ -174,6 +184,7 @@ export function createMachiningView({
     bindButtonAction(node("facing-corner-1"), () => setCorner(1));
     bindButtonAction(node("facing-corner-2"), () => setCorner(2));
     bindButtonAction(node("facing-corners-reset"), () => setCorner(1));
+    for (const id of ["facing-grid", "facing-inset"]) node(id).addEventListener("change", applyGrid);
     bindButtonAction(node("facing-measure-disarm"), () => { toggleArm(); render(); });
     bindButtonAction(node("facing-measure"), async () => {
       await runFieldProbe({ purpose: "facing" });

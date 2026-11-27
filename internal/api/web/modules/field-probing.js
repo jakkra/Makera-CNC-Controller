@@ -1,3 +1,4 @@
+import { buildGridFieldProbePreview } from "./outline-geometry.js";
 export function createFieldProbing({ state, constants = {}, callbacks = {} }) {
   const { DEFAULT_PROBE_DEPTH_MM, DEFAULT_PROBE_FEED_MM } = constants;
   const {
@@ -493,6 +494,14 @@ export function createFieldProbing({ state, constants = {}, callbacks = {} }) {
       o.fieldProbeSelectedID = "";
       o.fieldProbeTooDense = false;
       o.fieldProbeIssue = "";
+      return;
+    }
+    if (o.fieldProbeGrid) {
+      const grid = buildGridFieldProbePreview(outlineWorkPoints(), o.fieldProbeGrid);
+      o.fieldProbePreview = grid.points;
+      if (!selectedFieldProbePoint(o)) o.fieldProbeSelectedID = "";
+      o.fieldProbeTooDense = false;
+      o.fieldProbeIssue = grid.issue;
       return;
     }
     const geometry = effectiveOutlineGeometry(outlineWorkPoints(), o.closed, o.curveFit);
