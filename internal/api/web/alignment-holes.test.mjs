@@ -51,7 +51,7 @@ test("the retry enlarges both holes around the same centers and finishes at the 
   assert.match(initialCode, /G0 X10\.4125 Y30\.0000/);
   assert.match(retryCode, /G0 X10\.4225 Y30\.0000/);
   assert.match(retryCode, /G0 X100\.4225 Y30\.0000/);
-  assert.match(retryCode, /^; Sensei alignment setup v1 3 41\.0000 -180\.0000 -150\.0000 -50\.0000/);
+  assert.match(retryCode, /^; Sensei alignment setup v2 -180\.0000 -150\.0000 -50\.0000/);
   assert.match(retryCode, /G3 X10\.0000 Y30\.4225 Z-0\.5000 I-0\.4225 J0\.0000/);
   assert.match(retryCode, /G3 X100\.4225 Y30\.0000 Z-6\.0000 .*\nG53 G0 Z-10\.0000\nM5/);
 });
@@ -77,4 +77,14 @@ test("holes are cut by a helix: nothing moves straight down below the stock top"
   assert.equal(below, 2 * 4 * (turns + 1));
   const descent = lines.findIndex((line) => line === "G1 Z0 F120.0000");
   assert.deepEqual(lines.slice(descent - 2, descent + 1), ["G0 X10.4125 Y30.0000", "G0 Z2.0000", "G1 Z0 F120.0000"]);
+});
+
+test("the hole program changes to the end mill itself instead of requiring it fitted", () => {
+  const probeFitted = { ...fixture.machine, tool: { active: 0, offset: 0 } };
+  const lines = alignmentGcode(alignmentPlan({ ...fixture, machine: probeFitted })).split("\n");
+  const change = lines.indexOf("M6 T1");
+  const pause = lines.indexOf("M600");
+  const spindle = lines.findIndex((line) => line.startsWith("M3 "));
+  assert.ok(change > 0 && change < pause && pause < spindle, "tool change, then pause, then spindle");
+  assert.ok(lines.findIndex((line) => line.startsWith("G3 ")) > spindle);
 });

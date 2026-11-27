@@ -16,12 +16,15 @@ import (
 
 const alignmentProgramPrefix = "alignment-holes-"
 const alignmentSetupHeader = "; Sensei alignment setup v1 "
+const alignmentSetupHeaderV2 = "; Sensei alignment setup v2 "
 const alignmentSetupToleranceMM = 0.01
 
 type alignmentSetup struct {
-	tool   int
-	offset float64
-	origin [3]float64
+	// toolChange is set for programs that fit the cutter themselves.
+	toolChange bool
+	tool       int
+	offset     float64
+	origin     [3]float64
 }
 
 func isAlignmentProgram(remotePath string) bool {
@@ -44,17 +47,32 @@ func readAlignmentSetup(entry store.Entry) (alignmentSetup, error) {
 		return setup, invalid
 	}
 	header, ok := strings.CutPrefix(line, alignmentSetupHeader)
+	if !ok {
+		header, ok = strings.CutPrefix(line, alignmentSetupHeaderV2)
+	}
 	values := strings.Fields(header)
-	if !ok || len(values) != 5 {
+	if !ok {
 		return setup, invalid
 	}
-	setup.tool, err = strconv.Atoi(values[0])
-	if err != nil || setup.tool < 1 || setup.tool > 999 {
+	// v2 programs change to the cutter themselves: only the work zero is
+	// recorded. v1 also recorded the tool that had to be fitted beforehand.
+	var targets []*float64
+	switch {
+	case strings.HasPrefix(line, alignmentSetupHeaderV2) && len(values) == 3:
+		setup.toolChange = true
+		targets = []*float64{&setup.origin[0], &setup.origin[1], &setup.origin[2]}
+	case len(values) == 5:
+		setup.tool, err = strconv.Atoi(values[0])
+		if err != nil || setup.tool < 1 || setup.tool > 999 {
+			return setup, invalid
+		}
+		targets = []*float64{&setup.offset, &setup.origin[0], &setup.origin[1], &setup.origin[2]}
+		values = values[1:]
+	default:
 		return setup, invalid
 	}
-	targets := []*float64{&setup.offset, &setup.origin[0], &setup.origin[1], &setup.origin[2]}
 	for i, target := range targets {
-		value, valid := parseMachineNumber(values[i+1])
+		value, valid := parseMachineNumber(values[i])
 		if !valid {
 			return setup, invalid
 		}
@@ -64,8 +82,8 @@ func readAlignmentSetup(entry store.Entry) (alignmentSetup, error) {
 }
 
 func (setup alignmentSetup) verify(st machine.Status) error {
-	if st.Tool == nil || st.Tool.Active != setup.tool || !finite(st.Tool.Offset) ||
-		math.Abs(st.Tool.Offset-setup.offset) > alignmentSetupToleranceMM {
+	if !setup.toolChange && (st.Tool == nil || st.Tool.Active != setup.tool || !finite(st.Tool.Offset) ||
+		math.Abs(st.Tool.Offset-setup.offset) > alignmentSetupToleranceMM) {
 		return fmt.Errorf("%w: restore calibrated tool T%d before running the alignment holes", ErrActiveGcodeUnavailable, setup.tool)
 	}
 	if raw, reported := st.Fields["R"]; reported {
@@ -78,6 +96,11 @@ func (setup alignmentSetup) verify(st machine.Status) error {
 		return fmt.Errorf("%w: switch to millimeters before running the alignment holes", ErrActiveGcodeUnavailable)
 	}
 	for i, axis := range [...]string{"x", "y", "z"} {
+		// Work Z follows the fitted tool's length; a program that changes the
+		// tool itself is checked on X and Y only.
+		if setup.toolChange && axis == "z" {
+			continue
+		}
 		m, haveMachine := finiteAxisValue(st.MPos, axis)
 		w, haveWork := finiteAxisValue(st.WPos, axis)
 		if !haveMachine || !haveWork || math.Abs(m-w-setup.origin[i]) > alignmentSetupToleranceMM {

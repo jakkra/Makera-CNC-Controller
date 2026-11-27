@@ -8,6 +8,9 @@ const VALUE_FIELDS = ["depth", "stepdown", "rpm", "feed"];
 const cutterDiameter = 3.175;
 const nominalDiameter = 4;
 const positionTolerance = 0.01;
+// The program asks for this tool and pauses so the 3.175 mm end mill can be
+// fitted, the same way the facing program does.
+const HOLE_TOOL = 1;
 const APPROACH_Z_MM = 2;
 const localReferences = bedReferenceHoles({ x0: 0, y0: 0 });
 
@@ -56,10 +59,6 @@ export function alignmentPlan({ centers, adjustment, depth, stepdown, rpm, feed,
   if (!zeroRotation(machine.fields)) throw new Error("Clear work coordinate rotation before preparing the program.");
   const origin = workOrigin(machine);
   if (!origin) throw new Error("Machine and work coordinates are unavailable.");
-  const { active: tool, offset } = machine.tool || {};
-  if (!Number.isInteger(tool) || tool < 1 || tool > 999 || !Number.isFinite(offset)) {
-    throw new Error("Install and calibrate the 3.175 mm end mill before queuing.");
-  }
   const diameter = nominalDiameter + adjustment;
   // The cutter swept by the helix must cover both the wall and the hole center.
   if (!Number.isFinite(adjustment) || diameter < cutterDiameter + 0.002 || diameter >= 2 * cutterDiameter) {
@@ -82,21 +81,21 @@ export function alignmentPlan({ centers, adjustment, depth, stepdown, rpm, feed,
   if (origin.z - depth < limits.z_min || safeZ > limits.z_max || safeZ <= origin.z) {
     throw new Error("Hole depth or Safe Z is outside usable machine travel.");
   }
-  return { centers, diameter, depth, stepdown, rpm, feed, origin, safeZ, tool, offset };
+  return { centers, diameter, depth, stepdown, rpm, feed, origin, safeZ, tool: HOLE_TOOL };
 }
 
 export function alignmentGcode(plan) {
   const mm = (value) => value.toFixed(4);
-  const { centers, diameter, depth, stepdown, rpm, feed, origin, safeZ, tool, offset } = plan;
+  const { centers, diameter, depth, stepdown, rpm, feed, origin, safeZ, tool } = plan;
   const radius = (diameter - cutterDiameter) / 2;
   const turns = Math.ceil(depth / stepdown);
   const lift = "G53 G0 Z" + mm(safeZ);
   const lineXY = (x, y) => `X${mm(x)} Y${mm(y)}`;
   const lines = [
-    `; Sensei alignment setup v1 ${tool} ${mm(offset)} ${mm(origin.x)} ${mm(origin.y)} ${mm(origin.z)}`,
-    `; Two ${mm(diameter)} mm holes with a calibrated T${tool} 3.175 mm end mill`,
-    "G21", "G90", "G17", "G94", "M5", lift,
-    "; Confirm the stock-top Z zero and clearance below both holes", "M600",
+    `; Sensei alignment setup v2 ${mm(origin.x)} ${mm(origin.y)} ${mm(origin.z)}`,
+    `; Two ${mm(diameter)} mm holes with a 3.175 mm end mill as T${tool}`,
+    "G21", "G90", "G17", "G94", "M5", lift, `M6 T${tool}`, "G21", "G90", "G17", "G94", lift,
+    "; Fit the 3.175 mm end mill, then confirm the stock-top Z zero and clearance below both holes", "M600",
     `M3 S${rpm}`, "G4 S2",
   ];
   // Four quarter-arcs per turn avoid full-circle ambiguity in firmware.
@@ -121,9 +120,10 @@ export function alignmentGcode(plan) {
   return lines.join("\n");
 }
 
+// A retry must cut around the same centers: the work XY zero must not move.
+// Work Z depends on the fitted tool, which the program changes itself.
 function sameSetup(a, b) {
-  return a.tool === b.tool && Math.abs(a.offset - b.offset) <= positionTolerance &&
-    ["x", "y", "z"].every((axis) => Math.abs(a.origin[axis] - b.origin[axis]) <= positionTolerance);
+  return ["x", "y"].every((axis) => Math.abs(a.origin[axis] - b.origin[axis]) <= positionTolerance);
 }
 
 export function createAlignmentHoles({
@@ -374,8 +374,8 @@ export function createAlignmentHoles({
           rpm: number("rpm"), feed: number("feed"), machine: getMachine(),
           limits: getSettings().learned?.soft_endstop, safeZ: getSafeZ(),
         });
-        if (queued && !sameSetup(queued, plan)) throw new Error("Restore the work zero and calibrated cutter used for the last hole program.");
-        if (!confirm(`Queue two Ø ${plan.diameter.toFixed(3)} mm holes? Verify stock-top Z zero, the calibrated 3.175 mm end mill, and clearance below both holes.`)) return;
+        if (queued && !sameSetup(queued, plan)) throw new Error("Restore the work XY zero used for the last hole program.");
+        if (!confirm(`Queue two Ø ${plan.diameter.toFixed(3)} mm holes? The program stops for a tool change so you can fit the 3.175 mm end mill, then pauses to confirm stock-top Z zero and clearance below both holes.`)) return;
         pending = "queue";
         render();
         feedback("Queuing alignment hole program…", "", { timeoutMs: 0 });

@@ -43,3 +43,27 @@ func TestAlignmentSetupChecksCapturedWorkZeroAndTool(t *testing.T) {
 		t.Fatalf("changed rotation: %v", err)
 	}
 }
+
+func TestAlignmentSetupV2ChecksWorkXYOnlyWhenTheProgramChangesTool(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "alignment-holes-v2.nc")
+	program := "; Sensei alignment setup v2 -180.0000 -150.0000 -50.0000\nG21\n"
+	if err := os.WriteFile(filename, []byte(program), 0600); err != nil {
+		t.Fatal(err)
+	}
+	setup, err := readAlignmentSetup(store.Entry{CachePath: filename, CacheState: store.CacheReady})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := machine.Status{
+		State: machine.Idle, Fields: map[string]string{"R": "0"}, Tool: &machine.ToolStatus{Active: 0, Offset: 0},
+		MPos: machine.AxisValues{"x": -90, "y": -120, "z": -10},
+		WPos: machine.AxisValues{"x": 90, "y": 30, "z": 12},
+	}
+	if err := setup.verify(status); err != nil {
+		t.Fatalf("probe fitted and a different tool length must be accepted: %v", err)
+	}
+	status.WPos["x"]++
+	if err := setup.verify(status); err == nil || !strings.Contains(err.Error(), "work zero") {
+		t.Fatalf("changed work X zero: %v", err)
+	}
+}
