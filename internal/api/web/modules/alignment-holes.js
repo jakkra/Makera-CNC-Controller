@@ -12,6 +12,9 @@ const positionTolerance = 0.01;
 // fitted, the same way the facing program does.
 const HOLE_TOOL = 1;
 const APPROACH_Z_MM = 2;
+// The helix starts this far above work Z0, so a stock top slightly above the
+// probed zero is still entered by the helix rather than a straight descent.
+const HELIX_START_Z_MM = 1;
 const localReferences = bedReferenceHoles({ x0: 0, y0: 0 });
 
 export function alignmentDelta(a, b) {
@@ -88,7 +91,8 @@ export function alignmentGcode(plan) {
   const mm = (value) => value.toFixed(4);
   const { centers, diameter, depth, stepdown, rpm, feed, origin, safeZ, tool } = plan;
   const radius = (diameter - cutterDiameter) / 2;
-  const turns = Math.ceil(depth / stepdown);
+  const helixDepth = depth + HELIX_START_Z_MM;
+  const turns = Math.ceil(helixDepth / stepdown);
   const lift = "G53 G0 Z" + mm(safeZ);
   const lineXY = (x, y) => `X${mm(x)} Y${mm(y)}`;
   const lines = [
@@ -105,12 +109,12 @@ export function alignmentGcode(plan) {
     const y = center.y - origin.y;
     // Rapid to just above the stock, feed to the surface, then descend only
     // along the helix. There is no straight plunge below Z0.
-    lines.push(lift, "G0 " + lineXY(x + radius, y), `G0 Z${mm(APPROACH_Z_MM)}`, `G1 Z0 F${mm(feed)}`);
+    lines.push(lift, "G0 " + lineXY(x + radius, y), `G0 Z${mm(APPROACH_Z_MM)}`, `G1 Z${mm(HELIX_START_Z_MM)} F${mm(feed)}`);
     for (let turn = 0; turn <= turns; turn++) {
       for (let quarter = 1; quarter < ring.length; quarter++) {
         const [px, py] = ring[quarter - 1];
         const [qx, qy] = ring[quarter];
-        const z = -depth * Math.min(1, (turn + quarter / 4) / turns);
+        const z = HELIX_START_Z_MM - helixDepth * Math.min(1, (turn + quarter / 4) / turns);
         const xy = lineXY(x + qx * radius, y + qy * radius);
         lines.push(`G3 ${xy} Z${mm(z)} I${mm(-px * radius)} J${mm(-py * radius)} F${mm(feed)}`);
       }

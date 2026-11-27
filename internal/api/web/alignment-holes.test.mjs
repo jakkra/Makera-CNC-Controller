@@ -52,7 +52,7 @@ test("the retry enlarges both holes around the same centers and finishes at the 
   assert.match(retryCode, /G0 X10\.4225 Y30\.0000/);
   assert.match(retryCode, /G0 X100\.4225 Y30\.0000/);
   assert.match(retryCode, /^; Sensei alignment setup v2 -180\.0000 -150\.0000 -50\.0000/);
-  assert.match(retryCode, /G3 X10\.0000 Y30\.4225 Z-0\.5000 I-0\.4225 J0\.0000/);
+  assert.match(retryCode, /G3 X10\.0000 Y30\.4225 Z0\.5625 I-0\.4225 J0\.0000/);
   assert.match(retryCode, /G3 X100\.4225 Y30\.0000 Z-6\.0000 .*\nG53 G0 Z-10\.0000\nM5/);
 });
 
@@ -63,20 +63,22 @@ test("a hole sweep beyond travel, oversized holes and stale or rotated coordinat
   assert.throws(() => alignmentPlan({ ...fixture, machine: { ...fixture.machine, fields: { R: "1" } } }), /rotation/);
 });
 
-test("holes are cut by a helix: nothing moves straight down below the stock top", () => {
+test("holes are cut by a helix from 1 mm above Z0: nothing moves straight down below it", () => {
   const plan = alignmentPlan(fixture);
   const lines = alignmentGcode(plan).split("\n");
   let below = 0;
   for (const line of lines) {
     const z = line.match(/ Z(-?[0-9.]+)/);
-    if (!z || line.startsWith("G53") || Number(z[1]) >= 0) continue;
+    if (!z || line.startsWith("G53") || Number(z[1]) >= 1) continue;
     below++;
     assert.match(line, /^G3 X-?[0-9.]+ Y-?[0-9.]+ Z-?[0-9.]+ I-?[0-9.]+ J-?[0-9.]+ F/, `straight move below Z0: ${line}`);
   }
-  const turns = Math.ceil(fixture.depth / fixture.stepdown);
+  const turns = Math.ceil((fixture.depth + 1) / fixture.stepdown);
   assert.equal(below, 2 * 4 * (turns + 1));
-  const descent = lines.findIndex((line) => line === "G1 Z0 F120.0000");
-  assert.deepEqual(lines.slice(descent - 2, descent + 1), ["G0 X10.4125 Y30.0000", "G0 Z2.0000", "G1 Z0 F120.0000"]);
+  const descent = lines.findIndex((line) => line === "G1 Z1.0000 F120.0000");
+  assert.deepEqual(lines.slice(descent - 2, descent + 2).map((line) => line.split(" ").slice(0, 2).join(" ")),
+    ["G0 X10.4125", "G0 Z2.0000", "G1 Z1.0000", "G3 X10.0000"]);
+  assert.ok(lines.some((line) => / Z-6.0000 /.test(line)), "still reaches the full depth");
 });
 
 test("the hole program changes to the end mill itself instead of requiring it fitted", () => {
