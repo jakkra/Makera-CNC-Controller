@@ -158,7 +158,12 @@
   .machining-steps > li.locked { opacity: .5; }
   .machining-steps > li.locked > :not(.machining-step-head) { display: none; }
   .machining-help { margin: 0; color: var(--muted); font-size: 13px; }
-  .machining-warning { margin: 0; color: var(--warn); font-weight: 650; }
+  .machining-warning { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 8px 12px; border: 1px solid var(--warn); border-radius: var(--radius); color: var(--warn); font-weight: 650; }
+  .machining-warning[hidden] { display: none; }
+  .probe-fit-body { display: grid; gap: 12px; }
+  .probe-fit-body p { margin: 0; }
+  .probe-fit-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .probe-fit-actions button { min-height: 56px; }
   .machining-steps button, #alignment-holes-open { min-height: 48px; }
   #alignment-holes-open { justify-self: start; }
   .facing-jog { display: grid; gap: 8px; }

@@ -558,7 +558,7 @@
           <li id="machining-step-outline">
             <div class="machining-step-head"><span class="machining-step-number" aria-hidden="true">1</span><div><strong>Mark the stock</strong><span class="machining-step-detail"></span></div></div>
             <p class="machining-help">Point the laser at one corner of the stock and set corner 1. Then move to the <em>opposite</em> corner and set corner 2.</p>
-            <p id="facing-tool-warning" class="machining-warning" hidden>Select the probe/laser tool (T0) first.</p>
+            <div id="facing-tool-warning" class="machining-warning" hidden><span>The probe (T0) with its laser is not fitted.</span><button type="button" data-fit-probe="guide">Fit Probe</button></div>
             <div class="facing-jog">
               <div class="facing-jog-head">
                 <button type="button" id="facing-arm">Arm Movement</button>
@@ -583,7 +583,7 @@
           <li id="machining-step-probe">
             <div class="machining-step-head"><span class="machining-step-number" aria-hidden="true">2</span><div><strong>Measure the surface</strong><span class="machining-step-detail"></span></div></div>
             <p class="machining-help">The probe touches a grid of points inside the rectangle, starting from its current height. Heights are measured from the current work Z zero, so leave it unchanged until the program is queued.</p>
-            <p id="facing-measure-tool" class="machining-warning" hidden>Select the probe tool (T0) first.</p>
+            <div id="facing-measure-tool" class="machining-warning" hidden><span>The probe (T0) is not fitted.</span><button type="button" data-fit-probe="guide">Fit Probe</button></div>
             <button type="button" id="facing-measure-disarm" hidden>Disarm Movement to measure</button>
             <div class="facing-measure-row"><span id="facing-measure-plan"></span><button type="button" id="facing-measure" class="primary">Measure surface</button></div>
           </li>
@@ -680,6 +680,7 @@
                         <button type="button" id="origin-probe-3d">3D Probe</button>
                         <button type="button" id="origin-probe-edge">Measure edge</button>
                         <button type="button" id="origin-probe-angle">Measure angle</button>
+                        <button type="button" id="origin-probe-fit" data-fit-probe>Fit Probe</button>
                         <button type="button" id="origin-probe-tool" disabled>Fit 3D Probe</button>
                       </div>
                     </div>
@@ -1064,6 +1065,17 @@
       </div>
       <p id="probe-3d-preflight" class="probe-3d-preflight" aria-hidden="true"></p>
     </div>
+  </div>
+</dialog>
+<dialog id="probe-fit-modal" class="origin-modal" aria-labelledby="probe-fit-title">
+  <div class="machine-settings-modal-head"><h2 id="probe-fit-title">Fit a probe</h2><button type="button" id="probe-fit-close">Close</button></div>
+  <div class="machine-settings-modal-body probe-fit-body">
+    <p>Probe Z needs a probe. Which one do you want to fit?</p>
+    <div class="probe-fit-actions">
+      <button type="button" data-fit-probe>Fit Probe</button>
+      <button type="button" data-fit-3d-probe>Fit 3D Probe</button>
+    </div>
+    <p class="machining-help">If the machine stops for you to fit the probe by hand, the button changes to Continue. Press Probe Z again once the probe is fitted.</p>
   </div>
 </dialog>
 <dialog id="probe-edge-modal" class="origin-modal" aria-labelledby="probe-edge-title">

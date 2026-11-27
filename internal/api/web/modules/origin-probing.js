@@ -837,7 +837,10 @@ async function runAutoZProbe() {
     return;
   }
   if (!zProbeToolActive()) {
-    setOriginFeedback("Z probe requires the probe tool or the 3D Probe to be active.", "error");
+    // Offer to fit a probe instead of only reporting that none is fitted.
+    const prompt = document.getElementById("probe-fit-modal");
+    if (prompt && !prompt.open) prompt.showModal();
+    else setOriginFeedback("Z probe requires the probe tool or the 3D Probe to be active.", "error");
     renderJog();
     return;
   }

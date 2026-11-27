@@ -1,5 +1,5 @@
 import { setTextIfChanged } from "./dom.js";
-import { TOOL_3D_PROBE } from "./tooling.js";
+import { TOOL_3D_PROBE, isWiredProbeTool } from "./tooling.js";
 
 export function createToolActions({
   documentRef = document, request, validToolID, toolDisplayName,
@@ -230,6 +230,21 @@ function observeProbeExchange(m) {
   }
 }
 
+const TOOL_PROBE = 0;
+
+function probeFitWaiting(m) {
+  return freshToolStatus(m) && m.state === "Tool" && m.tool?.target === TOOL_PROBE;
+}
+
+// Change to the regular probe (T0), or confirm the change once the machine
+// waits for it, like Fit 3D Probe does for the wired probe.
+function fitProbe() {
+  const m = state.machine;
+  if (getReadOnly() || state.toolPending || probeExchange || !freshToolStatus(m)) return;
+  if (probeFitWaiting(m)) return continueToolChange();
+  if (m.state === "Idle" && m.tool?.active !== TOOL_PROBE) return changeTool(TOOL_PROBE);
+}
+
 function exchangeProbe() {
   const m = state.machine;
   if (getReadOnly() || state.toolPending || probeExchange || !freshToolStatus(m)) return;
@@ -298,6 +313,29 @@ function renderToolActions(m = state.machine || {}) {
     probe.setAttribute("aria-label", confirm ? "Continue 3D Probe exchange" : "Fit 3D Probe");
     setElementBusy(probe, busy);
   }
+  for (const fit of document.querySelectorAll?.("[data-fit-3d-probe]") || []) {
+    const confirm = probeChangeWaiting(m);
+    fit.disabled = getReadOnly() || !!pendingAction ||
+      (!confirm && (!freshToolStatus(m) || m.state !== "Idle" || m.tool?.active === TOOL_3D_PROBE));
+    fit.classList.toggle("primary", confirm);
+    setTextIfChanged(fit, confirm ? "Continue" : "Fit 3D Probe");
+    setElementBusy(fit, changePending || continuePending);
+  }
+  const fitPrompt = document.getElementById("probe-fit-modal");
+  if (fitPrompt?.open && freshToolStatus(m) && m.state === "Idle" && !pendingAction &&
+      (m.tool?.active === TOOL_PROBE || isWiredProbeTool(m.tool?.active))) {
+    fitPrompt.close();
+    setToolFeedback("Probe fitted. Press Probe Z to probe.", "ok");
+  }
+  for (const fit of document.querySelectorAll?.("[data-fit-probe]") || []) {
+    const confirm = probeFitWaiting(m);
+    fit.disabled = getReadOnly() || !!pendingAction || !!probeExchange ||
+      (!confirm && (!freshToolStatus(m) || m.state !== "Idle" || m.tool?.active === TOOL_PROBE));
+    fit.classList.toggle("primary", confirm || fit.dataset.fitProbe === "guide");
+    setTextIfChanged(fit, confirm ? "Continue" : "Fit Probe");
+    fit.setAttribute("aria-label", confirm ? "Continue the probe change" : "Fit Probe (T0)");
+    setElementBusy(fit, changePending || continuePending);
+  }
 }
 
 function setToolFeedback(text, kind) {
@@ -315,9 +353,13 @@ function clearToolFeedback() {
     bindButtonAction(document.getElementById("tool-calibrate"), calibrateCurrentTool);
     const probe = document.getElementById("origin-probe-tool");
     if (probe) bindButtonAction(probe, exchangeProbe);
+    for (const fit of document.querySelectorAll?.("[data-fit-probe]") || []) bindButtonAction(fit, fitProbe);
+    for (const fit of document.querySelectorAll?.("[data-fit-3d-probe]") || []) bindButtonAction(fit, exchangeProbe);
+    const fitPrompt = document.getElementById("probe-fit-modal");
+    if (fitPrompt) bindButtonAction(document.getElementById("probe-fit-close"), () => fitPrompt.close());
     document.getElementById("tool-set-select").onchange = (e) => handleToolSelect("set", e.target.value);
     document.getElementById("tool-change-select").onchange = (e) => handleToolSelect("change", e.target.value);
   }
 
-  return { bindInteractions, customToolID, resetToolSelects, toggleToolCustomInput, handleToolSelect, selectedToolID, setCurrentTool, changeTool, continueToolChange, calibrateCurrentTool, beginToolAction, finishToolAction, refreshMachineAfterToolAction, renderToolActions, setToolFeedback, clearToolFeedback };
+  return { bindInteractions, fitProbe, customToolID, resetToolSelects, toggleToolCustomInput, handleToolSelect, selectedToolID, setCurrentTool, changeTool, continueToolChange, calibrateCurrentTool, beginToolAction, finishToolAction, refreshMachineAfterToolAction, renderToolActions, setToolFeedback, clearToolFeedback };
 }
