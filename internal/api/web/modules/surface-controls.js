@@ -75,15 +75,73 @@ export function createSurfaceControls({ state, documentRef = document, performan
     const inputs = ["x", "y"].map((axis) => documentRef.getElementById("surface-map-" + axis));
     let selected = null;
     let press = null;
+    const hint = documentRef.getElementById("surface-map-hint");
+    // Zoom and pan: view.zoom >= 1 around a centre in machine coordinates.
+    const view = { zoom: 1, cx: null, cy: null };
+    const pointers = new Map();
+    let gesture = null;
+    const TAP_SLOP_PX = 16;
+    const MAX_ZOOM = 8;
     const mapModel = () => {
       const machine = normalizeMachineSettings(state.ui.machine);
       const work = machine.work_area;
       const placement = bedPlatePlacement(machine.learned);
       return { work, placement, extent: bedMapExtent(work, placement) };
     };
+    // The part of the map currently shown, clamped inside the full extent.
+    function visibleExtent() {
+      const { extent } = mapModel();
+      const w = extent.x_max - extent.x_min;
+      const h = extent.y_max - extent.y_min;
+      const vw = w / view.zoom;
+      const vh = h / view.zoom;
+      const cx = clampNumber(view.cx ?? extent.x_min + w / 2, extent.x_min + vw / 2, extent.x_max - vw / 2);
+      const cy = clampNumber(view.cy ?? extent.y_min + h / 2, extent.y_min + vh / 2, extent.y_max - vh / 2);
+      view.cx = cx;
+      view.cy = cy;
+      return { x_min: cx - vw / 2, x_max: cx + vw / 2, y_min: cy - vh / 2, y_max: cy + vh / 2 };
+    }
+    function pointFromClient(clientX, clientY) {
+      const rect = plot.getBoundingClientRect();
+      const v = visibleExtent();
+      const fx = clampNumber((clientX - rect.left - (plot.clientLeft || 0)) / Math.max(1, plot.clientWidth || rect.width), 0, 1);
+      const fy = clampNumber((clientY - rect.top - (plot.clientTop || 0)) / Math.max(1, plot.clientHeight || rect.height), 0, 1);
+      return { x: v.x_min + fx * (v.x_max - v.x_min), y: v.y_max - fy * (v.y_max - v.y_min) };
+    }
+    function zoomAt(factor, anchor = null) {
+      const before = visibleExtent();
+      const next = clampNumber(view.zoom * factor, 1, MAX_ZOOM);
+      if (next === view.zoom) return;
+      if (anchor) {
+        // Keep the anchor point under the finger or cursor.
+        const ax = (anchor.x - before.x_min) / (before.x_max - before.x_min);
+        const ay = (anchor.y - before.y_min) / (before.y_max - before.y_min);
+        const { extent } = mapModel();
+        const vw = (extent.x_max - extent.x_min) / next;
+        const vh = (extent.y_max - extent.y_min) / next;
+        view.cx = anchor.x - (ax - 0.5) * vw;
+        view.cy = anchor.y - (ay - 0.5) * vh;
+      }
+      view.zoom = next;
+      render();
+    }
+    function chooseAt(point) {
+      if (inputs.every(Boolean)) {
+        inputs[0].value = point.x.toFixed(3);
+        inputs[1].value = point.y.toFixed(3);
+        select(Number(inputs[0].value), Number(inputs[1].value));
+      } else select(point.x, point.y);
+    }
+
     renderXYMapControls = () => {
       if (!modal?.open || !move || !arm) return;
       const { armed, armAvailable, armPending, ready, busy } = callbacks.xyMapMovement();
+      if (hint) {
+        hint.textContent = !selected ? "Tap the map to choose where to move."
+          : !armed ? "Arm Movement, then hold Move here until it fills and release."
+            : !ready ? "Waiting for the machine to be ready to move."
+              : "Hold Move here until it fills, then release to move.";
+      }
       arm.textContent = callbacks.movementArmLabel();
       arm.disabled = armPending || busy || !armAvailable;
       arm.setAttribute("aria-pressed", String(armed));
@@ -98,9 +156,13 @@ export function createSurfaceControls({ state, documentRef = document, performan
       const ratio = (extent.x_max - extent.x_min) / Math.max(1e-6, extent.y_max - extent.y_min);
       if (plot.style) {
         plot.style.aspectRatio = String(ratio);
-        plot.style.width = `min(100%, calc(48dvh * ${ratio.toFixed(4)}))`;
+        plot.style.width = `min(100%, calc(70dvh * ${ratio.toFixed(4)}))`;
       }
       plot.innerHTML = bedPlateSVG({ work, placement, target: selected });
+      const v = visibleExtent();
+      plot.querySelector?.("svg")?.setAttribute("viewBox", `${v.x_min} ${-v.y_max} ${v.x_max - v.x_min} ${v.y_max - v.y_min}`);
+      const level = documentRef.getElementById("surface-map-zoom-level");
+      if (level) level.textContent = view.zoom.toFixed(view.zoom < 2 ? 1 : 0) + "×";
       renderXYMapControls();
     };
     function select(x, y) {
@@ -118,6 +180,8 @@ export function createSurfaceControls({ state, documentRef = document, performan
     }
     const open = () => {
       selected = null;
+      view.zoom = 1;
+      view.cx = view.cy = null;
       target.textContent = "No target selected";
       for (const input of inputs) if (input) input.value = "";
       modal?.showModal();
@@ -131,17 +195,71 @@ export function createSurfaceControls({ state, documentRef = document, performan
     documentRef.getElementById("surface-map-close-bottom")?.addEventListener("click", close);
     modal?.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
     bindButtonAction?.(arm, toggleSurfaceMovementArm);
+    // One finger: tap to choose, drag to pan when zoomed. Two fingers: pinch
+    // to zoom. Mouse wheel zooms at the cursor.
     plot?.addEventListener("pointerdown", (e) => {
-      if ((e.button ?? 0) !== 0 || callbacks.xyMapMovement?.().busy) return;
-      const rect = plot.getBoundingClientRect();
-      const { extent } = mapModel();
-      const x = extent.x_min + clampNumber((e.clientX - rect.left - (plot.clientLeft || 0)) / Math.max(1, plot.clientWidth || rect.width), 0, 1) * (extent.x_max - extent.x_min);
-      const y = extent.y_max - clampNumber((e.clientY - rect.top - (plot.clientTop || 0)) / Math.max(1, plot.clientHeight || rect.height), 0, 1) * (extent.y_max - extent.y_min);
-      if (inputs.every(Boolean)) {
-        inputs[0].value = x.toFixed(3);
-        inputs[1].value = y.toFixed(3);
-        select(Number(inputs[0].value), Number(inputs[1].value));
-      } else select(x, y);
+      if ((e.button ?? 0) !== 0) return;
+      try {
+        plot.setPointerCapture?.(e.pointerId);
+      } catch {
+        // Capture is best-effort; pointerup on the plot still ends the gesture.
+      }
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 1) {
+        gesture = { kind: "tap", startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY };
+      } else if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        gesture = { kind: "pinch", distance: Math.hypot(a.x - b.x, a.y - b.y) };
+      }
+      e.preventDefault?.();
+    });
+    plot?.addEventListener("pointermove", (e) => {
+      if (!pointers.has(e.pointerId) || !gesture) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (gesture.kind === "pinch" && pointers.size >= 2) {
+        const [a, b] = [...pointers.values()];
+        const distance = Math.hypot(a.x - b.x, a.y - b.y);
+        if (gesture.distance > 0 && distance > 0) {
+          zoomAt(distance / gesture.distance, pointFromClient((a.x + b.x) / 2, (a.y + b.y) / 2));
+          gesture.distance = distance;
+        }
+        return;
+      }
+      const moved = Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY);
+      if (gesture.kind === "tap" && moved > TAP_SLOP_PX && view.zoom > 1) gesture.kind = "pan";
+      if (gesture.kind === "pan") {
+        const rect = plot.getBoundingClientRect();
+        const v = visibleExtent();
+        view.cx -= (e.clientX - gesture.lastX) / Math.max(1, rect.width) * (v.x_max - v.x_min);
+        view.cy += (e.clientY - gesture.lastY) / Math.max(1, rect.height) * (v.y_max - v.y_min);
+        render();
+      }
+      gesture.lastX = e.clientX;
+      gesture.lastY = e.clientY;
+    });
+    const endPointer = (e, cancelled) => {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.delete(e.pointerId);
+      const done = gesture;
+      if (pointers.size === 0) gesture = null;
+      else if (done?.kind === "pinch") gesture = { kind: "pinched" };
+      if (cancelled || !done || done.kind !== "tap" || callbacks.xyMapMovement?.().busy) return;
+      if (Math.hypot(e.clientX - done.startX, e.clientY - done.startY) > TAP_SLOP_PX) return;
+      chooseAt(pointFromClient(e.clientX, e.clientY));
+    };
+    plot?.addEventListener("pointerup", (e) => endPointer(e, false));
+    plot?.addEventListener("pointercancel", (e) => endPointer(e, true));
+    plot?.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      zoomAt(e.deltaY < 0 ? 1.25 : 0.8, pointFromClient(e.clientX, e.clientY));
+    }, { passive: false });
+    for (const [id, factor] of [["surface-map-zoom-in", 1.5], ["surface-map-zoom-out", 1 / 1.5]]) {
+      documentRef.getElementById(id)?.addEventListener("click", () => zoomAt(factor, selected));
+    }
+    documentRef.getElementById("surface-map-zoom-reset")?.addEventListener("click", () => {
+      view.zoom = 1;
+      view.cx = view.cy = null;
+      render();
     });
     for (const input of inputs) input?.addEventListener("input", () => {
       if (inputs.some((field) => !field.value.trim() || field.validity?.badInput)) {

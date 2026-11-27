@@ -1324,16 +1324,26 @@
 <dialog id="surface-xy-map-modal" class="surface-xy-map" aria-labelledby="surface-xy-map-title">
   <div class="machine-settings-modal-head"><h2 id="surface-xy-map-title">XY target map</h2><button type="button" id="surface-map-close" aria-label="Close XY map">Close</button></div>
   <div class="surface-xy-map-body">
-    <div id="surface-xy-map-plot" class="surface-xy-map-plot" role="img" aria-label="XY travel map over the bed plate; selecting a point does not move the machine"></div>
+    <div class="surface-xy-map-view">
+      <div id="surface-xy-map-plot" class="surface-xy-map-plot" role="img" aria-label="XY travel map over the bed plate; tap to choose a point, pinch or use the buttons to zoom"></div>
+      <div class="surface-xy-map-zoom" role="group" aria-label="Zoom">
+        <button type="button" id="surface-map-zoom-out" aria-label="Zoom out">−</button>
+        <button type="button" id="surface-map-zoom-reset" aria-label="Show the whole bed"><span id="surface-map-zoom-level">1.0×</span></button>
+        <button type="button" id="surface-map-zoom-in" aria-label="Zoom in">+</button>
+      </div>
+    </div>
+    <div class="surface-xy-map-side">
     <div id="surface-xy-map-target" class="surface-xy-map-target">No target selected</div>
+    <p id="surface-map-hint" class="surface-xy-map-hint">Tap the map to choose where to move.</p>
     <div class="surface-xy-map-coordinates" aria-label="Machine coordinates in millimeters">
       <label>Machine X <input id="surface-map-x" type="number" step="0.001" inputmode="decimal"></label>
       <label>Machine Y <input id="surface-map-y" type="number" step="0.001" inputmode="decimal"></label>
     </div>
     <div class="surface-xy-map-actions">
       <button type="button" id="surface-map-arm" aria-pressed="false">Arm Movement</button>
-      <button type="button" id="surface-map-move" class="primary" disabled aria-label="Hold until filled, then release to move to the selected point">Hold, release to move</button>
+      <button type="button" id="surface-map-move" class="primary" disabled aria-label="Hold until filled, then release to move to the selected point">Move here (hold)</button>
       <button type="button" id="surface-map-close-bottom">Close</button>
+    </div>
     </div>
   </div>
 </dialog>

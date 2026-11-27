@@ -36,7 +36,8 @@ test("both views share one XY map, and a confirmed target sends one move", () =>
   const plot = node("surface-xy-map-plot");
   const move = node("surface-map-move");
   open.handlers.click();
-  plot.handlers.pointerdown({ button: 0, clientX: 30, clientY: 40 });
+  plot.handlers.pointerdown({ button: 0, pointerId: 1, clientX: 30, clientY: 40 });
+  plot.handlers.pointerup({ button: 0, pointerId: 1, clientX: 30, clientY: 40 });
   assert.equal(node("surface-map-x").value, "-70.000");
   assert.equal(node("surface-map-y").value, "-40.000");
   assert.equal(move.disabled, true);

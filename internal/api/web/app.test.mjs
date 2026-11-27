@@ -8671,7 +8671,9 @@ test("Selecting an XY map point previews coordinates without issuing motion", ()
     clampNumber: (n, min, max) => Math.max(min, Math.min(max, n)),
   } });
   controls.bindSurfaceXYMap();
-  listeners["plot:pointerdown"]({ clientX: 60, clientY: 70 });
+  listeners["plot:pointerdown"]({ pointerId: 1, clientX: 60, clientY: 70 });
+  assert.equal(target.textContent, "", "a point is chosen when the finger lifts, so a drag can pan instead");
+  listeners["plot:pointerup"]({ pointerId: 1, clientX: 60, clientY: 70 });
   assert.equal(target.textContent, "X 150.0  Y 50.0 mm");
   let cancelled = false;
   listeners["modal:cancel"]({ preventDefault: () => { cancelled = true; } });
