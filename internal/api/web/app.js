@@ -39,6 +39,7 @@ import { createSurfaceFacing } from "./modules/surface-facing.js";
 import { createAlignmentHoles } from "./modules/alignment-holes.js";
 import { createMachiningView } from "./modules/machining-view.js";
 import { keepFieldsAboveKeyboard } from "./modules/touch-keyboard.js";
+import { attachNumericKeypad } from "./modules/numeric-keypad.js";
 import { createOutlineCaptureOperations } from "./modules/outline-capture-operations.js";
 import { createOutlineCoordination } from "./modules/outline-coordination.js";
 import { createJogEventHandler } from "./modules/jog-events.js";
@@ -2620,7 +2621,10 @@ function init() {
   surfaceFacing.bind(bindButtonAction);
   alignmentHoles.bind(bindButtonAction);
   machiningView.bind();
-  for (const id of ["surface-facing-modal", "alignment-holes-modal"]) keepFieldsAboveKeyboard(document.getElementById(id));
+  for (const id of ["surface-facing-modal", "alignment-holes-modal"]) {
+    keepFieldsAboveKeyboard(document.getElementById(id));
+    attachNumericKeypad(document.getElementById(id), { enabled: () => isSurfaceKiosk() });
+  }
   machiningView.restoreSession();
   surfaceShell.bindInteractions({ bindButtonAction });
   for (const button of document.querySelectorAll("[data-spindle-fan]")) {

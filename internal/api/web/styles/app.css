@@ -696,6 +696,21 @@
   .surface-facing-entry-summary { margin: 8px 0 0; min-height: 1.5em; color: var(--warn); font-size: 13px; font-variant-numeric: tabular-nums; }
   #surface-facing-modal, #alignment-holes-modal { overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; }
   #surface-facing-modal.keyboard-open, #alignment-holes-modal.keyboard-open { margin: 8px auto auto; max-height: 46dvh; }
+  .numeric-keypad { position: sticky; bottom: 0; z-index: 5; display: grid; gap: 8px; padding: 12px 16px 16px; background: #1a2022; border-top: 1px solid var(--accent); box-shadow: 0 -12px 28px rgba(0,0,0,.45); }
+  .numeric-keypad[hidden] { display: none; }
+  .numeric-keypad-display { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+  .numeric-keypad-label { color: var(--muted); font-size: 13px; }
+  .numeric-keypad-value { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .numeric-keypad-keys { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.2fr); grid-template-areas: "k7 k8 k9 back" "k4 k5 k6 clear" "k1 k2 k3 cancel" "sign k0 dot ok"; gap: 6px; }
+  .numeric-keypad-keys button { min-height: 52px; padding: 0; font-size: 22px; font-weight: 650; }
+  .numeric-keypad-keys [data-key="7"] { grid-area: k7; } .numeric-keypad-keys [data-key="8"] { grid-area: k8; } .numeric-keypad-keys [data-key="9"] { grid-area: k9; }
+  .numeric-keypad-keys [data-key="4"] { grid-area: k4; } .numeric-keypad-keys [data-key="5"] { grid-area: k5; } .numeric-keypad-keys [data-key="6"] { grid-area: k6; }
+  .numeric-keypad-keys [data-key="1"] { grid-area: k1; } .numeric-keypad-keys [data-key="2"] { grid-area: k2; } .numeric-keypad-keys [data-key="3"] { grid-area: k3; }
+  .numeric-keypad-keys [data-key="0"] { grid-area: k0; } .numeric-keypad-keys [data-key="."] { grid-area: dot; } .numeric-keypad-keys [data-key="sign"] { grid-area: sign; }
+  .numeric-keypad-keys [data-key="back"] { grid-area: back; } .numeric-keypad-keys [data-key="clear"] { grid-area: clear; font-size: 16px; }
+  .numeric-keypad-keys [data-key="cancel"] { grid-area: cancel; font-size: 16px; } .numeric-keypad-keys [data-key="ok"] { grid-area: ok; font-size: 18px; }
+  input.keypad-target { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input[data-keypad="true"] { cursor: pointer; caret-color: transparent; }
   #machining-view { overflow-x: hidden; overscroll-behavior: contain; touch-action: pan-y; }
   .surface-facing-note { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
   #surface-facing-material { border: 0; margin: 0 0 4px; padding: 0; min-width: 0; }

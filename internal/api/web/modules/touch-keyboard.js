@@ -1,7 +1,7 @@
 // The Surface on-screen keyboard covers the lower half of the screen without
 // resizing the page. While a text or number field in a dialog has focus, move
 // the dialog to the top half and keep the field in view.
-const TYPED = "input:not([type=checkbox]):not([type=radio]):not([type=range]), textarea";
+const TYPED = "input:not([type=checkbox]):not([type=radio]):not([type=range]):not([readonly]), textarea:not([readonly])";
 
 export function keepFieldsAboveKeyboard(dialog, { setTimeoutRef = globalThis.setTimeout } = {}) {
   if (!dialog) return;
