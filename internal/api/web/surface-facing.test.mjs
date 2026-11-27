@@ -94,7 +94,7 @@ test("each entry corner starts on its own row and side", () => {
   assert.throws(() => at("auto", { ...args.limits, x_min: -92, x_max: -48 }), /beyond an X edge/);
 });
 
-test("hand-captured corners within a millimeter are faced as their bounding box", () => {
+test("hand-captured corners within 5 mm are faced as their bounding box", () => {
   const rough = [
     { machine_x: -90.6, machine_y: -70.2, machine_z: -25 },
     { machine_x: -50.1, machine_y: -69.5, machine_z: -24.8 },
@@ -103,8 +103,8 @@ test("hand-captured corners within a millimeter are faced as their bounding box"
   ];
   const plan = facingPlan({ ...args, outline: { ...outline, points: rough } });
   assert.deepEqual(plan.bounds, { left: -90.6, right: -49.4, front: -70.2, back: -39.6 });
-  const skewed = rough.map((p, i) => i === 2 ? { ...p, machine_x: -47.5 } : p);
-  assert.throws(() => facingPlan({ ...args, outline: { ...outline, points: skewed } }), /within 1 mm/);
+  const skewed = rough.map((p, i) => i === 2 ? { ...p, machine_x: -44 } : p);
+  assert.throws(() => facingPlan({ ...args, outline: { ...outline, points: skewed } }), /within 5 mm/);
 });
 
 test("the trace covers the cutter sweep including the side entry", () => {

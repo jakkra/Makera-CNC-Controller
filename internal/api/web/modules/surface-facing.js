@@ -31,9 +31,9 @@ export function surfaceMeasurements(outline) {
   return { points, low, high, range: high - low, planeDeviation, reference };
 }
 
-// Hand-captured corners are rarely within a few hundredths of each other.
+// Hand-captured corners are rarely exact, and stock is often slightly skewed.
 // Accept a near-rectangle and face its bounding box, which covers every corner.
-export const RECTANGLE_TOLERANCE_MM = 1;
+export const RECTANGLE_TOLERANCE_MM = 5;
 // The cutter descends this far outside the stock edge (plus its radius) and
 // then feeds in from the side. It never plunges into material.
 export const ENTRY_CLEARANCE_MM = 3;
