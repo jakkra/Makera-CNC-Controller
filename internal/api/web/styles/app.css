@@ -1373,9 +1373,11 @@
   .upload-offer-file { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
   .upload-offer-file svg { flex: none; width: 22px; height: 22px; fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linejoin: round; }
   #upload-offer-title { display: block; min-width: 0; font: 600 17px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
-  .upload-offer-checks { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
-  .upload-offer-checks li { padding: 6px 12px 6px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 13px; }
-  .upload-offer-checks li::before { content: "✓"; margin-right: 6px; color: var(--ok); font-weight: 700; }
+  .upload-offer-facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 15px; }
+  .upload-offer-facts dt { color: var(--muted); }
+  .upload-offer-facts dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .upload-offer-notes { display: grid; gap: 4px; margin: 0; padding: 0 0 0 12px; border-left: 2px solid var(--border); list-style: none; color: var(--muted); font-size: 13px; }
+  .upload-offer-facts[hidden], .upload-offer-notes[hidden] { display: none; }
   .upload-offer-actions { display: grid; grid-template-columns: 1fr 1.7fr; gap: 12px; }
   #upload-offer button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 68px; border-radius: 10px; font-size: 19px; font-weight: 650; }
   #upload-offer-dismiss { background: transparent; border-color: var(--border); color: var(--muted); }

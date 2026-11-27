@@ -15,6 +15,9 @@ export function mountUpNext({ document, request, setStatusMessage, canStart, rea
   let offerDeadline = 0;
   let shownOffer = null;
   const countdown = document.getElementById("upload-offer-countdown");
+  const facts = document.getElementById("upload-offer-facts");
+  const notes = document.getElementById("upload-offer-notes");
+  let summaryFor = null;
 
   async function act(item, action, fromOffer = false) {
     if (!item || busy || readOnly()) return;
@@ -90,11 +93,47 @@ export function mountUpNext({ document, request, setStatusMessage, canStart, rea
         void countdown.offsetWidth;
         countdown.style.animation = `upload-offer-countdown ${Math.max(0, offerDeadline - Date.now())}ms linear forwards`;
       }
+      loadSummary(offered);
     } else {
       shownOffer = null;
     }
     start.disabled = busy;
     start.setAttribute("aria-busy", String(busy));
+  }
+
+  // Estimated time, tools and the program's own header comments, when the
+  // file can be read; the prompt works the same without them.
+  async function loadSummary(item) {
+    const key = item.id + ":" + item.md5;
+    if (summaryFor === key || !facts || !notes) return;
+    summaryFor = key;
+    facts.hidden = notes.hidden = true;
+    let summary;
+    try {
+      const query = "?path=" + encodeURIComponent(item.path) + "&md5=" + encodeURIComponent(item.md5);
+      summary = await (await request("/api/up-next/summary" + query)).json();
+    } catch {
+      return;
+    }
+    if (summaryFor !== key) return;
+    const rows = [];
+    if (summary.estimated_ms > 0) rows.push(["Estimated time", formatDuration(summary.estimated_ms)]);
+    const tools = (summary.tools || []).filter((tool) => tool.number > 0);
+    if (tools.length) rows.push([tools.length === 1 ? "Tool" : "Tools", tools.map((tool) => "T" + tool.number + (tool.name ? " " + tool.name : "")).join(", ")]);
+    facts.replaceChildren(...rows.flatMap(([label, value]) => {
+      const term = document.createElement("dt");
+      const detail = document.createElement("dd");
+      term.textContent = label;
+      detail.textContent = value;
+      return [term, detail];
+    }));
+    facts.hidden = !rows.length;
+    notes.replaceChildren(...(summary.notes || []).map((text) => {
+      const line = document.createElement("li");
+      line.textContent = text;
+      return line;
+    }));
+    notes.hidden = !(summary.notes || []).length;
   }
 
   function apply(snapshot) {
@@ -134,4 +173,12 @@ export function mountUpNext({ document, request, setStatusMessage, canStart, rea
   }
   if (dismiss) dismiss.onclick = () => { if (offered) dismissed.add(offered.id); render(); };
   return { apply, render, showTransfer };
+}
+
+export function formatDuration(ms) {
+  const minutes = Math.max(1, Math.round(ms / 60000));
+  if (minutes < 60) return `about ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `about ${hours} h${rest ? ` ${rest} min` : ""}`;
 }

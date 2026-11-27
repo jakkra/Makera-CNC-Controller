@@ -113,6 +113,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/up-next/start", s.upcomingAction)
 	mux.HandleFunc("POST /api/up-next/remove", s.upcomingAction)
 	mux.HandleFunc("GET /api/up-next", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, s.svc.Upcoming()) })
+	mux.HandleFunc("GET /api/up-next/summary", s.upcomingSummary)
 	mux.HandleFunc("GET /api/jobs", s.getJobs)
 	mux.HandleFunc("GET /api/runs", s.getRuns)
 	mux.HandleFunc("DELETE /api/runs", s.clearRuns)
@@ -1141,6 +1142,17 @@ func (s *Server) postSpindleFan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// upcomingSummary describes a queued program (estimate, tools, header notes)
+// for the start prompt.
+func (s *Server) upcomingSummary(w http.ResponseWriter, r *http.Request) {
+	summary, err := s.svc.UpcomingSummary(r.URL.Query().Get("path"), r.URL.Query().Get("md5"))
+	if err != nil {
+		s.mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
 }
 
 func (s *Server) upcomingAction(w http.ResponseWriter, r *http.Request) {
