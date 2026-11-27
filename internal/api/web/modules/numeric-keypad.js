@@ -26,6 +26,12 @@ export function keypadPress(buffer, key, { allowNegative = true } = {}) {
 
 const NUMBER_FIELD = "input[type=number]";
 
+// A field without a minimum, or with a negative one, accepts negative values.
+export function allowsNegative(input) {
+  const min = input?.getAttribute?.("min");
+  return min == null || min.trim() === "" || !(Number(min) >= 0);
+}
+
 function fieldLabel(input) {
   const label = input.labels?.[0] || input.closest("label");
   const text = (label?.childNodes?.length ? [...label.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join(" ") : label?.textContent) || input.getAttribute("aria-label") || "";
@@ -44,7 +50,7 @@ export function attachNumericKeypad(dialog, { enabled = () => true } = {}) {
     <div class="numeric-keypad-display"><span class="numeric-keypad-label"></span><output class="numeric-keypad-value"></output></div>
     <div class="numeric-keypad-keys">
       ${["7", "8", "9", "4", "5", "6", "1", "2", "3"].map((k) => `<button type="button" data-key="${k}">${k}</button>`).join("")}
-      <button type="button" data-key="sign" aria-label="Change sign">±</button>
+      <button type="button" data-key="sign" aria-label="Make negative or positive">+/−</button>
       <button type="button" data-key="0">0</button>
       <button type="button" data-key="." aria-label="Decimal point">.</button>
       <button type="button" data-key="back" aria-label="Delete last digit">⌫</button>
@@ -117,7 +123,7 @@ export function attachNumericKeypad(dialog, { enabled = () => true } = {}) {
     event.preventDefault();
     if (key === "ok") return commit();
     if (key === "cancel") return close();
-    buffer = keypadPress(buffer, key, { allowNegative: !(Number(target?.min) >= 0) });
+    buffer = keypadPress(buffer, key, { allowNegative: allowsNegative(target) });
     show();
   });
   dialog.addEventListener("close", close);
