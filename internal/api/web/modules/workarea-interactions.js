@@ -1,5 +1,7 @@
 export function createWorkAreaInteractions({ state, documentRef = globalThis.document, windowRef = globalThis, constants = {}, callbacks = {} }) {
   const { WORKAREA_PAN_THRESHOLD_PX, WORKAREA_ZOOM_STEP, MOBILE_WORKAREA_MAX_WIDTH_PX } = constants;
+  // A fingertip drifts a few pixels during a tap; only a real drag should pan.
+  const TOUCH_PAN_THRESHOLD_PX = 16;
   const {
     workAreaToMachinePoint, workAreaLocalToContentPoint, sendTapMove,
     isMobileWorkAreaJogEnabled, tapMoveTargetBusy, hasPendingOriginOperation,
@@ -187,6 +189,8 @@ export function createWorkAreaInteractions({ state, documentRef = globalThis.doc
     v.pointerLastY = local.y;
     v.clientStartX = e.clientX;
     v.clientStartY = e.clientY;
+    v.panThresholdPX = e.pointerType === "touch" || e.pointerType === "pen"
+      ? Math.max(TOUCH_PAN_THRESHOLD_PX, WORKAREA_PAN_THRESHOLD_PX) : WORKAREA_PAN_THRESHOLD_PX;
     v.tapLocal = { x: local.x, y: local.y };
     v.tapProbeID = String(e.target?.dataset?.fieldProbeId || "");
     const selected = selectedFieldProbePoint();
@@ -215,7 +219,7 @@ export function createWorkAreaInteractions({ state, documentRef = globalThis.doc
       return;
     }
     const moved = Math.hypot(e.clientX - v.clientStartX, e.clientY - v.clientStartY);
-    if (!v.dragging && moved > WORKAREA_PAN_THRESHOLD_PX) {
+    if (!v.dragging && moved > (v.panThresholdPX ?? WORKAREA_PAN_THRESHOLD_PX)) {
       v.dragging = true;
       v.probeDragging = !!v.probeDragID;
       svg.classList.add(v.probeDragging ? "moving-probe" : "panning");
