@@ -1422,10 +1422,16 @@
     </div>
   </div>
 </dialog>
-<aside id="upload-offer" aria-labelledby="upload-offer-title" hidden>
-  <strong id="upload-offer-title"></strong>
-  <button type="button" id="upload-offer-start" class="primary">Start job</button>
-  <button type="button" id="upload-offer-dismiss">Dismiss</button>
+<aside id="upload-offer" role="dialog" aria-modal="true" aria-labelledby="upload-offer-title" hidden>
+  <div class="upload-offer-card">
+    <span class="upload-offer-kicker">Upload complete</span>
+    <strong id="upload-offer-title"></strong>
+    <p class="upload-offer-note">Check the stock, clamps and work zero before starting.</p>
+    <div class="upload-offer-actions">
+      <button type="button" id="upload-offer-dismiss">Not now</button>
+      <button type="button" id="upload-offer-start" class="primary">Start job</button>
+    </div>
+  </div>
 </aside>
 <div id="status-bar" role="status" aria-live="polite" hidden>
   <div id="notice"></div>

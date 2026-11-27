@@ -1362,9 +1362,14 @@
   #up-next-items { max-height: 160px; overflow: auto; margin: 0; padding: 0 16px; list-style: none; }
   #up-next-items li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 4px 0; }
   #up-next-items li span, #upload-offer-title { overflow-wrap: anywhere; }
-  #upload-offer { position: fixed; right: 16px; bottom: calc(80px + env(safe-area-inset-bottom)); z-index: 115; width: min(320px, calc(100vw - 32px)); box-sizing: border-box; padding: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 4px 16px #0005; }
-  #upload-offer-title { display: block; margin-bottom: 12px; }
-  #upload-offer button { min-height: 36px; }
+  #upload-offer { position: fixed; inset: 0; z-index: 400; display: grid; place-items: center; box-sizing: border-box; padding: 16px; background: rgba(0,0,0,.62); backdrop-filter: blur(2px); }
+  #upload-offer[hidden] { display: none; }
+  .upload-offer-card { display: grid; gap: 14px; width: min(600px, 100%); box-sizing: border-box; padding: 28px; background: var(--panel); border: 1px solid var(--accent); border-radius: 12px; box-shadow: 0 24px 64px rgba(0,0,0,.55); }
+  .upload-offer-kicker { color: var(--accent); font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  #upload-offer-title { display: block; font-size: 26px; line-height: 1.25; }
+  .upload-offer-note { margin: 0; color: var(--muted); font-size: 15px; }
+  .upload-offer-actions { display: grid; grid-template-columns: 1fr 1.6fr; gap: 12px; margin-top: 8px; }
+  #upload-offer button { min-height: 72px; font-size: 20px; font-weight: 650; }
 
   /* Surface controller shell.  These final rules deliberately override the
      older desktop toolbar without changing the long-lived control DOM. */
