@@ -178,6 +178,7 @@ export function createSurfaceFacing({
   const node = (name) => document.getElementById("surface-facing-" + name);
   const dialog = () => node("modal");
   const getInputs = () => Array.from(dialog().querySelectorAll("[data-facing-param]"));
+  const getEditButtons = () => dialog().querySelectorAll("[data-facing-diameter], [data-facing-step]");
   let pending = "";
   let plan;
   let lastMap;
@@ -213,6 +214,7 @@ export function createSurfaceFacing({
     setElementBusy(node("queue"), pending === "queue");
     setTextIfChanged(node("queue"), pending === "queue" ? "Queuing…" : "Queue facing program");
     for (const input of getInputs()) input.disabled = !!pending;
+    for (const button of getEditButtons()) button.disabled = !!pending;
   }
 
   function bind(bindButtonAction) {
@@ -231,6 +233,37 @@ export function createSurfaceFacing({
     bindButtonAction(node("close"), () => { if (!pending) dialog().close(); });
     dialog().addEventListener("cancel", (event) => { if (pending) event.preventDefault(); });
     dialog().addEventListener("input", render);
+    for (const button of getEditButtons()) {
+      bindButtonAction(button, () => {
+        if (pending) return;
+        const { facingDiameter, facingStep, facingDelta } = button.dataset;
+        if (facingDiameter) {
+          const input = node("diameter");
+          const custom = facingDiameter === "custom";
+          node("custom-diameter").hidden = !custom;
+          for (const choice of dialog().querySelectorAll("[data-facing-diameter]")) {
+            choice.setAttribute("aria-pressed", String(choice === button));
+          }
+          if (custom) input.focus();
+          else input.value = facingDiameter;
+        } else {
+          const input = getInputs().find((field) => field.dataset.facingParam === facingStep);
+          const current = Number.isFinite(input.valueAsNumber) ? input.valueAsNumber : 0;
+          const next = Number((current + Number(facingDelta)).toFixed(4));
+          if (facingStep === "targetZ") {
+            const surface = surfaceMeasurements(getOutline());
+            if (!surface) return;
+            input.value = String(Math.min(next, Math.floor(surface.low * 10000) / 10000));
+          } else {
+            const diameter = node("diameter").valueAsNumber;
+            const max = facingStep === "stepover" && diameter >= 0.01
+              ? Math.floor((diameter - 0.001) * 10000) / 10000 : Infinity;
+            input.value = String(Math.max(Number(input.min), Math.min(next, max)));
+          }
+        }
+        render();
+      });
+    }
     bindButtonAction(node("trace"), async () => {
       if (pending || getReadOnly()) return;
       try {

@@ -138,6 +138,19 @@ func (s *Service) StartUpcoming(action UpcomingAction) (MachineActionResult, err
 		if st.State != machine.Idle {
 			return session.ErrNotIdle
 		}
+		if isAlignmentProgram(action.Path) {
+			entry, ok := s.store.GetEntry(action.Path)
+			if !ok || entry.MD5 != action.MD5 {
+				return ErrActiveGcodeUnavailable
+			}
+			setup, err := readAlignmentSetup(entry)
+			if err != nil {
+				return err
+			}
+			if err := setup.verify(st); err != nil {
+				return err
+			}
+		}
 		// Claim the specific revision durably before issuing play, including when the
 		// outcome of the write is ambiguous. Another tab cannot replay the claim.
 		if err := s.consumeUpcoming(action, true); err != nil {

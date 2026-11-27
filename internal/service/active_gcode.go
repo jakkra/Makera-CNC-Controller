@@ -713,7 +713,24 @@ func (s *Service) RunActiveGcode() (MachineActionResult, error) {
 		return s.StartUpcoming(UpcomingAction{ID: u.ID, Path: path, MD5: entry.MD5})
 	}
 	display := "play " + path
-	out, err := s.sendConsoleMachineAction(display, protocol.PlayLine(path))
+	var check func(*client.Conn) error
+	if isAlignmentProgram(path) {
+		setup, err := readAlignmentSetup(entry)
+		if err != nil {
+			return MachineActionResult{Action: "run_gcode", Path: path, Message: err.Error()}, err
+		}
+		check = func(c *client.Conn) error {
+			st, err := s.queryRecoveryStatus(c)
+			if err != nil {
+				return err
+			}
+			if st.State != machine.Idle {
+				return session.ErrNotIdle
+			}
+			return setup.verify(st)
+		}
+	}
+	out, err := s.sendCheckedConsoleMachineAction(display, protocol.PlayLine(path), check)
 	res := MachineActionResult{
 		Action:  "run_gcode",
 		Path:    path,
@@ -1184,9 +1201,21 @@ func finiteAxisValue(values machine.AxisValues, axis string) (float64, bool) {
 }
 
 func (s *Service) sendConsoleMachineAction(displayLine, wireLine string) (string, error) {
-	s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, displayLine)
+	return s.sendCheckedConsoleMachineAction(displayLine, wireLine, nil)
+}
+
+func (s *Service) sendCheckedConsoleMachineAction(displayLine, wireLine string, check func(*client.Conn) error) (string, error) {
+	if check == nil {
+		s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, displayLine)
+	}
 	var out string
 	err := s.arb.WithMachine(true, func(c *client.Conn) error {
+		if check != nil {
+			if err := check(c); err != nil {
+				return err
+			}
+			s.gcodeLog.Append(gcodelog.DirSend, gcodelog.SourceAPI, displayLine)
+		}
 		o, e := s.sendOperatorConsole(c, ensureWireLine(wireLine), client.GcodeOpts{Cap: gcodeReplyCap})
 		out = o
 		return e

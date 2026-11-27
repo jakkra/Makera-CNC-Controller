@@ -34,6 +34,7 @@ export const BED_PLATE = Object.freeze({
 });
 
 const GRID = [20, 65, 110, 160];
+const ANCHOR_PIN_HOLES = [[96, 7.5, "L-X"], [7.5, 96, "L-Y"]];
 const DEFAULT_ANCHOR_WIDTH = 15;
 const DEFAULT_ANCHOR_LENGTH = 100;
 const FEATURE_SNAP_MM = 6;
@@ -105,6 +106,14 @@ function bedFeatures() {
 }
 
 const FEATURES = bedFeatures();
+
+export function bedReferenceHoles(placement) {
+  const position = ([x, y, name]) => ({ name, x: placement.x0 + x, y: placement.y0 + y });
+  return BED_PLATE.holes.flatMap(([px, py]) => {
+    const name = gridName(px, py);
+    return name ? [position([px, py, name])] : [];
+  }).concat(ANCHOR_PIN_HOLES.map(position));
+}
 
 // Nearest plate hole within a few millimetres of a machine coordinate, with its
 // centre in machine coordinates.
@@ -185,7 +194,7 @@ export function bedPlateDrawing(placement) {
 
 // SVG for the map. Machine Y grows towards the back of the machine, which is
 // up on screen, so SVG y is the negated machine Y.
-export function bedPlateSVG({ work, placement, target = null }) {
+export function bedPlateSVG({ work, placement, target = null, overlay = "" }) {
   const ext = bedMapExtent(work, placement);
   const w = ext.x_max - ext.x_min;
   const h = ext.y_max - ext.y_min;
@@ -200,5 +209,5 @@ export function bedPlateSVG({ work, placement, target = null }) {
     out += `<g class="bed-target"><circle cx="${tx}" cy="${ty}" r="3.2"/><line x1="${n(tx - 7)}" y1="${ty}" x2="${n(tx + 7)}" y2="${ty}"/><line x1="${tx}" y1="${n(ty - 7)}" x2="${tx}" y2="${n(ty + 7)}"/></g>`;
     if (target.feature) out += `<circle class="bed-target-feature" cx="${X(target.feature.x)}" cy="${Y(target.feature.y)}" r="6.5"/>`;
   }
-  return out + "</svg>";
+  return out + overlay + "</svg>";
 }

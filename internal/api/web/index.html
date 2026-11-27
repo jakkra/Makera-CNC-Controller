@@ -627,6 +627,7 @@
                         <button type="button" id="origin-probe-angle">Measure angle</button>
                         <button type="button" id="origin-probe-tool" disabled>Fit 3D Probe</button>
                         <button type="button" id="surface-facing-open">Surface &amp; facing</button>
+                        <button type="button" id="alignment-holes-open">Alignment holes</button>
                       </div>
                     </div>
                   </div>
@@ -1043,21 +1044,120 @@
       </figcaption>
     </figure>
     <div class="surface-facing-plan">
-      <div class="surface-facing-fields">
-        <label>Cutter tool <input data-facing-param="tool" type="number" min="1" max="999" step="1" inputmode="numeric"></label>
-        <label>Diameter (mm) <input data-facing-param="diameter" type="number" min="0.01" step="any" inputmode="decimal"></label>
-        <label>Stepover (mm) <input data-facing-param="stepover" type="number" min="0.001" step="any" inputmode="decimal"></label>
-        <label>Stepdown (mm) <input data-facing-param="stepdown" type="number" min="0.001" step="any" inputmode="decimal"></label>
-        <label>Finish work Z (mm) <input id="surface-facing-target" data-facing-param="targetZ" type="number" step="any" inputmode="decimal"></label>
-        <label>Spindle (rpm) <input data-facing-param="rpm" type="number" min="1" step="1" inputmode="numeric"></label>
-        <label>Cut feed (mm/min) <input data-facing-param="feed" type="number" min="0.1" step="any" inputmode="decimal"></label>
-        <label>Plunge feed (mm/min) <input data-facing-param="plunge" type="number" min="0.1" step="any" inputmode="decimal"></label>
+      <fieldset id="surface-facing-cutter">
+        <legend>Cutter diameter</legend>
+        <div class="surface-facing-diameters">
+          <button type="button" data-facing-diameter="3.175" aria-pressed="false">3.175 mm<small>1/8 in</small></button>
+          <button type="button" data-facing-diameter="4" aria-pressed="false">4 mm</button>
+          <button type="button" data-facing-diameter="6" aria-pressed="false">6 mm</button>
+          <button type="button" data-facing-diameter="custom" aria-pressed="false" aria-controls="surface-facing-custom-diameter">Custom</button>
+        </div>
+        <label id="surface-facing-custom-diameter" class="surface-facing-custom" hidden>
+          Cutter diameter (mm)
+          <input id="surface-facing-diameter" data-facing-param="diameter" type="number" min="0.01" max="500" step="any" inputmode="decimal">
+        </label>
+      </fieldset>
+      <div class="surface-facing-step">
+        <label for="surface-facing-target">Finish work Z (mm)</label>
+        <button type="button" data-facing-step="targetZ" data-facing-delta="-0.01" aria-label="Decrease finish work Z">−</button>
+        <input id="surface-facing-target" data-facing-param="targetZ" type="number" step="any" inputmode="decimal">
+        <button type="button" data-facing-step="targetZ" data-facing-delta="0.01" aria-label="Increase finish work Z">+</button>
       </div>
-      <div id="surface-facing-passes"></div>
+      <div class="surface-facing-step">
+        <label for="surface-facing-stepover">Stepover (mm)</label>
+        <button type="button" data-facing-step="stepover" data-facing-delta="-0.1" aria-label="Decrease stepover">−</button>
+        <input id="surface-facing-stepover" data-facing-param="stepover" type="number" min="0.001" step="any" inputmode="decimal">
+        <button type="button" data-facing-step="stepover" data-facing-delta="0.1" aria-label="Increase stepover">+</button>
+      </div>
+      <div class="surface-facing-step">
+        <label for="surface-facing-stepdown">Max depth per pass (mm)</label>
+        <button type="button" data-facing-step="stepdown" data-facing-delta="-0.01" aria-label="Decrease maximum depth per pass">−</button>
+        <input id="surface-facing-stepdown" data-facing-param="stepdown" type="number" min="0.001" step="any" inputmode="decimal">
+        <button type="button" data-facing-step="stepdown" data-facing-delta="0.01" aria-label="Increase maximum depth per pass">+</button>
+      </div>
+      <details class="surface-facing-details">
+        <summary>Tool number, spindle speed and feeds</summary>
+        <div class="surface-facing-fields">
+          <label>Tool number <input data-facing-param="tool" type="number" min="1" max="999" step="1" inputmode="numeric"></label>
+          <label>Spindle speed (rpm) <input data-facing-param="rpm" type="number" min="1" step="1" inputmode="numeric"></label>
+          <label>Cut feed (mm/min) <input data-facing-param="feed" type="number" min="0.1" step="any" inputmode="decimal"></label>
+          <label>Plunge feed (mm/min) <input data-facing-param="plunge" type="number" min="0.1" step="any" inputmode="decimal"></label>
+        </div>
+      </details>
+    </div>
+  </div>
+  <footer class="surface-facing-footer">
+    <strong id="surface-facing-passes"></strong>
+    <div class="surface-facing-actions">
       <button type="button" id="surface-facing-trace">Trace facing area with laser</button>
       <button type="button" id="surface-facing-queue" class="primary">Queue facing program</button>
     </div>
+  </footer>
+</dialog>
+<dialog id="alignment-holes-modal" aria-labelledby="alignment-holes-title">
+  <div class="machine-settings-modal-head">
+    <h2 id="alignment-holes-title">Alignment holes</h2>
+    <button type="button" id="alignment-holes-close">Close</button>
   </div>
+  <div class="alignment-holes-body">
+    <section aria-label="Z1 bed map">
+      <p class="alignment-holes-map-label"><span id="alignment-holes-map-label">Select two reference holes</span><strong id="alignment-holes-reference"></strong></p>
+      <div id="alignment-holes-plot" class="surface-xy-map-plot">
+        <div id="alignment-holes-drawing"></div>
+        <div id="alignment-holes-references"></div>
+      </div>
+    </section>
+    <section class="alignment-holes-fields" aria-label="Hole settings">
+      <button type="button" id="alignment-holes-capture">Set first hole from current XY</button>
+      <dl class="alignment-holes-coordinates">
+        <div><dt>Hole 1 · Machine XY</dt><dd id="alignment-holes-first">—</dd></div>
+        <div><dt>Hole 2 · Machine XY</dt><dd id="alignment-holes-second">—</dd></div>
+      </dl>
+      <div class="alignment-holes-pair">
+        <label>Flip direction
+          <select id="alignment-holes-direction">
+            <option value="x+">+X</option><option value="x-">−X</option>
+            <option value="y+">+Y</option><option value="y-">−Y</option>
+            <option value="reference" id="alignment-holes-direction-reference" hidden></option>
+          </select>
+        </label>
+        <label>Hole spacing
+          <select id="alignment-holes-spacing">
+            <option value="">Select spacing</option>
+            <option value="reference" id="alignment-holes-spacing-reference" hidden></option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+      </div>
+      <label id="alignment-holes-custom" hidden>Center distance (mm)
+        <input type="number" id="alignment-holes-distance" inputmode="decimal" min="0.001" step="any">
+      </label>
+      <div class="alignment-holes-pair">
+        <div>
+          <label for="alignment-holes-adjustment">Diameter adjustment (mm)</label>
+          <div class="alignment-holes-adjustment">
+            <button type="button" data-alignment-step="-0.01" aria-label="Decrease hole diameter">−</button>
+            <input type="number" id="alignment-holes-adjustment" value="0.00" inputmode="decimal" step="any">
+            <button type="button" data-alignment-step="0.01" aria-label="Increase hole diameter">+</button>
+          </div>
+        </div>
+        <div class="alignment-holes-diameter"><span>Hole diameter</span><strong id="alignment-holes-diameter"></strong></div>
+      </div>
+      <button type="button" id="alignment-holes-probe-z">Probe stock Z</button>
+      <div class="alignment-holes-pair">
+        <label>Depth below work Z zero (mm)<input type="number" id="alignment-holes-depth" min="0.001" step="any" inputmode="decimal"></label>
+        <label>Max depth per turn (mm)<input type="number" id="alignment-holes-stepdown" min="0.001" step="any" inputmode="decimal"></label>
+      </div>
+      <div class="alignment-holes-pair">
+        <label>Spindle speed (rpm)<input type="number" id="alignment-holes-rpm" min="1" step="1" inputmode="numeric"></label>
+        <label>Feed (mm/min)<input type="number" id="alignment-holes-feed" min="0.1" step="any" inputmode="decimal"></label>
+      </div>
+    </section>
+  </div>
+  <footer class="alignment-holes-footer">
+    <span>3.175 mm (1/8 in) end mill</span>
+    <button type="button" class="primary" id="alignment-holes-queue">Queue hole program</button>
+  </footer>
 </dialog>
 <dialog id="surface-settings-modal" class="surface-settings" aria-labelledby="surface-settings-title">
   <div class="machine-settings-modal-head"><h2 id="surface-settings-title">Surface controller</h2><button type="button" id="surface-settings-close" aria-label="Close Surface settings">Close</button></div>

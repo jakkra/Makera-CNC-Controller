@@ -36,6 +36,7 @@ import { createWorkAreaInteractions } from "./modules/workarea-interactions.js";
 import { createWorkMoveInteractions } from "./modules/work-move.js";
 import { createFieldProbing } from "./modules/field-probing.js";
 import { createSurfaceFacing } from "./modules/surface-facing.js";
+import { createAlignmentHoles } from "./modules/alignment-holes.js";
 import { createOutlineCaptureOperations } from "./modules/outline-capture-operations.js";
 import { createOutlineCoordination } from "./modules/outline-coordination.js";
 import { createJogEventHandler } from "./modules/jog-events.js";
@@ -1162,6 +1163,7 @@ outlineCoordination = createOutlineCoordination({
   renderOutlineCaptureView: () => {
     outlineView?.renderOutlineCapture();
     surfaceFacing.render();
+    alignmentHoles.render();
   },
   clearFieldProbeData,
   updateFieldProbePreview: (...args) => updateFieldProbePreview(...args),
@@ -1347,6 +1349,19 @@ const surfaceFacing = createSurfaceFacing({
     return "";
   },
   getTraceFeed: currentTapFeed,
+  request, setStatusMessage,
+  confirm: (message) => window.confirm(message),
+});
+
+const alignmentHoles = createAlignmentHoles({
+  document,
+  getMachine: () => state.machine,
+  getSettings: () => normalizeMachineSettings(state.ui.machine),
+  getMovementBusy: () => state.jog.armed || tapMoveTargetBusy(),
+  getReadOnly: () => state.readOnly,
+  getSafeZ: () => safeZForTapMove(normalizeMachineSettings(state.ui.machine)),
+  isZProbeActive: () => isProbeToolActive() || is3DProbeToolActive(),
+  runAutoZProbe,
   request, setStatusMessage,
   confirm: (message) => window.confirm(message),
 });
@@ -2536,6 +2551,7 @@ function init() {
   surfaceControls.init();
   surfaceSavedPositions.bind(bindButtonAction);
   surfaceFacing.bind(bindButtonAction);
+  alignmentHoles.bind(bindButtonAction);
   surfaceShell.bindInteractions({ bindButtonAction });
   for (const button of document.querySelectorAll("[data-spindle-fan]")) {
     button.disabled = state.readOnly || !state.machine?.connected || !!state.machine?.stale;
