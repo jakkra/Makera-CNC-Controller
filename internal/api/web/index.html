@@ -565,7 +565,7 @@
             <div class="facing-jog">
               <div class="facing-jog-head">
                 <button type="button" id="facing-arm">Arm Movement</button>
-                <label>Step <select id="facing-jog-step"><option value="0.1">0.1 mm</option><option value="1" selected>1 mm</option><option value="10">10 mm</option></select></label>
+                <div class="facing-jog-steps" role="group" aria-label="Jog step"><span>Step</span><button type="button" data-facing-jog-step="0.1" aria-pressed="false">0.1 mm</button><button type="button" data-facing-jog-step="1" aria-pressed="true">1 mm</button><button type="button" data-facing-jog-step="10" aria-pressed="false">10 mm</button></div>
               </div>
               <div class="facing-jog-pad">
                 <button type="button" data-facing-jog="y+" class="facing-jog-yp" aria-label="Move Y plus">Y+</button>

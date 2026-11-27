@@ -208,7 +208,12 @@ export function createMachiningView({
     for (const button of document.querySelectorAll("[data-facing-jog]")) {
       bindButtonAction(button, () => {
         const [axis, sign] = button.dataset.facingJog;
-        sendStep(axis, sign === "-" ? -1 : 1, Number(node("facing-jog-step").value) || 1);
+        sendStep(axis, sign === "-" ? -1 : 1, Number(document.querySelector("[data-facing-jog-step][aria-pressed=\"true\"]")?.dataset.facingJogStep) || 1);
+      });
+    }
+    for (const button of document.querySelectorAll("[data-facing-jog-step]")) {
+      bindButtonAction(button, () => {
+        for (const choice of document.querySelectorAll("[data-facing-jog-step]")) choice.setAttribute("aria-pressed", String(choice === button));
       });
     }
     bindButtonAction(node("facing-corner-1"), () => setCorner(1));

@@ -194,8 +194,11 @@
   #alignment-holes-open { justify-self: start; }
   .facing-jog { display: grid; gap: 8px; }
   .facing-jog-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-  .facing-jog-head label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
-  .facing-jog-head select { min-height: 48px; }
+  .facing-jog-head #facing-arm { min-height: 56px; padding-inline: 16px; }
+  .facing-jog-steps { display: flex; align-items: center; gap: 4px; }
+  .facing-jog-steps span { margin-right: 4px; color: var(--muted); font-size: 12px; }
+  .facing-jog-steps button { min-width: 72px; min-height: 56px; font-size: 16px; }
+  .facing-jog-steps button[aria-pressed="true"] { border-color: var(--accent); background: var(--panel-2); color: var(--accent); }
   #facing-arm.armed { border-color: var(--warn); color: var(--warn); }
   .facing-jog-pad { display: grid; grid-template-columns: repeat(3, 64px) 16px 64px; grid-template-rows: repeat(3, 56px) auto; grid-template-areas: ". yp . . zp" "xm . xp . ." ". ym . . zm" "pos pos pos pos pos"; gap: 4px; }
   .facing-jog-pad button { min-height: 0; padding: 0; font-size: 16px; font-weight: 650; }
