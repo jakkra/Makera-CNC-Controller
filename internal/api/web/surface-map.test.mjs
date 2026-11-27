@@ -47,16 +47,16 @@ test("both views share one XY map, and a confirmed target sends one move", () =>
   assert.equal(move.disabled, false);
 
   const event = { button: 0, pointerId: 2, clientX: 25, clientY: 25, preventDefault() {} };
+  const outside = { ...event, clientX: 500, clientY: 500 };
+  move.handlers.pointerdown(event);
+  move.handlers.pointerup(outside);
+  assert.deepEqual(moves, [], "releasing outside the button does not move");
+
   move.handlers.pointerdown(event);
   now = 100;
   move.handlers.pointerup(event);
-  assert.equal(errors.length, 1);
-  assert.deepEqual(moves, []);
-
-  move.handlers.pointerdown(event);
-  now = 750;
-  move.handlers.pointerup(event);
   move.handlers.click({ detail: 1 });
+  assert.equal(errors.length, 0);
   assert.deepEqual(moves, [{ x: -70, y: -40 }]);
   assert.equal(move.disabled, true);
   busy = false;

@@ -138,9 +138,9 @@ export function createSurfaceControls({ state, documentRef = document, performan
       const { armed, armAvailable, armPending, ready, busy } = callbacks.xyMapMovement();
       if (hint) {
         hint.textContent = !selected ? "Tap the map to choose where to move."
-          : !armed ? "Arm Movement, then hold Move here until it fills and release."
+          : !armed ? "Arm Movement, then tap Move here."
             : !ready ? "Waiting for the machine to be ready to move."
-              : "Hold Move here until it fills, then release to move.";
+              : "Tap Move here to move to this point at Safe Z.";
       }
       arm.textContent = callbacks.movementArmLabel();
       arm.disabled = armPending || busy || !armAvailable;
@@ -284,11 +284,9 @@ export function createSurfaceControls({ state, documentRef = document, performan
       if (!press || press.id !== id) return;
       const held = press;
       cancelPress();
+      // Choosing a point and arming Movement already make this deliberate;
+      // a tap that is released on the button starts the move.
       if (!inside || move.disabled || held.target !== selected) return;
-      if (performanceRef.now() - held.started < 600) {
-        callbacks.reportXYMapError("Hold the button until it fills; the move starts when you release.");
-        return;
-      }
       sendTarget();
     }
     function sendTarget() {
