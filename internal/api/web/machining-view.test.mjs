@@ -74,3 +74,17 @@ test("the Surface kiosk stays on Machining while the guide jogs or probes", () =
   routing.applySurfaceAutomaticView();
   assert.deepEqual(shown, ["attention"], "attention states still take over");
 });
+
+test("an Idle status after a failed measurement keeps the operator on Machining", () => {
+  const state = {
+    activeTab: "machining", machine: { state: "Idle" }, jog: {}, outline: {},
+    surface: { auto_switch: true, manual_view_state: "", start_view: "jog" },
+  };
+  const shown = [];
+  const routing = createSurfaceRouting({ getState: () => state, isSurfaceKiosk: () => true, showTab: (tab) => shown.push(tab), fmtDuration: String });
+  routing.applySurfaceAutomaticView();
+  assert.deepEqual(shown, []);
+  state.activeTab = "dashboard";
+  routing.applySurfaceAutomaticView();
+  assert.deepEqual(shown, ["jog"], "other views still return to the start view");
+});

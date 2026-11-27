@@ -227,12 +227,27 @@ export function createFieldProbing({ state, constants = {}, callbacks = {} }) {
         renderOutlineCapture();
         renderWorkArea();
         const p = pending.point;
-        const probed = await probeZAtWorkPoint(p, {
-          moveXY: true,
-          origin,
-          safeZMM: startZMM,
-          retractZMM: startZMM,
-        });
+        let probed;
+        for (let attempt = 1; ; attempt++) {
+          try {
+            probed = await probeZAtWorkPoint(p, {
+              moveXY: true,
+              origin,
+              safeZMM: startZMM,
+              retractZMM: startZMM,
+            });
+            break;
+          } catch (error) {
+            // 503 means the machine was briefly not fresh Idle, or a retract
+            // could not be verified. Nothing was probed; the next attempt again
+            // requires fresh Idle before it moves.
+            if (error?.status !== 503 || attempt >= 3) throw error;
+            o.feedback = "Machine not ready (" + error.message + "); retrying point " + (i + 1) + "...";
+            renderOutlineCapture();
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            await pollMachine();
+          }
+        }
         o.fieldProbeResults.push({
           id: p.id,
           x: probed.x,

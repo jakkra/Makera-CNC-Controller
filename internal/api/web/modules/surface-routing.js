@@ -38,7 +38,9 @@ export function createSurfaceRouting({
     // states must not route the operator to Jog or Overview mid-step.
     const machiningSession = state.activeTab === "machining" && (state.jog?.armed === true ||
       !!state.jog?.armPending || !!state.jog?.surfaceStepPending || !!state.outline?.fieldProbePending);
-    if (machiningSession && (machineState === "Run" || machineState === "Idle")) return;
+    if (machiningSession && machineState === "Run") return;
+    // Returning to Idle never takes the operator away from a guide they chose.
+    if (state.activeTab === "machining" && machineState === "Idle") return;
     // A manual selection applies only to the current machine state. Let the next
     // state transition route the operator to the corresponding Surface view.
     state.surface.manual_view_state = "";

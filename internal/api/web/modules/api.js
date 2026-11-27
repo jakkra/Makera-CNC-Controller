@@ -8,7 +8,9 @@ export async function request(url, opts = {}) {
     } catch {
       detail = await resp.text();
     }
-    throw new Error(detail || resp.statusText || "HTTP " + resp.status);
+    const error = new Error(detail || resp.statusText || "HTTP " + resp.status);
+    error.status = resp.status;
+    throw error;
   }
   return resp;
 }

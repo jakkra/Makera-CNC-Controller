@@ -149,7 +149,14 @@ export function createMachiningView({
     const measure = node("facing-measure");
     measure.disabled = readOnly || !ready.outline.done || !laser || disarmNeeded || !!outline.fieldProbePending || ready.probe.done ||
       !count || !!outline.fieldProbeIssue;
-    setTextIfChanged(measure, outline.fieldProbePending ? "Measuring…" : ready.probe.done ? "Surface measured" : "Measure surface");
+    const measured = (outline.fieldProbeResults || []).length;
+    const left = Math.max(0, count - measured);
+    setTextIfChanged(measure, outline.fieldProbePending ? "Measuring…" : ready.probe.done ? "Surface measured"
+      : measured && left ? `Continue measuring (${left} left)` : "Measure surface");
+    const failure = !outline.fieldProbePending && outline.feedbackKind === "error" &&
+      /^Field Z probe failed/.test(outline.feedback || "") ? outline.feedback : "";
+    node("facing-measure-error").hidden = !failure;
+    setTextIfChanged(node("facing-measure-error"), failure);
 
     // Step 3: plan.
     const open = node("surface-facing-open");
