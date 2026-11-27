@@ -212,6 +212,7 @@
       <button type="button" id="tab-active-job" class="tab active" role="tab" aria-selected="true" aria-controls="active-job-view">Active job</button>
       <button type="button" id="tab-jog" class="tab" role="tab" aria-selected="false" aria-controls="jog-view" tabindex="-1">Jog</button>
       <button type="button" id="tab-control" class="tab" role="tab" aria-selected="false" aria-controls="control-view" tabindex="-1">Control</button>
+      <button type="button" id="tab-machining" class="tab" role="tab" aria-selected="false" aria-controls="machining-view" tabindex="-1">Machining</button>
       <button type="button" id="tab-files" class="tab" role="tab" aria-selected="false" aria-controls="files-view" tabindex="-1">Files</button>
     </nav>
     <button type="button" id="header-toggle" aria-expanded="true" aria-label="Hide top bars" title="Hide top bars">▴</button>
@@ -232,6 +233,7 @@
   <button type="button" class="surface-nav-button" data-surface-view="dashboard"><span class="surface-nav-icon" aria-hidden="true">◴</span><span>Overview</span></button>
   <button type="button" class="surface-nav-button" data-surface-view="jog"><span class="surface-nav-icon" aria-hidden="true">⌖</span><span>Jog</span></button>
   <button type="button" class="surface-nav-button" data-surface-view="control"><span class="surface-nav-icon" aria-hidden="true">⌁</span><span>Probing</span></button>
+  <button type="button" class="surface-nav-button" data-surface-view="machining"><span class="surface-nav-icon" aria-hidden="true">◫</span><span>Machining</span></button>
   <button type="button" class="surface-nav-button" data-surface-view="active-job"><span class="surface-nav-icon" aria-hidden="true">▤</span><span>Active job</span></button>
   <button type="button" class="surface-nav-button" data-surface-view="files"><span class="surface-nav-icon" aria-hidden="true">▱</span><span>Files</span></button>
   <button type="button" class="surface-nav-button" data-surface-action="camera" title="Open camera monitoring"><span class="surface-nav-icon" aria-hidden="true">▣</span><span>Camera</span></button>
@@ -547,6 +549,37 @@
     </section>
   </section>
 
+  <section id="machining-view" class="view" role="tabpanel" aria-label="Machining" hidden>
+    <section class="page-section maintenance-grid machining-grid">
+      <section class="maintenance-panel machining-panel" aria-labelledby="machining-facing-title">
+        <h2 id="machining-facing-title">Surface &amp; facing</h2>
+        <p class="machining-intro">Flatten the top of the stock. The cutter always descends outside the stock and feeds in from the side.</p>
+        <ol class="machining-steps">
+          <li id="machining-step-outline">
+            <span class="machining-step-state" aria-hidden="true">•</span>
+            <div><strong>Capture the stock outline</strong><span class="machining-step-detail"></span><small>Probing → Capture outline. Mark the four corners and close the outline.</small></div>
+            <button type="button" data-machining-goto="control">Open Probing</button>
+          </li>
+          <li id="machining-step-probe">
+            <span class="machining-step-state" aria-hidden="true">•</span>
+            <div><strong>Probe the surface</strong><span class="machining-step-detail"></span><small>Probing → Probe Field Z with the probe over the stock.</small></div>
+            <button type="button" data-machining-goto="control">Open Probing</button>
+          </li>
+          <li id="machining-step-plan">
+            <span class="machining-step-state" aria-hidden="true">3</span>
+            <div><strong>Plan, check entry, and queue</strong><small>Choose the cutter and the side entry corner, trace the area, then queue the program.</small></div>
+            <button type="button" id="surface-facing-open" class="primary">Plan facing</button>
+          </li>
+        </ol>
+      </section>
+      <section class="maintenance-panel machining-panel" aria-labelledby="machining-holes-title">
+        <h2 id="machining-holes-title">Alignment holes</h2>
+        <p class="machining-intro">Helix-mill two pin holes with a 3.175 mm end mill, spaced to match the bed's reference holes, for flipping double-sided work.</p>
+        <button type="button" id="alignment-holes-open" class="primary">Plan alignment holes</button>
+      </section>
+    </section>
+  </section>
+
   <dialog id="run-history-dialog" class="run-history-dialog" aria-labelledby="run-history-detail-title">
     <div>
       <div class="run-history-dialog-head"><div><h2 id="run-history-detail-title">Job history</h2><div id="run-history-detail-summary"></div></div><button type="button" id="run-history-detail-close">Close</button></div>
@@ -626,8 +659,6 @@
                         <button type="button" id="origin-probe-edge">Measure edge</button>
                         <button type="button" id="origin-probe-angle">Measure angle</button>
                         <button type="button" id="origin-probe-tool" disabled>Fit 3D Probe</button>
-                        <button type="button" id="surface-facing-open">Surface &amp; facing</button>
-                        <button type="button" id="alignment-holes-open">Alignment holes</button>
                       </div>
                     </div>
                   </div>

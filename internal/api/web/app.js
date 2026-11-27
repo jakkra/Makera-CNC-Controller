@@ -37,6 +37,7 @@ import { createWorkMoveInteractions } from "./modules/work-move.js";
 import { createFieldProbing } from "./modules/field-probing.js";
 import { createSurfaceFacing } from "./modules/surface-facing.js";
 import { createAlignmentHoles } from "./modules/alignment-holes.js";
+import { createMachiningView } from "./modules/machining-view.js";
 import { createOutlineCaptureOperations } from "./modules/outline-capture-operations.js";
 import { createOutlineCoordination } from "./modules/outline-coordination.js";
 import { createJogEventHandler } from "./modules/jog-events.js";
@@ -114,8 +115,8 @@ const GCODE_SOURCE_PAGE_SIZE = 500;
 const GCODE_SOURCE_MAX_PAGES = 8;
 const GCODE_SEGMENT_PAGE_SIZE = 5000;
 const ACTIVE_JOB_SPLIT_DEFAULT_PERCENT = DEFAULT_ACTIVE_JOB_SPLIT_PERCENT;
-const VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files", "maintenance", "attention"];
-const NAV_VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files"];
+const VIEW_TABS = ["dashboard", "active-job", "jog", "control", "machining", "files", "maintenance", "attention"];
+const NAV_VIEW_TABS = ["dashboard", "active-job", "jog", "control", "machining", "files"];
 const MOBILE_WORKAREA_MAX_WIDTH_PX = 600;
 const MOBILE_JOG_RADIUS_MIN_PX = 56;
 const MOBILE_JOG_RADIUS_MAX_PX = 88;
@@ -867,6 +868,7 @@ const navigationFeature = createNavigationFeature({
   renderDashboard,
   renderJog,
   maintenanceLoad: () => maintenance.load(),
+  renderMachining: () => machiningView?.render(),
   clearNotice,
   syncDashboardCameras,
   navViewTabs: NAV_VIEW_TABS,
@@ -894,6 +896,7 @@ const lifecycleFeature = createLifecycleFeature({
   pollMachine,
   getActiveTab: () => state.activeTab,
   maintenanceLoad: () => maintenance.load(),
+  renderMachining: () => machiningView?.render(),
   setJogInputSuspended: (value) => { state.jog.inputSuspended = value; },
   releaseJogInput,
   renderJog,
@@ -911,6 +914,7 @@ let outlineCoordination;
 // instead of temporal-dead-zone errors.
 let surfaceFacing;
 let alignmentHoles;
+let machiningView;
 let pageHiddenAt = 0;
 const HALT_REASON = {
   1: "Halt manually",
@@ -1168,6 +1172,7 @@ outlineCoordination = createOutlineCoordination({
     outlineView?.renderOutlineCapture();
     surfaceFacing?.render();
     alignmentHoles?.render();
+    machiningView?.render();
   },
   clearFieldProbeData,
   updateFieldProbePreview: (...args) => updateFieldProbePreview(...args),
@@ -1368,6 +1373,13 @@ alignmentHoles = createAlignmentHoles({
   runAutoZProbe,
   request, setStatusMessage,
   confirm: (message) => window.confirm(message),
+});
+
+machiningView = createMachiningView({
+  document,
+  getOutline: () => state.outline,
+  showTab: (name) => showTab(name),
+  bindButtonAction,
 });
 
 const fieldProbing = createFieldProbing({
@@ -2556,6 +2568,7 @@ function init() {
   surfaceSavedPositions.bind(bindButtonAction);
   surfaceFacing.bind(bindButtonAction);
   alignmentHoles.bind(bindButtonAction);
+  machiningView.bind();
   surfaceShell.bindInteractions({ bindButtonAction });
   for (const button of document.querySelectorAll("[data-spindle-fan]")) {
     button.disabled = state.readOnly || !state.machine?.connected || !!state.machine?.stale;

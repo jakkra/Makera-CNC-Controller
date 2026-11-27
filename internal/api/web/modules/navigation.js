@@ -3,8 +3,8 @@
 // machine state, features, or API payloads, and therefore cannot invent a
 // second lifecycle for those concerns.
 
-export const DEFAULT_VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files", "maintenance", "attention"];
-export const DEFAULT_NAV_VIEW_TABS = ["dashboard", "active-job", "jog", "control", "files"];
+export const DEFAULT_VIEW_TABS = ["dashboard", "active-job", "jog", "control", "machining", "files", "maintenance", "attention"];
+export const DEFAULT_NAV_VIEW_TABS = ["dashboard", "active-job", "jog", "control", "machining", "files"];
 export const FOREGROUND_PAGE_RELOAD_MS = 60000;
 export const PULL_TO_REFRESH_DISTANCE_PX = 88;
 export const PULL_TO_REFRESH_DIRECTION_SLOP_PX = 16;
@@ -53,6 +53,7 @@ export function createNavigationFeature({
   renderDashboard = () => {},
   renderJog = () => {},
   maintenanceLoad = () => {},
+  renderMachining = () => {},
   clearNotice = () => {},
   syncDashboardCameras = () => {},
 } = {}) {
@@ -99,6 +100,7 @@ export function createNavigationFeature({
     if (name === "active-job") renderActiveGcode();
     if (name === "dashboard") renderDashboard();
     if (name === "control" || name === "jog") renderJog();
+    if (name === "machining") renderMachining();
     if (name === "maintenance") maintenanceLoad();
     else clearNotice("jog-availability");
     syncDashboardCameras();
@@ -172,6 +174,7 @@ export function createLifecycleFeature({
   pollMachine = () => {},
   getActiveTab = () => "",
   maintenanceLoad = () => {},
+  renderMachining = () => {},
   setJogInputSuspended = () => {},
   releaseJogInput = () => false,
   renderJog = () => {},

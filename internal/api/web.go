@@ -22,7 +22,7 @@ func webHandler() http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		noStoreHeaders(w)
 		switch r.URL.Path {
-		case "/", "/dashboard", "/active-job", "/jog", "/control", "/files", "/maintenance":
+		case "/", "/dashboard", "/active-job", "/jog", "/control", "/machining", "/files", "/maintenance":
 			http.ServeFileFS(w, r, sub, "index.html")
 			return
 		}

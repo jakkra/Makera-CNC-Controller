@@ -285,7 +285,7 @@ export function createSurfaceFacing({
     bindButtonAction(node("open"), () => {
       const surface = surfaceMeasurements(getOutline());
       if (!surface) {
-        feedback("Capture and close the stock outline, then run Probe Field Z to measure the surface.", "error");
+        feedback("Facing needs a captured four-corner outline and a probed surface. Follow the steps in Machining.", "error");
         return;
       }
       node("target").value = (Math.floor(surface.low * 10000) / 10000).toFixed(4);

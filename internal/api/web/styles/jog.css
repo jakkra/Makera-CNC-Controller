@@ -142,6 +142,19 @@
   .surface-facing-figure .facing-entry circle { fill: rgba(217,154,58,.22); stroke: var(--warn); stroke-width: 1.5; }
   .surface-facing-figure .facing-entry line { stroke: var(--warn); stroke-width: 2; }
   .surface-facing-figure .facing-entry text { fill: var(--warn); font-size: 12px; font-weight: 700; }
+  .machining-panel { display: grid; align-content: start; gap: 12px; }
+  .machining-panel h2 { margin: 0; }
+  .machining-intro { margin: 0; color: var(--muted); }
+  .machining-steps { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .machining-steps li { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); }
+  .machining-steps li > div { display: grid; gap: 2px; min-width: 0; }
+  .machining-steps small, .machining-step-detail { color: var(--muted); font-size: 12px; }
+  .machining-step-state { display: grid; place-items: center; width: 28px; height: 28px; border: 2px solid var(--muted); border-radius: 50%; font-weight: 700; color: var(--muted); }
+  .machining-steps li.done { border-color: var(--accent); }
+  .machining-steps li.done .machining-step-state { border-color: var(--accent); background: var(--accent); color: var(--bg); }
+  .machining-steps li.done .machining-step-detail { color: var(--accent); }
+  .machining-steps button, #alignment-holes-open { min-height: 48px; }
+  #alignment-holes-open { justify-self: start; }
   @media (min-width: 700px) {
     .surface-facing-body { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
     .surface-facing-footer { grid-template-columns: minmax(0, 1fr) auto; }
